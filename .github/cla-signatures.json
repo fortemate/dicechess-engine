@@ -1,4 +1,12 @@
 {
   "claVersion": "1.0",
-  "signatures": []
+  "signatures": [
+    {
+      "name": "Jegors Čemisovs",
+      "github": "rabestro",
+      "email": "jegors.cemisovs@gmail.com",
+      "claVersion": "1.0",
+      "date": "2026-08-18"
+    }
+  ]
 }
