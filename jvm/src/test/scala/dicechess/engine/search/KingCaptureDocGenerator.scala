@@ -69,7 +69,7 @@ object KingCaptureDocGenerator:
     </ul>
   </div>
   <div style="flex: 0 0 280px; width: 280px; min-width: 280px; margin: 0 auto;">
-    <img src="$imgUrl" alt="Board Position" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
+    <img src="$imgUrl" alt="${tc.name}" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
   </div>
 </div>
 

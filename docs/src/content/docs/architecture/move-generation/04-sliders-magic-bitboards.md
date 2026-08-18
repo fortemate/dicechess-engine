@@ -3,7 +3,7 @@ title: Sliders & Magic Bitboards
 description: How Dice Chess Engine generates moves for Rooks, Bishops, and Queens in O(1) time using perfect hashing.
 ---
 
-For leapers (Knights and Kings), move generation is simple because they jump over other pieces. We can precompute all possible attacks for all 64 squares (see [Leaper Attacks](/dicechess-engine-scala/architecture/move-generation/02-leapers/)). 
+For leapers (Knights and Kings), move generation is simple because they jump over other pieces. We can precompute all possible attacks for all 64 squares (see [Leaper Attacks](/dicechess-engine/architecture/move-generation/02-leapers/)). 
 
 But for **sliding pieces** (Rooks, Bishops, and Queens), the situation is complex: their moves depend on the current state of the board. A rook's ray of attack stops when it hits another piece (a "blocker").
 

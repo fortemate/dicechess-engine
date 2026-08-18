@@ -18,6 +18,7 @@ opaque type Move = Int
 ```
 
 ## Memory Layout
+
 We pack the source square, destination square, and special flags into exactly 16 bits:
 
 | Bits 12-15 (4 bits) | Bits 6-11 (6 bits) | Bits 0-5 (6 bits) |
@@ -25,6 +26,7 @@ We pack the source square, destination square, and special flags into exactly 16
 | **Flags** (Capture, Promotion) | **From** Square (0-63) | **To** Square (0-63) |
 
 ### Flag Definitions
+
 The 4-bit flag is used to decode the exact type of move:
 - `0000` (0): Quiet Move
 - `0001` (1): Double Pawn Push
@@ -41,12 +43,16 @@ By extracting data via bitwise masks (`(move & 0x3f)`), we get instantaneous acc
 The engine utilizes two slightly different 16-bit encodings for different contexts:
 
 ### 1. Search Move (`Move`)
+
 Optimized for the **search tree**. It uses 4 bits for **Flags** (e.g., "is this a capture?", "is this a castle?"). This allows the search algorithm to quickly identify move types without checking the board state.
 
 ### 2. Game Move (`MicroMove`)
+
 Used for **Game State transitions** and UI. Instead of abstract flags, it uses the 4 bits to store an optional **Promotion PieceType** (1-6).
 
 **MicroMove Memory Layout:**
+
 | Bits 12-15 (4 bits) | Bits 6-11 (6 bits) | Bits 0-5 (6 bits) |
 | :---: | :---: | :---: |
 | **Promotion Piece** (0 if none) | **Target** Square | **Origin** Square |
+

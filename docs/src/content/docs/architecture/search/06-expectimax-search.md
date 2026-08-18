@@ -68,7 +68,7 @@ For each weighted dice roll in the chance node:
 
 ### 4. Batched Leaf Evaluation
 
-The distinct leaf states under a roll are scored in a single call to `evalBatch(leaves, color)`. Scoring in batches eliminates per-leaf call overhead and enables vectorized or hardware-accelerated evaluation (e.g. via ONNX Runtime in [`OnnxExpectimaxSearch`](/dicechess-engine-scala/architecture/search/07-onnx-integration/)).
+The distinct leaf states under a roll are scored in a single call to `evalBatch(leaves, color)`. Scoring in batches eliminates per-leaf call overhead and enables vectorized or hardware-accelerated evaluation (e.g. via ONNX Runtime in [`OnnxExpectimaxSearch`](/dicechess-engine/architecture/search/07-onnx-integration/)).
 
 ### 5. Root Rescoring (`RootRescore`)
 
@@ -80,7 +80,7 @@ This allows expensive evaluations (such as 216-outcome King Capture Probability 
 
 ### 6. Time Management & Telemetry
 
-`ExpectimaxSearch` extends `TimeBudgetedSearch` and coordinates with [`TimeManager`](/dicechess-engine-scala/architecture/search/05-time-management/):
+`ExpectimaxSearch` extends `TimeBudgetedSearch` and coordinates with [`TimeManager`](/dicechess-engine/architecture/search/05-time-management/):
 - **Fine-grained clock checks**: The deadline is checked **between dice rolls inside the chance node** (~$1/56$ of a candidate), not merely between candidates.
 - **Anytime contract**: Truncated candidates (cut mid-expansion) are abandoned and discarded rather than compared against completed candidates. If the deadline expires before even one candidate completes, the search falls back to the pre-ranker's top pick.
 - **Telemetry sink (`RootSearchStats`)**: An optional `statsSink` receives search diagnostics per move (`legalTurns`, `candidatesSelected`, `candidatesCompleted`, `candidatesAbandoned`), reporting whether the deadline truncated candidate expansion.
@@ -151,7 +151,7 @@ When finished, call `registration.close()` to unregister the bot and release ass
 
 ## Roadmap & Future Optimizations
 
-Planned search optimizations not yet implemented in `ExpectimaxSearch` are documented in the [Search Roadmap & Evaluation](/dicechess-engine-scala/architecture/search/03-search-roadmap/):
+Planned search optimizations not yet implemented in `ExpectimaxSearch` are documented in the [Search Roadmap & Evaluation](/dicechess-engine/architecture/search/03-search-roadmap/):
 
 1. **Star1 and Star2 Pruning**: Calculating upper and lower bounds on mathematical expectation to prune chance-node subtrees.
 2. **Transposition Tables & Zobrist Hashing**: Cross-node and cross-ply caching of search values and bounds.
@@ -162,7 +162,7 @@ Planned search optimizations not yet implemented in `ExpectimaxSearch` are docum
 
 ## See Also
 
-- [Primitive Bot Strategies (Levels 1–5)](/dicechess-engine-scala/architecture/search/01-primitive-search/) — Single-turn heuristic bots
-- [ONNX Model Integration](/dicechess-engine-scala/architecture/search/07-onnx-integration/) — `OnnxExpectimaxSearch` combining learned value models with Expectimax lookahead
-- [Time Management](/dicechess-engine-scala/architecture/search/05-time-management/) — Per-turn time budgets and deadline checking
-- [Search Roadmap & Evaluation](/dicechess-engine-scala/architecture/search/03-search-roadmap/) — Staged plans for pruning, transposition tables, and concurrency
+- [Primitive Bot Strategies (Levels 1–5)](/dicechess-engine/architecture/search/01-primitive-search/) — Single-turn heuristic bots
+- [ONNX Model Integration](/dicechess-engine/architecture/search/07-onnx-integration/) — `OnnxExpectimaxSearch` combining learned value models with Expectimax lookahead
+- [Time Management](/dicechess-engine/architecture/search/05-time-management/) — Per-turn time budgets and deadline checking
+- [Search Roadmap & Evaluation](/dicechess-engine/architecture/search/03-search-roadmap/) — Staged plans for pruning, transposition tables, and concurrency

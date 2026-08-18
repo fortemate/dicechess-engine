@@ -96,4 +96,3 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           args: -Dsonar.scala.coverage.reportPaths=${{ steps.scoverage.outputs.report_paths }}
-

@@ -8,7 +8,7 @@ The Dice Chess Engine is a **cross-platform library** compiled for both the JVM 
 1. **[`@fortemate/dicechess-engine`](https://github.com/fortemate/dicechess-engine/pkgs/npm/dicechess-engine)** — A pure JavaScript build (ES Module) optimized for synchronous execution.
 2. **[`@fortemate/dicechess-engine-wasm`](https://github.com/fortemate/dicechess-engine/pkgs/npm/dicechess-engine-wasm)** — A WebAssembly (Wasm) build featuring full support for computation-heavy search workloads.
 
-JVM backends consume the engine via the [Maven artifact](/dicechess-engine-scala/guidelines/maven-artifact/) instead.
+JVM backends consume the engine via the [Maven artifact](/dicechess-engine/guidelines/maven-artifact/) instead.
 
 ---
 
@@ -54,15 +54,15 @@ Similar to the pure JS packaging script, `.mise/tasks/package/prepare-wasm` pack
 
 ```mermaid
 graph LR
-    A["sbt rootWasm/fullLinkJS"] --> B["Read version from SBT"]
-    B --> C["Strip -SNAPSHOT suffix"]
+    A["sbt rootWasm/fullLinkJS"] --> B["Read version from PACKAGE_VERSION or SBT"]
+    B --> C["Strip leading v and -SNAPSHOT suffix"]
     C --> D["Sync version to dist-wasm/package.json"]
     D --> E["Copy Wasm, JS loaders and typings"]
     E --> F["Flatten and optimize package.json"]
 ```
 
 1. **Compiles Wasm Target** — Depends on `wasm:build`, which runs `sbt rootWasm/fullLinkJS` to compile Scala.js to WebAssembly. This generates the `main.wasm` bytecode, a `main.js` ES Module wrapper, and the `__loader.js` loader module.
-2. **Synchronizes versioning** — Syncs the NPM package version to match the current SBT version (minus `-SNAPSHOT`).
+2. **Synchronizes versioning** — Uses `PACKAGE_VERSION` if provided (or queries sbt version), strips any leading `v` and the `-SNAPSHOT` suffix, then updates `dist-wasm/package.json`.
 3. **Flattens the output structure** — Copies the Wasm binary and supporting files into a clean `dist-wasm/` directory.
 4. **Optimizes package configuration** — Adjusts paths in `dist-wasm/package.json` to flat-level references so the module exports are correctly resolved when published.
 
@@ -118,14 +118,14 @@ self.onmessage = async (event) => {
 To test engine changes in a downstream project (e.g. `dicechess-analytics-ui`) **before** publishing a release:
 
 ```bash
-# 1. Build local packages in dicechess-engine-scala
+# 1. Build local packages in dicechess-engine
 mise run package:prepare
 mise run package:prepare-wasm
 
 # 2. Link to local builds in your frontend project
 cd ../dicechess-analytics-ui
-npm link ../dicechess-engine-scala/dist
-npm link ../dicechess-engine-scala/dist-wasm
+npm link ../dicechess-engine/dist
+npm link ../dicechess-engine/dist-wasm
 
 # 3. Run frontend development server
 npm run dev

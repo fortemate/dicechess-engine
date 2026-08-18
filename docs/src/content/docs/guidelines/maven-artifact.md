@@ -44,7 +44,7 @@ libraryDependencies += "lv.id.jc" %% "dicechess-engine-scala" % "<latest release
 ## Consuming from Java or Kotlin
 
 Java and Kotlin callers depend on the same artifact, but bind to
-[`dicechess.engine.jvmapi.JvmApi`](/dicechess-engine-scala/architecture/jvm-api/) rather than to the
+[`dicechess.engine.jvmapi.JvmApi`](/dicechess-engine/architecture/jvm-api/) rather than to the
 Scala API. The Scala surface leans on constructs that do not survive the language boundary
 intact — `Either` returns, extension methods (which compile onto synthetic `$package` classes with
 no ordinary entry point), and opaque types like `Move` that erase to `int`, turning a
@@ -54,7 +54,7 @@ straight back to the engine, and one facade-owned result type, `JvmApi.Turn`.
 
 Java callability is pinned by a Java-source test that CI compiles and runs on every build; Kotlin
 consumes the same static methods and `java.util` types but is not exercised here — see
-[What "Java and Kotlin" is based on](/dicechess-engine-scala/architecture/jvm-api/#what-java-and-kotlin-is-based-on).
+[What "Java and Kotlin" is based on](/dicechess-engine/architecture/jvm-api/#what-java-and-kotlin-is-based-on).
 
 Note the `_3` suffix in the artifact ID: Maven has no equivalent of sbt's `%%` operator, so the
 Scala binary-version suffix has to be spelled out.
@@ -164,4 +164,4 @@ to a real release before opening a PR — CI has no access to your local reposit
 - The steps are intentionally duplicated in both workflows: tags pushed by `release.yaml`
   via `GITHUB_TOKEN` do not trigger `publish.yaml` (GitHub's recursion guard).
 
-See [CI/CD & Automated Releases](/dicechess-engine-scala/architecture/releases/) for the full pipeline.
+See [CI/CD & Automated Releases](/dicechess-engine/architecture/releases/) for the full pipeline.

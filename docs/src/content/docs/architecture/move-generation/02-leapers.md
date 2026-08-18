@@ -42,10 +42,13 @@ graph TD
 ```
 
 ### Example Mask (Not A-File)
+
 If we want to shift a piece to the left (e.g. West), we first `AND` it with the `NotAFile` mask to ensure it's not already on the left edge. If it is on the A-file, the mask clears the bit, and the resulting shift becomes safely `0`.
+
 ```scala
 val NotAFile: Bitboard = Bitboard(0xfefefefefefefefeL)
 
 // Up 2, Left 1 (North-North-West)
 val nnw = (knight & NotAFile) << 15 
 ```
+

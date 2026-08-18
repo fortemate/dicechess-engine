@@ -130,7 +130,7 @@ const result = DiceChess.getBestMove(dfen, {
 })
 ```
 
-See [Time Management](/dicechess-engine-scala/architecture/search/05-time-management/) for the
+See [Time Management](/dicechess-engine/architecture/search/05-time-management/) for the
 allocation formula, safeguards, and guidance on selecting a policy.
 
 

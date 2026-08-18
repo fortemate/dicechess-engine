@@ -311,7 +311,7 @@ Tests verify:
 
 ## See Also
 
-- [Expectimax Search Engine](/dicechess-engine-scala/architecture/search/06-expectimax-search/) — Deep search with chance nodes
-- [Bot Arena](/dicechess-engine-scala/architecture/search/03-search-roadmap/) — Testing bot strength
-- [Primitive Bot Strategies](/dicechess-engine-scala/architecture/search/01-primitive-search/) — Heuristic-only bots for comparison
-- [JVM API Reference](/dicechess-engine-scala/architecture/jvm-api/) — Java/Kotlin integration
+- [Expectimax Search Engine](/dicechess-engine/architecture/search/06-expectimax-search/) — Deep search with chance nodes
+- [Bot Arena](/dicechess-engine/architecture/search/03-search-roadmap/) — Testing bot strength
+- [Primitive Bot Strategies](/dicechess-engine/architecture/search/01-primitive-search/) — Heuristic-only bots for comparison
+- [JVM API Reference](/dicechess-engine/architecture/jvm-api/) — Java/Kotlin integration

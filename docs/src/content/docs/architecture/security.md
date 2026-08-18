@@ -17,7 +17,7 @@ Our codebase is continuously monitored using industry-standard static analysis a
 | **CI Static Analysis** | **CodeQL** | Analyzes the codebase for security flaws, syntax bugs, and common vulnerability patterns (SQL injections, path traversals). |
 | **CI Secret Scan** | `betterleaks` (via CodeRabbit) | Double-checks all PR changes for secrets before merging to `main`. |
 | **Vulnerability Scanning** | **SonarCloud** | Automatically flags code smells, logic errors, and security issues. |
-| **Dependency Audits** | **Dependabot** | Regularly monitors and generates automated PRs for sbt (libraries, plugins, sbt version), NPM, GitHub Actions, and pre-commit dependencies. See [Dependency Updates](/dicechess-engine-scala/architecture/dependency-updates/). |
+| **Dependency Audits** | **Dependabot** | Regularly monitors and generates automated PRs for sbt (libraries, plugins, sbt version), NPM, GitHub Actions, and pre-commit dependencies. See [Dependency Updates](/dicechess-engine/architecture/dependency-updates/). |
 | **Push Protection** | GitHub Secret Scanning | Rejects push events containing detected credentials. |
 
 ---
@@ -27,16 +27,19 @@ Our codebase is continuously monitored using industry-standard static analysis a
 If you discover a security vulnerability in the engine, please **do not create a public issue or public pull request**. Instead, submit a private report so we can resolve the issue before public disclosure.
 
 ### Preferred Method: GitHub Private Vulnerability Report
+
 GitHub provides a native, secure channel for vulnerability disclosure:
-1. Go to the main page of the [dicechess-engine-scala](https://github.com/fortemate/dicechess-engine) repository.
+1. Go to the main page of the [dicechess-engine](https://github.com/fortemate/dicechess-engine) repository.
 2. Under the repository name, click **Security**.
 3. In the left sidebar under *Vulnerability reporting*, click **Advisories**.
 4. Click **Report a vulnerability** to fill out a secure form.
 
 ### Alternative Method: Direct Contact
+
 You can also contact the maintainer directly via email: **jegors.cemisovs@gmail.com**. Please use a descriptive subject line (e.g., `[Security Vulnerability] Dice Chess Engine`).
 
 ### Response and Disclosure Timeline
+
 1. **Acknowledgment**: We will acknowledge receipt of your report within **48 hours**.
-2. **Investigation**: We will triage the vulnerability and keep you updated on our progress.
-3. **Resolution**: Once a fix is verified, we will coordinate a patch release and mutually agree on a public disclosure date.
+2. **Status Update**: We will provide a fix timeline or status update within **7 days**.
+3. **Disclosure**: A patched release and public security advisory will be published once the fix is deployed.

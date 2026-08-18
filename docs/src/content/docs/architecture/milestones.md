@@ -9,7 +9,7 @@ Assign tasks to these milestones logically. Each milestone must be fully tested 
 
 ---
 
-### ✅ v0.1 - Foundation & Core Types
+## ✅ v0.1 - Foundation & Core Types
 
 * **Status**: Completed 🏆
 * **Scope**: Project setup (SBT 2.x / Scala 3), configuration, `mise` setup.
@@ -18,7 +18,7 @@ Assign tasks to these milestones logically. Each milestone must be fully tested 
   * Basic FEN parsing and serialization.
   * DFEN extension (7th field for dice pool, multiple en-passant targets).
 
-### ✅ v0.2 - Move Generation (Classic)
+## ✅ v0.2 - Move Generation (Classic)
 
 * **Status**: Completed 🏆
 * **Scope**: Fast legal and pseudo-legal move computation.
@@ -27,7 +27,7 @@ Assign tasks to these milestones logically. Each milestone must be fully tested 
   * Pawn, knight, king, and sliding piece move generation.
   * Perft (Performance Test) framework integration to verify move correctness.
 
-### ✅ v0.3 - Dice Chess Mechanics
+## ✅ v0.3 - Dice Chess Mechanics
 
 * **Status**: Completed 🏆
 * **Scope**: Integrating physical probability layers of Dice Chess.
@@ -38,7 +38,7 @@ Assign tasks to these milestones logically. Each milestone must be fully tested 
   * Maximum Micro-moves Rule enforcement.
   * Turn lifecycle: roll → generate moves → apply micro-moves → endTurn.
 
-### ✅ v0.4 - Basic Bot & Gameplay
+## ✅ v0.4 - Basic Bot & Gameplay
 
 * **Status**: Completed 🏆
 * **Scope**: Validating game mechanics and state transitions with primitive bots.
@@ -48,7 +48,7 @@ Assign tasks to these milestones logically. Each milestone must be fully tested 
   * Dedicated Svelte/Vite PWA test harness for human vs. engine testing.
   * JVM Battle Arena for bot-vs-bot win-rate validation.
 
-### ✅ v0.5 - Evaluation & Heuristics
+## ✅ v0.5 - Evaluation & Heuristics
 
 * **Status**: Completed 🏆
 * **Scope**: Understanding board values statically and efficiently caching calculations.
@@ -57,7 +57,7 @@ Assign tasks to these milestones logically. Each milestone must be fully tested 
   * Zobrist Hashing and Transposition Tables (TT) for caching board states.
   * King Capture Probability analysis (exact enumeration of 216 dice outcomes).
 
-### ✅ v0.6 - Expectimax Search Engine
+## ✅ v0.6 - Expectimax Search Engine
 
 * **Status**: Completed 🏆
 * **Scope**: Deep probabilistic search with chance nodes.
@@ -68,7 +68,7 @@ Assign tasks to these milestones logically. Each milestone must be fully tested 
   * Rao-Blackwellized Monte-Carlo pre-roll equity estimator.
   * Structured concurrency with Virtual Threads (`Ox`) for parallel chance-node evaluation.
 
-### ✅ v0.7 - Advanced Features
+## ✅ v0.7 - Advanced Features
 
 * **Status**: Completed 🏆
 * **Scope**: Production-ready features and integrations.
@@ -78,7 +78,7 @@ Assign tasks to these milestones logically. Each milestone must be fully tested 
   * Doubling cube logic and draw offer handling (`DrawOfferLogic`).
   * JMH benchmarks for performance validation.
 
-### 🚀 v1.0 - Production & Optimization
+## 🚀 v1.0 - Production & Optimization
 
 * **Scope**: Deployment optimization and infrastructure operations.
 * **Key Deliverables**:
@@ -86,3 +86,4 @@ Assign tasks to these milestones logically. Each milestone must be fully tested 
   * Dockerfile optimization for containerized deployment.
   * CI/CD pipeline improvements (release automation, publishing).
   * Deployment configurations for Oracle Cloud Free Tier (Ampere ARM64).
+

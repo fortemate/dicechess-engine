@@ -6,11 +6,11 @@ description: Reference documentation for the Dice Chess Engine facade used by Ja
 The engine exposes `dicechess.engine.jvmapi.JvmApi` to JVM consumers that are not written in
 Scala — [dicechess-bot-java](https://github.com/rabestro/dicechess-bot-java) is the reference
 consumer. It is the JVM row's counterpart to the JS row's
-[`EngineFacade`](/dicechess-engine-scala/architecture/javascript-api/): a deliberately narrow
+[`EngineFacade`](/dicechess-engine/architecture/javascript-api/): a deliberately narrow
 surface that hides the Scala-shaped parts of the API.
 
 For dependency coordinates and authentication, see
-[Maven Artifact & JVM Integration](/dicechess-engine-scala/guidelines/maven-artifact/).
+[Maven Artifact & JVM Integration](/dicechess-engine/guidelines/maven-artifact/).
 
 > [!NOTE]
 > The facade is exactly the methods documented below. Doubling-cube and draw-offer decisions are **not**

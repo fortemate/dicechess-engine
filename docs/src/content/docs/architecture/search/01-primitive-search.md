@@ -123,11 +123,11 @@ A critical property of Dice Chess is that these bots evaluate **full turn paths*
   - For each legal turn, plays it and runs the [Monte-Carlo pre-roll equity estimator](/architecture/search/04-monte-carlo-equity/) on the resulting position, scoring the turn by the moving side's win probability (an immediate king capture short-circuits to the terminal win score).
   - Selects the highest-scoring turn; ties prefer the shorter king capture.
   - Doubling-cube decisions reuse the same Monte-Carlo estimate rather than the material sigmoid.
-* **Cost:** per-move latency scales with `(legal turns) × (rollout budget)`, so it carries a configurable budget (`MonteCarloConfig`) and a modest default. Unlike the O(1) bots above, a statistically significant win-rate match is validated **offline** in the JVM Battle Arena (a default-budget match is far too slow for CI), and a JMH benchmark tracks per-move decision latency.
+* **Cost:** per-move latency scales with `(legal turns) × (rollout budget)`, so it carries a configurable budget (`MonteCarloConfig`) and a modest default. Unlike the lower-cost primitive bots above, a statistically significant win-rate match is validated **offline** in the JVM Battle Arena (a default-budget match is far too slow for CI), and a JMH benchmark tracks per-move decision latency.
 
 ---
 
-## Comparison of Primitive (O(1)) Bot Strategies
+## Comparison of Primitive Bot Strategies
 
 | Aspect | Level 1: Random | Level 2: Checkmate Aware | Level 3: Greedy | Level 4: Cautious Greedy | Level 5: Aggressive |
 | :--- | :--- | :--- | :--- | :--- | :--- |

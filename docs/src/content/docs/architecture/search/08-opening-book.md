@@ -169,7 +169,7 @@ mise run arena:book aggressive opening_book.tsv 50
 
 ## Roadmap & Future Enhancements
 
-Future opening book capabilities are tracked in the [Search Roadmap & Evaluation](/dicechess-engine-scala/architecture/search/03-search-roadmap/):
+Future opening book capabilities are tracked in the [Search Roadmap & Evaluation](/dicechess-engine/architecture/search/03-search-roadmap/):
 
 1. **In-Engine Book Distillation**: Generating opening books directly via self-play without relying on external databases.
 2. **Weighted Multi-Line Selection**: Supporting probabilistic selection across multiple viable continuations for the same opening key.
@@ -179,6 +179,6 @@ Future opening book capabilities are tracked in the [Search Roadmap & Evaluation
 
 ## See Also
 
-- [Expectimax Search Engine](/dicechess-engine-scala/architecture/search/06-expectimax-search/) — Two-ply lookahead search for out-of-book positions
-- [Time Management](/dicechess-engine-scala/architecture/search/05-time-management/) — Budget allocation and deadline forwarding
-- [Search Roadmap & Evaluation](/dicechess-engine-scala/architecture/search/03-search-roadmap/) — Staged plans for future search and book optimizations
+- [Expectimax Search Engine](/dicechess-engine/architecture/search/06-expectimax-search/) — Two-ply lookahead search for out-of-book positions
+- [Time Management](/dicechess-engine/architecture/search/05-time-management/) — Budget allocation and deadline forwarding
+- [Search Roadmap & Evaluation](/dicechess-engine/architecture/search/03-search-roadmap/) — Staged plans for future search and book optimizations
