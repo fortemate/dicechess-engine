@@ -1,0 +1,54 @@
+{
+	"name": "@fortemate/dicechess-engine",
+	"version": "1.0.0",
+	"type": "module",
+	"description": "High-performance Dice Chess engine and move generator compiled to ES Modules and WebAssembly",
+	"main": "dist/dicechess-engine.js",
+	"types": "dist/dicechess-engine.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/dicechess-engine.d.ts",
+			"import": "./dist/dicechess-engine.js",
+			"default": "./dist/dicechess-engine.js"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"publishConfig": {
+		"registry": "https://npm.pkg.github.com",
+		"access": "public"
+	},
+	"homepage": "https://fortemate.com",
+	"bugs": {
+		"url": "https://github.com/fortemate/dicechess-engine/issues"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/fortemate/dicechess-engine.git"
+	},
+	"keywords": [
+		"chess",
+		"dice-chess",
+		"engine",
+		"move-generator",
+		"scala-js",
+		"webassembly"
+	],
+	"author": {
+		"name": "Fortemate",
+		"url": "https://fortemate.com"
+	},
+	"contributors": [
+		{
+			"name": "Jegors Čemisovs",
+			"email": "jegors.cemisovs@gmail.com",
+			"url": "https://github.com/rabestro"
+		}
+	],
+	"license": "AGPL-3.0",
+	"engines": {
+		"node": ">=18"
+	},
+	"sideEffects": false
+}
