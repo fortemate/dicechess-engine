@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="🧩 Build the optimized WebAssembly module (rootWasm)"
+
+set -euo pipefail
+
+sbt -batch "rootWasm/fullLinkJS"

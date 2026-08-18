@@ -43,11 +43,11 @@ run = "sbt 'testOnly *'"
 
 [tasks.coverage]
 description = "📊 Run tests with scoverage and generate detailed local reports"
-run = "bash .mise/lib/sbt-cold-cache.sh 'clean; coverage; rootJVM/testOnly *; rootJVM/coverageDataCheck; coverageReport'"
+run = "bash .mise/lib/sbt-cold-cache.sh 'clean; coverage; testOnly *; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport'"
 
 [tasks.check]
 description = "✅ Run a full validation cycle"
-run = "bash .mise/lib/sbt-cold-cache.sh 'scalafixAll --check; clean; scalafmtCheckAll; coverage; testOnly *; rootJVM/coverageDataCheck; coverageReport'"
+run = "bash .mise/lib/sbt-cold-cache.sh 'scalafixAll --check; clean; scalafmtCheckAll; coverage; testOnly *; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport'"
 
 [tasks.console]
 description = "💻 Launch an interactive Scala REPL"
@@ -105,6 +105,32 @@ run = "sbt rootJS/fastOptJS"
 description = "🧹 Remove the distribution folder"
 run = "rm -rf dist"
 
+[tasks."docs:generate"]
+description = "📝 Generate visual test cases catalog from JSON files"
+run = "sbt 'project rootJVM; Test / runMain dicechess.engine.movegen.DocGenerator'"
+
+[tasks."docs:search:generate"]
+description = "📝 Generate visual test cases catalog for King Capture Probability"
+run = "sbt 'project rootJVM; Test / runMain dicechess.engine.search.KingCaptureDocGenerator'"
+
+# Single sbt session for all generators: parallel depends would boot two sbt
+# instances in the same project and collide on the server socket (#326).
+[tasks."docs:generate:all"]
+description = "📝 Generate all visual test-case catalogs in a single sbt session"
+run = "sbt 'project rootJVM; Test / runMain dicechess.engine.movegen.DocGenerator; Test / runMain dicechess.engine.search.KingCaptureDocGenerator'"
+
+[tasks."docs:dev"]
+description = "🚀 Run the documentation site dev server"
+depends = ["docs:generate:all"]
+run = "npm run dev"
+dir = "docs"
+
+[tasks."docs:build"]
+description = "📦 Build production-ready documentation static site"
+depends = ["docs:generate:all"]
+run = "npm run build"
+dir = "docs"
+
 [tasks."hook:install"]
 description = "🪝 Register Git hooks via lefthook"
 run = "lefthook install"
@@ -112,3 +138,4 @@ run = "lefthook install"
 [tasks."hook:run"]
 description = "🏃 Run all pre-commit hook jobs manually across the entire codebase"
 run = "lefthook run pre-commit --all-files"
+
