@@ -38,6 +38,7 @@ if [[ ! "$CLEAN_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 
 # Create distribution directory
+rm -rf -- dist-wasm
 mkdir -p dist-wasm
 
 # Sync version in a temporary package.json

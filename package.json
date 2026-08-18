@@ -1,6 +1,6 @@
 {
 	"name": "@fortemate/dicechess-engine",
-	"version": "1.0.0",
+	"version": "0.1.0",
 	"type": "module",
 	"description": "High-performance Dice Chess engine and move generator compiled to ES Modules and WebAssembly",
 	"main": "dist/dicechess-engine.js",

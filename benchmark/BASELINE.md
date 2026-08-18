@@ -3,6 +3,7 @@
 This document records the baseline performance metrics of the Dice Chess engine core functions, captured on **2026-05-20**. These metrics serve as a reference point to evaluate future optimizations and prevent performance regressions.
 
 ## Environment Details
+
 - **JMH Version:** 1.37
 - **VM Version:** JDK 17.0.15, OpenJDK 64-Bit Server VM (17.0.15+6-LTS)
 - **Parameters:** Warmup: 1 iteration (1s), Measurement: 2 iterations (1s), Fork: 1, 1 Thread.
@@ -12,6 +13,7 @@ This document records the baseline performance metrics of the Dice Chess engine 
 ## 1. FEN Parser Performance (`FenParserBenchmark`)
 
 ### Throughput (Higher is better)
+
 | Benchmark | Position | Mode | Score | Units |
 |-----------|----------|------|-------|-------|
 | `parseFen` | `initial` | `thrpt` | `0.210` | `ops/us` |
@@ -19,6 +21,7 @@ This document records the baseline performance metrics of the Dice Chess engine 
 | `parseFen` | `endgame` | `thrpt` | `0.615` | `ops/us` |
 
 ### Average Time (Lower is better)
+
 | Benchmark | Position | Mode | Score | Units |
 |-----------|----------|------|-------|-------|
 | `parseFen` | `initial` | `avgt` | `4.637` | `us/op` |
@@ -32,6 +35,7 @@ This document records the baseline performance metrics of the Dice Chess engine 
 These lookups are $O(1)$ precomputed array access, showing extreme raw throughput.
 
 ### Throughput (Higher is better)
+
 | Benchmark | Mode | Score | Units |
 |-----------|------|-------|-------|
 | `bishopAttacks` | `thrpt` | `0.134` | `ops/ns` |
@@ -43,9 +47,11 @@ These lookups are $O(1)$ precomputed array access, showing extreme raw throughpu
 ## 3. Move Generator Performance (`MoveGeneratorBenchmark`)
 
 ### 3.1 `generateAllMoves` (All piece types, independent of dice)
+
 Throughput remains consistent across dummy dice rolls (average range below):
 
 #### Throughput (Higher is better)
+
 | Position | Throughput (`ops/us`) | Average Time (`us/op`) |
 |----------|-----------------------|------------------------|
 | `initial` | `~2.55 - 2.72` | `~0.38 - 0.40` |
@@ -57,6 +63,7 @@ Throughput remains consistent across dummy dice rolls (average range below):
 ### 3.2 `generateMoves` (Filtered by single Dice Roll)
 
 #### Throughput by Dice and Position (Higher is better, `ops/us`)
+
 | Dice Roll | Initial | Kiwipete | Endgame | Castling | Promotion |
 |-----------|---------|----------|---------|----------|-----------|
 | **1 (Pawn)** | `7.571` | `10.137` | `20.945` | `7.353` | `33.969` |
@@ -67,6 +74,7 @@ Throughput remains consistent across dummy dice rolls (average range below):
 | **6 (King)** | `18.101` | `6.589` | `34.434` | `6.993` | `25.452` |
 
 #### Average Time by Dice and Position (Lower is better, `us/op`)
+
 | Dice Roll | Initial | Kiwipete | Endgame | Castling | Promotion |
 |-----------|---------|----------|---------|----------|-----------|
 | **1 (Pawn)** | `0.146` | `0.102` | `0.049` | `0.143` | `0.030` |
@@ -77,6 +85,7 @@ Throughput remains consistent across dummy dice rolls (average range below):
 | **6 (King)** | `0.053` | `0.146` | `0.029` | `0.148` | `0.040` |
 
 ### 3.3 `isSquareAttacked`
+
 Checks whether a specific square is under attack. Consistently fast across all parameters.
 
 - **Throughput:**
@@ -120,7 +129,7 @@ micro-move sequences for a given set of dice.
 
 ### Key Observations
 
-- **`kiwipete`** is the hardest position for all dice (437-5470 us/op) due to its high branching factor (~48 legal moves vs ~20 average).
-- **`1,2,3` on `initial`** (436 us) and **`1,1,1` on `initial`/`castling`** (3.5-4.5 ms) are worst-case scenarios — many pawns generate deep 3-move sequences.
-- **`5,5,5` (three Queens)** is fast on most positions (< 0.1 us/op) because Queen moves quickly dominate — the optimal depth is found immediately on most branches.
-- **`4,5,6` on `initial`** (0.154 us/op) is the fastest realistic dice combination in the opening since King/Rook/Queen movement is heavily restricted.
+- **`kiwipete`** has high complexity for most dice sets (421–5470 us/op) due to its high branching factor (~48 legal moves vs ~20 average).
+- **`1,2,3` on `initial`** (436 us) and **`1,1,1` on `initial`/`castling`** (3.5–4.5 ms) are worst-case scenarios — many pawns generate deep 3-move sequences.
+- **`5,5,5` (three Queens)** is fast on non-kiwipete positions (< 0.1 us/op) because Queen moves are restricted or quickly exhaust options.
+- **`4,5,6` on `initial`** (0.154 us/op) is the fastest realistic (distinct) dice combination in the opening since King/Rook/Queen movement is heavily restricted.

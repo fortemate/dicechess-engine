@@ -24,9 +24,22 @@ if [[ ! "$bump_type" =~ ^(patch|minor|major)$ ]]; then
   exit 1
 fi
 
-# Get current version from build.sbt (without -SNAPSHOT)
-current_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-current_version="${current_tag#v}"
+# Check for clean git working tree
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "❌ Error: working tree has uncommitted changes. Please commit or stash first." >&2
+  exit 1
+fi
+
+# Read current versions from build.sbt and package.json
+sbt_version=$(grep -E '^[[:space:]]*version[[:space:]]*:=' build.sbt | sed -E 's/.*"([^"]+)".*/\1/' | head -n 1 || echo "")
+pkg_version=$(grep -E '"version":' package.json | sed -E 's/.*"([^"]+)".*/\1/' | head -n 1 || echo "")
+
+current_version="${sbt_version%-SNAPSHOT}"
+current_version="${current_version#v}"
+if [[ ! "$current_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  current_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+  current_version="${current_tag#v}"
+fi
 
 # Parse version components
 major=$(echo "$current_version" | cut -d. -f1)
@@ -52,17 +65,23 @@ esac
 new_version="${major}.${minor}.${patch}"
 new_tag="v${new_version}"
 
+# Check if target tag already exists
+if git rev-parse -q --verify "refs/tags/$new_tag" >/dev/null; then
+  echo "❌ Error: Git tag '$new_tag' already exists." >&2
+  exit 1
+fi
+
 # Show summary
 echo ""
 echo "=== RELEASE SUMMARY ==="
 echo ""
-echo "  Current version: $current_version ($current_tag)"
+echo "  Current version: $current_version (${sbt_version:-unknown})"
 echo "  Bump type:      $bump_type"
 echo "  New version:    $new_version ($new_tag)"
 echo ""
 echo "Changes to be made:"
-echo "  📄 build.sbt:    0.1.0-SNAPSHOT → $new_version"
-echo "  📦 package.json: 0.1.0 → $new_version"
+echo "  📄 build.sbt:    ${sbt_version:-unknown} → $new_version"
+echo "  📦 package.json: ${pkg_version:-unknown} → $new_version"
 echo "  🏷️  Git tag:     $new_tag"
 echo ""
 
@@ -77,21 +96,29 @@ echo ""
 echo "⏳ Preparing release..."
 
 # Update build.sbt
-sed -i.bak "s/version.*:= \"[^\"]*\"/version      := \"$new_version\"/" build.sbt
-rm build.sbt.bak
+sed -i.bak "s/^[[:space:]]*version[[:space:]]*:= \"[^\"]*\"/version      := \"$new_version\"/" build.sbt
+rm -f build.sbt.bak
 
 # Update package.json
 sed -i.bak "s/\"version\": \"[^\"]*\"/\"version\": \"$new_version\"/" package.json
-rm package.json.bak
+rm -f package.json.bak
+
+# Verify updates were applied
+if ! grep -q "version[[:space:]]*:= \"$new_version\"" build.sbt; then
+  echo "❌ Error: failed to update version in build.sbt" >&2
+  exit 1
+fi
+if ! grep -q "\"version\": \"$new_version\"" package.json; then
+  echo "❌ Error: failed to update version in package.json" >&2
+  exit 1
+fi
 
 # Create commit
 git add build.sbt package.json
 git commit -m "chore(release): bump version to $new_version
 
 - Update build.sbt: $new_version
-- Update package.json: $new_version
-
-Resolves: #XX (replace with your issue number in the PR)"
+- Update package.json: $new_version"
 
 # Create tag
 git tag "$new_tag" -m "Release $new_version"
