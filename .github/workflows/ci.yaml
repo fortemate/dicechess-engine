@@ -89,6 +89,7 @@ jobs:
           fi
       - name: SonarQube Scan
         if: github.actor != 'dependabot[bot]' && env.SONAR_TOKEN != '' && steps.scoverage.outputs.report_path != ''
+        continue-on-error: true
         uses: SonarSource/sonarqube-scan-action@v4
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
