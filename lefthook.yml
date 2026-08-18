@@ -2,7 +2,7 @@
 # Docs: https://github.com/evilmartians/lefthook
 
 pre-commit:
-  parallel: true
+  parallel: false
   jobs:
     # Secret scanning: abort if any staged diff leaks a credential
     # betterleaks is the successor by the gitleaks author (gitleaks is feature-frozen).

@@ -7,12 +7,12 @@ ThisBuild / version      := "0.1.0-SNAPSHOT"
 ThisBuild / scalaVersion := "3.8.4"
 
 ThisBuild / description := "Cross-platform high-performance Dice Chess engine, move generator, and AI search."
-ThisBuild / homepage    := Some(url("https://fortemate.com"))
-ThisBuild / licenses    := List("AGPL-3.0" -> url("https://www.gnu.org/licenses/agpl-3.0.txt"))
+ThisBuild / homepage    := Some(uri("https://fortemate.com"))
+ThisBuild / licenses    := List(License("AGPL-3.0", uri("https://www.gnu.org/licenses/agpl-3.0.txt")))
 
 ThisBuild / scmInfo := Some(
   ScmInfo(
-    url("https://github.com/fortemate/dicechess-engine"),
+    uri("https://github.com/fortemate/dicechess-engine"),
     "scm:git@github.com:fortemate/dicechess-engine.git"
   )
 )
@@ -22,7 +22,7 @@ ThisBuild / developers := List(
     id = "rabestro",
     name = "Jegors Čemisovs",
     email = "jegors.cemisovs@gmail.com",
-    url = url("https://fortemate.com")
+    url = uri("https://fortemate.com")
   )
 )
 
