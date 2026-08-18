@@ -17,9 +17,10 @@ jobs:
   create-release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # To push commits, tags, and create releases
+      contents: write # To push tags and create releases
       packages: write # To publish packages
       checks: write # To publish check runs with test reports
+      pull-requests: write # To open the next snapshot PR
 
     steps:
       - name: Verify release branch is main
@@ -150,21 +151,7 @@ jobs:
             console.log(`Release version: ${releaseVersion} (${releaseTag})`);
             console.log(`Next snapshot: ${nextSnapshot}`);
 
-      - name: Update version in build.sbt
-        run: |
-          NEXT_SNAPSHOT="${{ steps.bump_version.outputs.next_snapshot }}"
-
-          # Update the version field in build.sbt to have the next development SNAPSHOT version
-          sed -i 's/ThisBuild \/ version[[:space:]]*:= "[^"]*"/ThisBuild \/ version              := "'"$NEXT_SNAPSHOT"'"/' build.sbt
-
-          if ! git diff --quiet build.sbt; then
-            git add build.sbt
-            git commit -m "chore(release): bump version to $NEXT_SNAPSHOT"
-            BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
-            git push origin "$BRANCH_NAME"
-          fi
-
-      - name: Create new Git tag
+      - name: Create and push Git tag
         run: |
           git tag ${{ steps.bump_version.outputs.new_tag }}
           git push origin ${{ steps.bump_version.outputs.new_tag }}
@@ -235,3 +222,34 @@ jobs:
             dist-wasm/__loader.js \
             --generate-notes \
             --title "$NEW_TAG"
+
+      # The bump commit cannot be pushed straight to a protected `main` without violating
+      # branch rulesets. So it goes out on a branch and through a pull request like every other change.
+      # The tag push above is direct because branch rulesets do not apply to tags.
+      - name: Open the next-SNAPSHOT version-bump pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEXT_SNAPSHOT: ${{ steps.bump_version.outputs.next_snapshot }}
+          RELEASE_TAG: ${{ steps.bump_version.outputs.new_tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          BRANCH="chore/bump-to-$NEXT_SNAPSHOT"
+          git checkout -b "$BRANCH"
+          sed -i 's/ThisBuild \/ version[[:space:]]*:= "[^"]*"/ThisBuild \/ version              := "'"$NEXT_SNAPSHOT"'"/' build.sbt
+
+          if ! git diff --quiet build.sbt; then
+            git add build.sbt
+            git commit -m "chore(release): bump version to $NEXT_SNAPSHOT"
+            git push origin "$BRANCH"
+
+            gh pr create -R "$REPO" --base main --head "$BRANCH" \
+              --title "chore(release): bump version to $NEXT_SNAPSHOT" \
+              --body "Post-release bookkeeping for **$RELEASE_TAG**, opened automatically by \`Ops: Release\`.
+
+          Sets the \`build.sbt\` version to \`$NEXT_SNAPSHOT\` so \`main\` carries the next
+          development version. Nothing else changes.
+
+          \`$RELEASE_TAG\`, its artifacts and its GitHub Release are already published —
+          this pull request only moves the version forward on \`main\`."
+          fi
