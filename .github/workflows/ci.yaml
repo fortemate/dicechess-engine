@@ -48,7 +48,7 @@ jobs:
       - name: scalafmt check
         run: sbt --server scalafmtCheckAll
       - name: Run tests with Coverage
-        run: bash .mise/lib/sbt-cold-cache.sh 'clean; coverage; testOnly *; rootJVM/coverageDataCheck; coverageReport'
+        run: bash .mise/lib/sbt-cold-cache.sh 'clean; coverage; testOnly *; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport'
       - name: Scaladoc
         run: |
           if bash .mise/lib/sbt-cold-cache.sh 'rootJVM/doc' > scaladoc.log 2>&1; then
@@ -76,22 +76,23 @@ jobs:
           report_paths: '**/target/out/**/test-reports/*.xml'
           detailed_summary: true
           include_passed: true
-      - name: Locate Scoverage report
+      - name: Locate Scoverage reports
         id: scoverage
         run: |
-          REPORT=$(find target/out/jvm -maxdepth 4 -path '*/scoverage-report/scoverage.xml' -print -quit || true)
-          if [ -n "$REPORT" ]; then
-            echo "Found Scoverage report at $REPORT"
-            echo "report_path=$REPORT" >> "$GITHUB_OUTPUT"
+          mapfile -t reports < <(find target/out/jvm -maxdepth 4 -path '*/scoverage-report/scoverage.xml' -print | sort)
+          if [ "${#reports[@]}" -gt 0 ]; then
+            printf 'Found Scoverage report at %s\n' "${reports[@]}"
+            report_paths=$(IFS=,; echo "${reports[*]}")
+            echo "report_paths=$report_paths" >> "$GITHUB_OUTPUT"
           else
-            echo "No Scoverage report found"
-            echo "report_path=" >> "$GITHUB_OUTPUT"
+            echo "No Scoverage reports found"
+            echo "report_paths=" >> "$GITHUB_OUTPUT"
           fi
       - name: SonarQube Scan
-        if: github.actor != 'dependabot[bot]' && env.SONAR_TOKEN != '' && steps.scoverage.outputs.report_path != ''
+        if: github.actor != 'dependabot[bot]' && env.SONAR_TOKEN != '' && steps.scoverage.outputs.report_paths != ''
         continue-on-error: true
         uses: SonarSource/sonarqube-scan-action@v4
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
-          args: -Dsonar.scala.coverage.reportPaths=${{ steps.scoverage.outputs.report_path }}
+          args: -Dsonar.scala.coverage.reportPaths=${{ steps.scoverage.outputs.report_paths }}
