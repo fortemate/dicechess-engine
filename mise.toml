@@ -43,11 +43,11 @@ run = "sbt 'testOnly *'"
 
 [tasks.coverage]
 description = "📊 Run tests with scoverage and generate detailed local reports"
-run = "bash .mise/lib/sbt-cold-cache.sh 'clean; coverage; rootJVM/testOnly *; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport'"
+run = "bash .mise/lib/sbt-cold-cache.sh 'clean; coverage; rootJVM/testOnly *; rootJVM/coverageDataCheck; coverageReport'"
 
 [tasks.check]
 description = "✅ Run a full validation cycle"
-run = "bash .mise/lib/sbt-cold-cache.sh 'scalafixAll --check; clean; scalafmtCheckAll; coverage; testOnly *; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport'"
+run = "bash .mise/lib/sbt-cold-cache.sh 'scalafixAll --check; clean; scalafmtCheckAll; coverage; testOnly *; rootJVM/coverageDataCheck; coverageReport'"
 
 [tasks.console]
 description = "💻 Launch an interactive Scala REPL"

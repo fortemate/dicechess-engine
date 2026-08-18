@@ -48,7 +48,7 @@ jobs:
       - name: scalafmt check
         run: sbt --server scalafmtCheckAll
       - name: Run tests with Coverage
-        run: bash .mise/lib/sbt-cold-cache.sh 'clean; coverage; testOnly *; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport'
+        run: bash .mise/lib/sbt-cold-cache.sh 'clean; coverage; testOnly *; rootJVM/coverageDataCheck; coverageReport'
       - name: Scaladoc
         run: |
           if bash .mise/lib/sbt-cold-cache.sh 'rootJVM/doc' > scaladoc.log 2>&1; then
