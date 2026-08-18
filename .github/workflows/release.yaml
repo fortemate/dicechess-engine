@@ -1,0 +1,202 @@
+name: "Ops: Release"
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: 'patch'
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # To push commits, tags, and create releases
+      packages: write # To publish packages
+      checks: write # To publish check runs with test reports
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Fetch all history for all tags and branches
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Setup Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+          cache: 'sbt'
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@8feba82adc7f01ddcf8165b86f778bdb5b82cebc # v1.5.7
+
+      - name: Setup Node.js
+        # Scala.js runs JS/Wasm tests on Node; the Wasm backend (1.22+) emits
+        # ES2022 + WebAssembly GC, which needs a current Node, not the runner default.
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "26"
+          registry-url: "https://npm.pkg.github.com"
+
+      - name: Run validation checks
+        # Run sbt directly (no mise): the runner already has the JVM toolchain, jq, and gh,
+        # so mise would only install the local-dev tool set for nothing. Runs the same gates
+        # as `mise run check`, but deliberately in a different order: scalafmt first to fail
+        # fast before any compile. `mise run check`'s clean-before-scalafmtCheckAll ordering
+        # (#354) guards against a warm target/, which cannot happen here — the runner starts
+        # from a fresh checkout, and setup-java's `cache: sbt` restores only ~/.sbt, ~/.ivy2
+        # and the coursier cache, never sbt 2's compile CAS.
+        # The cold-cache wrapper keeps the coverage threshold enforceable: a cache-served
+        # `compile` skips the compiler, so nothing is instrumented and the 85% threshold goes
+        # silently unenforced (#531). Shared with `mise run coverage`/`check` via one script so
+        # the two cannot drift; invoked with bash because the runner already provisions the JVM
+        # toolchain and needs no mise (same pattern as `bash .mise/tasks/package/prepare`).
+        # `rootJVM/coverageDataCheck` fails the build loudly if metadata is missing anyway.
+        run: bash .mise/lib/sbt-cold-cache.sh 'scalafmtCheckAll; scalafixAll --check; clean; coverage; testOnly *; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport'
+
+      - name: Publish Test Report
+        uses: mikepenz/action-junit-report@d9f48fc87bc235f7e214acf696ca5abc0a986f16 # v6.4.2
+        if: always() # Always run even if tests fail!
+        with:
+          # sbt 2's shared build cache moved output from <platform>/target/... to
+          # target/out/<platform>/scala-<ver>/<module>/...
+          report_paths: '**/target/out/**/test-reports/*.xml'
+          detailed_summary: true
+          include_passed: true
+
+      - name: Get latest tag
+        id: get_tag
+        run: |
+          # Get the latest tag, or set to v0.0.0 if no tags exist
+          latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "latest_tag=$latest_tag" >> $GITHUB_OUTPUT
+
+      - name: Bump version
+        id: bump_version
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const latestTag = '${{ steps.get_tag.outputs.latest_tag }}';
+            const bumpType = '${{ github.event.inputs.bump }}';
+
+            const cleanVersion = latestTag.startsWith('v') ? latestTag.slice(1) : latestTag;
+            const match = cleanVersion.match(/^(\d+)\.(\d+)\.(\d+)/);
+
+            let major = 0;
+            let minor = 0;
+            let patch = 0;
+
+            if (match) {
+              major = parseInt(match[1], 10);
+              minor = parseInt(match[2], 10);
+              patch = parseInt(match[3], 10);
+            }
+
+            if (bumpType === 'major') {
+              major += 1;
+              minor = 0;
+              patch = 0;
+            } else if (bumpType === 'minor') {
+              minor += 1;
+              patch = 0;
+            } else {
+              patch += 1;
+            }
+
+            const newVersion = `${major}.${minor}.${patch}`;
+            const newTag = `v${newVersion}`;
+            core.setOutput('new_version', newVersion);
+            core.setOutput('new_tag', newTag);
+            console.log(`New version will be: ${newVersion}`);
+            console.log(`New tag will be: ${newTag}`);
+
+      - name: Update version in build.sbt
+        run: |
+          NEW_VERSION="${{ steps.bump_version.outputs.new_version }}"
+
+          # Update the version field in build.sbt to have the new SNAPSHOT version
+          # Matches: ThisBuild / version              := "0.1.0-SNAPSHOT"
+          sed -i 's/ThisBuild \/ version[[:space:]]*:= "[^"]*"/ThisBuild \/ version              := "'"$NEW_VERSION-SNAPSHOT"'"/' build.sbt
+
+          # Commit the change
+          git add build.sbt
+          git commit -m "chore(release): bump version to $NEW_VERSION-SNAPSHOT"
+
+          # Push the commit to current branch
+          BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+          git push origin "$BRANCH_NAME"
+
+      - name: Create new Git tag
+        run: |
+          git tag ${{ steps.bump_version.outputs.new_tag }}
+          git push origin ${{ steps.bump_version.outputs.new_tag }}
+
+      - name: Publish JVM artifact to GitHub Packages (Maven)
+        # `sbt shutdown` first, and it is load-bearing twice over. sbt 2's thin client reuses
+        # the server started by an earlier step, so this step would otherwise inherit:
+        #   1. that step's environment — frozen before GITHUB_TOKEN existed, leaving
+        #      `credentials` empty in build.sbt and publishing dying with 401 Unauthorized;
+        #   2. its session `set coverageEnabled := true` from the validation run, so with no
+        #      recompile forced it would publish coverage-instrumented bytecode.
+        # `clean` guarantees a fresh uninstrumented build; assertNoCoverageInstrumentation
+        # and assertNoBenchClasses prove it rather than trusting it.
+        run: |
+          sbt shutdown >/dev/null 2>&1 || true
+          sbt "set ThisBuild / version := \"${{ steps.bump_version.outputs.new_version }}\"; clean; rootJVM/assertNoCoverageInstrumentation; rootJVM/assertNoBenchClasses; rootJVM/publish"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # package:prepare is a plain bash script (sbt + jq, both on the runner). Run its
+      # js:build dependency first, then the script directly — no mise needed.
+      - name: Build JavaScript package
+        run: |
+          sbt rootJS/fullOptJS
+          bash .mise/tasks/package/prepare
+        env:
+          # Pass the version explicitly — the workflow already knows it. Letting the script
+          # scrape it back out of sbt cost two releases (#544 and the run after it).
+          PACKAGE_VERSION: ${{ steps.bump_version.outputs.new_version }}
+
+      - name: Publish to GitHub Package Registry
+        run: npm publish ./dist
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build WebAssembly package
+        run: |
+          sbt rootWasm/fullLinkJS
+          bash .mise/tasks/package/prepare-wasm
+        env:
+          PACKAGE_VERSION: ${{ steps.bump_version.outputs.new_version }}
+
+      - name: Publish Wasm package to GitHub Package Registry
+        run: npm publish ./dist-wasm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release and Upload Assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_TAG: ${{ steps.bump_version.outputs.new_tag }}
+        run: |
+          gh release create "$NEW_TAG" \
+            dist/dicechess-engine.js \
+            dist/dicechess-engine.d.ts \
+            dist-wasm/main.js \
+            dist-wasm/main.wasm \
+            dist-wasm/__loader.js \
+            --generate-notes \
+            --title "$NEW_TAG"

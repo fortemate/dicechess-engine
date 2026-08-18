@@ -1,0 +1,6 @@
+MD013: false # Disable line length restriction
+MD033: false # Allow inline HTML
+MD024: false # Allow duplicate headings
+MD029: false # Allow 1. 2. 3. numbering in ordered lists (instead of 1. 1. 1.)
+MD034: false # Allow bare URLs without angle brackets
+MD041: false # Disable requirement for first element to be an H1 heading

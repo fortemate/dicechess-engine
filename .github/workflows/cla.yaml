@@ -1,0 +1,120 @@
+name: "CI: CLA"
+
+# pull_request_target (not pull_request) is deliberate: the workflow LOGIC then
+# always comes from the base branch, so a pull request cannot edit this file to
+# neuter the check. The signature registry is still read from the PR head via
+# the API below — it is pure data (parsed as JSON, never executed), and reading
+# it from the untrusted side is exactly the point: signing happens in the
+# contributor's first pull request. No code from the PR is checked out or run.
+#
+# NOTE: a pull_request_target workflow change cannot be verified on its own PR —
+# the workflow always comes from the base branch, so the corrected version first
+# executes on the next pull request after this change merges into main.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  cla-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify the PR author has signed the CLA
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const author = context.payload.pull_request.user.login;
+            if (author.endsWith('[bot]')) {
+              console.log(`@${author} is a bot account — CLA not required.`);
+              return;
+            }
+            // Insiders are exempt. OWNER covers a user-owned repository, MEMBER
+            // an organization member, COLLABORATOR anyone explicitly granted
+            // access to this repository. Deliberately NOT a comparison against
+            // context.repo.owner — that breaks the moment a repository moves
+            // into an organization, because the owner is then the org login and
+            // never the maintainer's.
+            //
+            // COLLABORATOR is in the list on purpose: when organization
+            // membership is concealed (private), the webhook payload does not
+            // report MEMBER, and the maintainer's own pull requests were failing
+            // this check. None of the three can be self-assigned by an outside
+            // contributor, so the gate still holds.
+            const association = context.payload.pull_request.author_association;
+            if (['OWNER', 'MEMBER', 'COLLABORATOR'].includes(association)) {
+              console.log(`@${author} is ${association} — CLA not required.`);
+              return;
+            }
+            console.log(`@${author} is ${association} — a CLA signature is required.`);
+            const file = '.github/cla-signatures.json';
+            const readRegistry = async (ref) => {
+              const { data } = await github.rest.repos.getContent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                path: file,
+                ref,
+              });
+              return JSON.parse(Buffer.from(data.content, 'base64').toString('utf8'));
+            };
+            // The authoritative agreement version comes from the BASE BRANCH,
+            // not from the PR head: reading it from the head would let a
+            // contributor invent a version — or delete the field entirely, in
+            // which case an entry without claVersion matches through
+            // undefined === undefined and the check passes with no signature
+            // under the real agreement.
+            //
+            // Read by branch ref rather than base.sha on purpose. base.sha is
+            // the commit the pull request was opened against, which for an
+            // older open PR can predate the registry file entirely — that made
+            // this check fail with a 404. The agreement in force is the one on
+            // the target branch now, and a contributor cannot modify it.
+            let current;
+            try {
+              const base = await readRegistry(context.payload.pull_request.base.ref);
+              current = base.claVersion;
+            } catch (error) {
+              core.setFailed(`Cannot read ${file} from the base branch: ${error.message}`);
+              return;
+            }
+            if (typeof current !== 'string' || current.length === 0) {
+              core.setFailed(`${file} on the base branch has no usable "claVersion" — cannot verify signatures.`);
+              return;
+            }
+            // Signatures, in contrast, are read from the PR head on purpose:
+            // an entry added in this same pull request counts, so signing is
+            // part of the first contribution. (A pull request that bumps the
+            // agreement version is a maintainer change, and maintainers are
+            // exempt above, so the base/head version skew does not bite.)
+            let registry;
+            try {
+              registry = await readRegistry(`refs/pull/${context.payload.pull_request.number}/head`);
+            } catch (error) {
+              core.setFailed(`Cannot read ${file} from the PR head: ${error.message}`);
+              return;
+            }
+            if (!registry || !Array.isArray(registry.signatures)) {
+              core.setFailed(`${file} on the PR head must contain a "signatures" array.`);
+              return;
+            }
+            const entries = registry.signatures.filter(
+              (entry) => entry && (entry.github ?? '').toLowerCase() === author.toLowerCase()
+            );
+            if (entries.some((entry) => entry.claVersion === current)) {
+              console.log(`@${author} has signed CLA v${current}.`);
+              return;
+            }
+            if (entries.length > 0) {
+              core.setFailed(
+                `@${author} signed an earlier CLA version, but the current agreement is v${current}. ` +
+                `Please re-read CLA.md and update your entry in ${file} to "claVersion": "${current}".`
+              );
+              return;
+            }
+            core.setFailed(
+              `@${author} has not signed the Contributor License Agreement. ` +
+              `Please read CLA.md and add yourself to ${file} in this pull request ` +
+              `(with "claVersion": "${current}") — the commit adding your entry is ` +
+              `your electronic signature.`
+            );
