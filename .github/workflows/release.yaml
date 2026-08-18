@@ -99,52 +99,70 @@ jobs:
             const latestTag = '${{ steps.get_tag.outputs.latest_tag }}';
             const bumpType = '${{ github.event.inputs.bump }}';
 
-            const cleanVersion = latestTag.startsWith('v') ? latestTag.slice(1) : latestTag;
-            const match = cleanVersion.match(/^(\d+)\.(\d+)\.(\d+)/);
-
             let major = 0;
-            let minor = 0;
+            let minor = 1;
             let patch = 0;
 
-            if (match) {
-              major = parseInt(match[1], 10);
-              minor = parseInt(match[2], 10);
-              patch = parseInt(match[3], 10);
-            }
+            if (latestTag && latestTag !== 'v0.0.0') {
+              const cleanVersion = latestTag.startsWith('v') ? latestTag.slice(1) : latestTag;
+              const match = cleanVersion.match(/^(\d+)\.(\d+)\.(\d+)/);
 
-            if (bumpType === 'major') {
-              major += 1;
-              minor = 0;
-              patch = 0;
-            } else if (bumpType === 'minor') {
-              minor += 1;
-              patch = 0;
+              if (match) {
+                major = parseInt(match[1], 10);
+                minor = parseInt(match[2], 10);
+                patch = parseInt(match[3], 10);
+
+                if (bumpType === 'major') {
+                  major += 1;
+                  minor = 0;
+                  patch = 0;
+                } else if (bumpType === 'minor') {
+                  minor += 1;
+                  patch = 0;
+                } else {
+                  patch += 1;
+                }
+              }
             } else {
-              patch += 1;
+              // Initial release starting from baseline 0.1.0
+              if (bumpType === 'major') {
+                major = 1;
+                minor = 0;
+                patch = 0;
+              } else if (bumpType === 'minor') {
+                major = 0;
+                minor = 2;
+                patch = 0;
+              } else {
+                major = 0;
+                minor = 1;
+                patch = 0;
+              }
             }
 
-            const newVersion = `${major}.${minor}.${patch}`;
-            const newTag = `v${newVersion}`;
-            core.setOutput('new_version', newVersion);
-            core.setOutput('new_tag', newTag);
-            console.log(`New version will be: ${newVersion}`);
-            console.log(`New tag will be: ${newTag}`);
+            const releaseVersion = `${major}.${minor}.${patch}`;
+            const releaseTag = `v${releaseVersion}`;
+            const nextSnapshot = `${major}.${minor}.${patch + 1}-SNAPSHOT`;
+
+            core.setOutput('new_version', releaseVersion);
+            core.setOutput('new_tag', releaseTag);
+            core.setOutput('next_snapshot', nextSnapshot);
+            console.log(`Release version: ${releaseVersion} (${releaseTag})`);
+            console.log(`Next snapshot: ${nextSnapshot}`);
 
       - name: Update version in build.sbt
         run: |
-          NEW_VERSION="${{ steps.bump_version.outputs.new_version }}"
+          NEXT_SNAPSHOT="${{ steps.bump_version.outputs.next_snapshot }}"
 
-          # Update the version field in build.sbt to have the new SNAPSHOT version
-          # Matches: ThisBuild / version              := "0.1.0-SNAPSHOT"
-          sed -i 's/ThisBuild \/ version[[:space:]]*:= "[^"]*"/ThisBuild \/ version              := "'"$NEW_VERSION-SNAPSHOT"'"/' build.sbt
+          # Update the version field in build.sbt to have the next development SNAPSHOT version
+          sed -i 's/ThisBuild \/ version[[:space:]]*:= "[^"]*"/ThisBuild \/ version              := "'"$NEXT_SNAPSHOT"'"/' build.sbt
 
-          # Commit the change
-          git add build.sbt
-          git commit -m "chore(release): bump version to $NEW_VERSION-SNAPSHOT"
-
-          # Push the commit to current branch
-          BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
-          git push origin "$BRANCH_NAME"
+          if ! git diff --quiet build.sbt; then
+            git add build.sbt
+            git commit -m "chore(release): bump version to $NEXT_SNAPSHOT"
+            BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+            git push origin "$BRANCH_NAME"
+          fi
 
       - name: Create new Git tag
         run: |
@@ -178,7 +196,12 @@ jobs:
           PACKAGE_VERSION: ${{ steps.bump_version.outputs.new_version }}
 
       - name: Publish to GitHub Package Registry
-        run: npm publish ./dist
+        run: |
+          if npm view "@fortemate/dicechess-engine@${{ steps.bump_version.outputs.new_version }}" version --registry=https://npm.pkg.github.com >/dev/null 2>&1; then
+            echo "@fortemate/dicechess-engine@${{ steps.bump_version.outputs.new_version }} is already published, skipping"
+          else
+            npm publish ./dist
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -190,7 +213,12 @@ jobs:
           PACKAGE_VERSION: ${{ steps.bump_version.outputs.new_version }}
 
       - name: Publish Wasm package to GitHub Package Registry
-        run: npm publish ./dist-wasm
+        run: |
+          if npm view "@fortemate/dicechess-engine-wasm@${{ steps.bump_version.outputs.new_version }}" version --registry=https://npm.pkg.github.com >/dev/null 2>&1; then
+            echo "@fortemate/dicechess-engine-wasm@${{ steps.bump_version.outputs.new_version }} is already published, skipping"
+          else
+            npm publish ./dist-wasm
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
