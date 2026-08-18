@@ -2,13 +2,20 @@ import sbt.{given, *}
 import org.scalajs.linker.interface.ESVersion
 import scala.jdk.CollectionConverters.*
 
-ThisBuild / organization := "com.fortemate"
-ThisBuild / version      := "0.1.0-SNAPSHOT"
-ThisBuild / scalaVersion := "3.8.4"
+// =============================================================================
+// Project Metadata & Publishing Settings
+// =============================================================================
+ThisBuild / organization         := "com.fortemate"
+ThisBuild / organizationName     := "Fortemate"
+ThisBuild / organizationHomepage := Some(uri("https://fortemate.com"))
+ThisBuild / homepage             := Some(uri("https://fortemate.com"))
+ThisBuild / startYear            := Some(2026)
+ThisBuild / version              := "0.1.0-SNAPSHOT"
+ThisBuild / scalaVersion         := "3.8.4"
 
-ThisBuild / description := "Cross-platform high-performance Dice Chess engine, move generator, and AI search."
-ThisBuild / homepage    := Some(uri("https://fortemate.com"))
-ThisBuild / licenses    := List(License("AGPL-3.0", uri("https://www.gnu.org/licenses/agpl-3.0.txt")))
+ThisBuild / description   := "Cross-platform high-performance Dice Chess engine, move generator, and AI search."
+ThisBuild / licenses      := List(License("AGPL-3.0", uri("https://www.gnu.org/licenses/agpl-3.0.txt")))
+ThisBuild / versionScheme := Some("early-semver")
 
 ThisBuild / scmInfo := Some(
   ScmInfo(
@@ -27,8 +34,7 @@ ThisBuild / developers := List(
 )
 
 // Publishing (JVM artifact → GitHub Packages Maven registry).
-ThisBuild / versionScheme := Some("early-semver")
-ThisBuild / publishTo     := Some(
+ThisBuild / publishTo := Some(
   "GitHub Packages" at "https://maven.pkg.github.com/fortemate/dicechess-engine"
 )
 ThisBuild / credentials ++= (for {
