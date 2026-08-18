@@ -1,0 +1,66 @@
+# PR labels matching branch convention and path fallbacks
+# Grouped by .github/release.yml for release notes generation.
+
+# ── Branch type → label ─────────────────────────────────────────────────────────
+enhancement:
+  - head-branch: ['^task/', '^feat/', '^feature/']
+bug:
+  - head-branch: ['^bug/', '^fix/']
+refactoring:
+  - head-branch: ['^refactor/']
+performance:
+  - head-branch: ['^perf/']
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'benchmark/**'
+
+# ── Path fallbacks for branches without a type prefix ───────────────────────────
+documentation:
+  - head-branch: ['^docs/']
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'README.md'
+          - 'CONTRIBUTING.md'
+          - 'SECURITY.md'
+          - 'docs/**'
+ci-cd:
+  - head-branch: ['^ci/']
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**'
+          - 'mise.toml'
+          - 'lefthook.yml'
+testing:
+  - head-branch: ['^test/']
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/src/test/**'
+
+# ── Domain labels from package paths ───────────────────────────────────────────
+core-types:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'shared/src/main/scala/**/domain/**'
+move-gen:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'shared/src/main/scala/**/movegen/**'
+turn-rules:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'shared/src/main/scala/**/search/TurnGenerator.scala'
+search:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'shared/src/main/scala/**/search/**'
+evaluation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/Evaluator*.scala'
+          - '**/KingCapture*.scala'
+api:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'js/**'
+          - 'jvm/**'
+          - '.wasm/**'
