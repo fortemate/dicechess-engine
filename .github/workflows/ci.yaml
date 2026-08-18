@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate workflows
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL -o "$archive" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          echo "${ACTIONLINT_SHA256}  ${archive}" | sha256sum -c -
+          tar -xzf "$archive" actionlint
+          ./actionlint -shellcheck= -color
+          rm -f "$archive" actionlint
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: sbt
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "26"
+      - name: Show sbt version
+        run: sbt --version
+      - name: scalafmt check
+        run: sbt --server scalafmtCheckAll
+      - name: Run tests with Coverage
+        run: bash .mise/lib/sbt-cold-cache.sh 'clean; coverage; testOnly *; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport'
+      - name: Scaladoc
+        run: |
+          if bash .mise/lib/sbt-cold-cache.sh 'rootJVM/doc' > scaladoc.log 2>&1; then
+            status=0
+          else
+            status=$?
+          fi
+          cat scaladoc.log
+          if [ "$status" -ne 0 ]; then
+            echo "::error::sbt rootJVM/doc failed (exit $status)"
+            exit 1
+          fi
+          if grep -q "Couldn't resolve a member for the given link query" scaladoc.log; then
+            echo "::error::Scaladoc has an unresolved [[...]] cross-reference."
+            exit 1
+          fi
+          if grep -q "Social links arg" scaladoc.log; then
+            echo "::error::The -social-links flag in build.sbt is malformed."
+            exit 1
+          fi
+      - name: Publish Test Report
+        uses: mikepenz/action-junit-report@v4
+        if: always()
+        with:
+          report_paths: '**/target/out/**/test-reports/*.xml'
+          detailed_summary: true
+          include_passed: true
+      - name: Locate Scoverage report
+        id: scoverage
+        run: |
+          REPORT=$(find target/out/jvm -maxdepth 4 -path '*/scoverage-report/scoverage.xml' -print -quit || true)
+          if [ -n "$REPORT" ]; then
+            echo "Found Scoverage report at $REPORT"
+            echo "report_path=$REPORT" >> "$GITHUB_OUTPUT"
+          else
+            echo "No Scoverage report found"
+            echo "report_path=" >> "$GITHUB_OUTPUT"
+          fi
+      - name: SonarQube Scan
+        if: github.actor != 'dependabot[bot]' && env.SONAR_TOKEN != '' && steps.scoverage.outputs.report_path != ''
+        uses: SonarSource/sonarqube-scan-action@v4
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: -Dsonar.scala.coverage.reportPaths=${{ steps.scoverage.outputs.report_path }}

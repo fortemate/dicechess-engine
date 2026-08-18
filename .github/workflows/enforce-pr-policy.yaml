@@ -1,0 +1,37 @@
+name: "CI: PR Policy"
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  check-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate branch name and linked issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            if (context.payload.pull_request.user.login === 'dependabot[bot]') {
+              console.log('Skipping validation for Dependabot PR.');
+              return;
+            }
+            const headRef = context.payload.pull_request.head.ref;
+            const body = context.payload.pull_request.body || "";
+            // Allowed branch prefixes: task|feat|feature|bug|refactor|chore|docs|ci|test|perf
+            const pattern = /^(task|feat(ure)?|bug|refactor|chore|docs|ci|test|perf)\/((issue-)?\d+-)?[a-z0-9-]+$/;
+            if (!pattern.test(headRef)) {
+              core.setFailed(`Branch "${headRef}" must be <type>/<short-desc> — type one of task|feat|bug|refactor|chore|docs|ci|test|perf, optionally <type>/<id>-<short-desc> to link an issue.`);
+              return;
+            }
+            const hasIssueId = /^[a-z]+\/(issue-)?\d+-/.test(headRef);
+            const issuePattern = /(Closes|Resolves|Fixes)\s+#\d+/i;
+            if (hasIssueId && !issuePattern.test(body)) {
+              core.setFailed('A branch that references an issue number must link it: add "Closes #<n>" (or Fixes/Resolves) to the PR body.');
+              return;
+            }
+            console.log('PR policy OK.');
