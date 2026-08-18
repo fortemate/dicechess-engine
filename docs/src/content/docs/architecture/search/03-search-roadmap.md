@@ -216,4 +216,4 @@ The recommended milestone mapping is:
   * Star1/Star2 pruning
   * Concurrency and parallel search improvements with `Ox`
 
-This keeps the project aligned with the approved milestones published in [[AGENTS.md]](file:///Users/jcemisovs/Repositories/dicechess-engine-scala/AGENTS.md).
+This keeps the project aligned with the approved milestones published in the [Roadmap & Milestones](../milestones/) guide.

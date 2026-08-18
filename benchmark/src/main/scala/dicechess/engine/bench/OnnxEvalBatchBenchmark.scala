@@ -50,13 +50,13 @@ class OnnxEvalBatchBenchmark:
     bot.close()
 
   @Benchmark
-  def repeatedSingle(): Int =
-    var acc = 0
-    var i   = 0
+  def repeatedSingle(): Array[Int] =
+    val results = new Array[Int](states.length)
+    var i       = 0
     while i < states.length do
-      acc += bot.onnxEval(states(i), Color.White)
+      results(i) = bot.onnxEval(states(i), Color.White)
       i += 1
-    acc
+    results
 
   @Benchmark
   def batched(): Array[Int] =

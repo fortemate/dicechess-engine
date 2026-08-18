@@ -2,11 +2,16 @@ package dicechess.engine.search
 
 import io.circe.generic.auto.*
 import io.circe.parser.decode
-import java.io.{File, PrintWriter}
+import java.io.File
 import java.net.URLEncoder
+import java.nio.file.Files
 import scala.io.Source
 
-/** Executable task to dynamically generate visual documentation for KingCaptureProbability test cases.
+/** Generates the visual Markdown catalog of KingCaptureProbability test cases from JSON fixtures.
+  *
+  * This generator bridges test fixtures with published documentation: it ensures the Astro documentation site reflects
+  * the exact test positions and expected king capture probabilities vetted by automated tests without manual copy-paste
+  * drift.
   */
 object KingCaptureDocGenerator:
 
@@ -50,13 +55,16 @@ object KingCaptureDocGenerator:
       val imgUrl      =
         s"https://lichess1.org/export/fen.gif?fen=$encodedFen&color=$boardColor&theme=brown&piece=cburnett"
 
+      val probStr =
+        String.format(java.util.Locale.US, "%.2f%%", java.lang.Double.valueOf(tc.expectedKingProbability * 100))
+
       sb.append(s"## $caseNum. ${tc.name}\n\n")
       sb.append(
         s"""<div style="display: flex; flex-direction: row; gap: 24px; align-items: start; margin-bottom: 30px; flex-wrap: wrap;">
   <div style="flex: 1; min-width: 300px;">
     <p style="margin-top: 0; margin-bottom: 16px;">${tc.description}</p>
     <ul style="list-style-type: disc; padding-left: 20px; margin-bottom: 0;">
-      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>${f"${tc.expectedKingProbability * 100}%.2f%%"}</code></li>
+      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>$probStr</code></li>
       <li style="margin-bottom: 0;"><strong>FEN:</strong> <code>${tc.fen}</code></li>
     </ul>
   </div>
@@ -73,12 +81,5 @@ object KingCaptureDocGenerator:
     // Write to Astro docs content folder
     val outputFile = new File("docs/src/content/docs/architecture/search/02-king-capture-probability-test-cases.md")
     outputFile.getParentFile.mkdirs()
-
-    val pw = new PrintWriter(outputFile)
-    try
-      pw.print(sb.toString())
-      println(s"Successfully generated visual test cases catalog at: ${outputFile.getAbsolutePath}")
-    catch
-      case e: Exception =>
-        println(s"Failed to write to ${outputFile.getAbsolutePath}: ${e.getMessage}")
-    finally pw.close()
+    Files.writeString(outputFile.toPath, sb.toString())
+    println(s"Successfully generated visual test cases catalog at: ${outputFile.getAbsolutePath}")

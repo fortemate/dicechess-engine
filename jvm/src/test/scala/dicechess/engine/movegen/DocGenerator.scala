@@ -2,12 +2,17 @@ package dicechess.engine.movegen
 
 import io.circe.generic.auto.*
 import io.circe.parser.decode
-import java.io.{File, PrintWriter}
+import java.io.File
 import java.net.URLEncoder
+import java.nio.file.Files
 import scala.io.Source
 import dicechess.engine.domain.{FenParser, Square}
 
-/** Executable task to dynamically generate visual documentation for all move generator test cases.
+/** Generates the visual Markdown catalog of move-generator test cases from JSON fixtures.
+  *
+  * This generator bridges test fixtures with published documentation: it ensures the Astro documentation site reflects
+  * the exact test positions, dice rolls, and legal moves vetted by automated regression tests without manual copy-paste
+  * drift.
   */
 object DocGenerator:
 
@@ -165,12 +170,5 @@ object DocGenerator:
     // Write to Astro docs content folder
     val outputFile = new File("docs/src/content/docs/architecture/move-generation/06-test-cases.md")
     outputFile.getParentFile.mkdirs()
-
-    val pw = new PrintWriter(outputFile)
-    try
-      pw.print(sb.toString())
-      println(s"Successfully generated visual test cases catalog at: ${outputFile.getAbsolutePath}")
-    catch
-      case e: Exception =>
-        println(s"Failed to write to ${outputFile.getAbsolutePath}: ${e.getMessage}")
-    finally pw.close()
+    Files.writeString(outputFile.toPath, sb.toString())
+    println(s"Successfully generated visual test cases catalog at: ${outputFile.getAbsolutePath}")
