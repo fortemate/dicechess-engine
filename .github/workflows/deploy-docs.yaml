@@ -1,0 +1,114 @@
+name: "CD: Deploy Documentation"
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - 'shared/src/main/scala/**'
+      - 'jvm/src/main/scala/**'
+      - 'js/src/main/scala/**'
+      - 'jvm/src/test/resources/search/**'
+      - 'shared/src/test/resources/movegen/**'
+      - '.mise/lib/sbt-cold-cache.sh'
+      - '.github/workflows/deploy-docs.yaml'
+
+  # Allows manual execution from Actions tab
+  workflow_dispatch:
+
+# Allow only one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+env:
+  BUILD_PATH: "./docs"
+
+jobs:
+  build:
+    name: Build Documentation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: sbt
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@8feba82adc7f01ddcf8165b86f778bdb5b82cebc # v1.5.7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "26"
+          cache: "npm"
+          cache-dependency-path: "${{ env.BUILD_PATH }}/package-lock.json"
+
+      - name: Install Node Dependencies
+        run: npm ci
+        working-directory: ${{ env.BUILD_PATH }}
+
+      - name: Generate Visual Test Cases Catalog
+        # sbt 2 requires the whole chain as ONE semicolon-joined command — separate CLI
+        # args (sbt 1 style) fail to parse.
+        run: sbt 'project rootJVM; Test / runMain dicechess.engine.movegen.DocGenerator'
+
+      - name: Generate King Capture Probability Test Cases Catalog
+        run: sbt 'project rootJVM; Test / runMain dicechess.engine.search.KingCaptureDocGenerator'
+
+      - name: Build with Astro
+        run: npm run build
+        working-directory: ${{ env.BUILD_PATH }}
+
+      - name: Generate Scaladoc
+        # Use cold cache to ensure the compiler runs and generates Scaladoc
+        # (see .mise/lib/sbt-cold-cache.sh and AGENTS.md #531 for rationale)
+        run: bash .mise/lib/sbt-cold-cache.sh 'doc'
+
+      - name: Merge Scaladoc into Astro dist
+        # sbt 2's shared build cache moved output from jvm/target/... to
+        # target/out/jvm/scala-<ver>/<module>/... — still goes stale on a scalaVersion
+        # bump (see AGENTS.md Documentation section).
+        run: |
+          mkdir -p ${{ env.BUILD_PATH }}/dist/api
+          # Find the actual Scaladoc API directory dynamically
+          # Look for the api directory under any scala version
+          api_dir=$(find target/out/jvm -type d -name 'api' -print -quit)
+          if [ -z "$api_dir" ]; then
+            echo "::error::Scaladoc API directory not found in target/out/jvm"
+            echo "Contents of target/out/jvm:"
+            ls -la target/out/jvm/ || true
+            exit 1
+          fi
+          cp -r "$api_dir"/* ${{ env.BUILD_PATH }}/dist/api/
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: "${{ env.BUILD_PATH }}/dist"
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    permissions:
+      pages: write
+      id-token: write
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy static site to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

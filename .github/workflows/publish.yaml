@@ -1,0 +1,143 @@
+name: "CD: Publish Package"
+
+on:
+  push:
+    tags:
+      - "v*"
+  # Manual re-run for an existing tag. A release can leave the tag pushed and some artifacts
+  # published but not others — v1.11.4 published nothing, v1.11.5 published the Maven jar and
+  # then lost both npm packages — and there was no way to retry. Tags created by release.yaml
+  # via GITHUB_TOKEN never fire the push event above either (GitHub anti-recursion).
+  # Caveat: a dispatch runs the workflow file as it exists *at that ref*, so this only helps
+  # for tags cut after this change landed.
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Verify the ref is a release tag
+        # The publish steps derive the version from `${GITHUB_REF_NAME#v}`. On a tag push that
+        # is always vX.Y.Z, but a dispatch can target any ref — a branch name would silently
+        # publish a garbage version, so refuse anything that is not a release tag.
+        run: |
+          case "$GITHUB_REF_NAME" in
+            v[0-9]*.[0-9]*.[0-9]*) echo "Publishing $GITHUB_REF_NAME" ;;
+            *) echo "::error::Refusing to publish from '$GITHUB_REF_NAME' — expected a vX.Y.Z tag"; exit 1 ;;
+          esac
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: "sbt"
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@8feba82adc7f01ddcf8165b86f778bdb5b82cebc # v1.5.7
+
+      - name: Run checks
+        # Run sbt directly (no mise): the runner already has the JVM toolchain, jq, and gh,
+        # so mise would only install the local-dev tool set for nothing. Runs the same gates
+        # as `mise run check`, but deliberately in a different order: scalafmt first to fail
+        # fast before any compile. `mise run check`'s clean-before-scalafmtCheckAll ordering
+        # (#354) guards against a warm target/, which cannot happen here — the runner starts
+        # from a fresh checkout, and setup-java's `cache: sbt` restores only ~/.sbt, ~/.ivy2
+        # and the coursier cache, never sbt 2's compile CAS.
+        # The cold-cache wrapper keeps the coverage threshold enforceable: a cache-served
+        # `compile` skips the compiler, so nothing is instrumented and the 85% threshold goes
+        # silently unenforced (#531). Shared with `mise run coverage`/`check` via one script so
+        # the two cannot drift; invoked with bash because the runner already provisions the JVM
+        # toolchain and needs no mise (same pattern as `bash .mise/tasks/package/prepare`).
+        # `rootJVM/coverageDataCheck` fails the build loudly if metadata is missing anyway.
+        run: bash .mise/lib/sbt-cold-cache.sh 'scalafmtCheckAll; scalafixAll --check; clean; coverage; testOnly *; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport'
+
+      - name: Publish JVM artifact to GitHub Packages (Maven)
+        # `sbt shutdown` first, and it is load-bearing twice over. sbt 2's thin client reuses
+        # the server started by an earlier step, so this step would otherwise inherit:
+        #   1. that step's environment — frozen before GITHUB_TOKEN existed, leaving
+        #      `credentials` empty in build.sbt and publishing dying with 401 Unauthorized;
+        #   2. its session `set coverageEnabled := true` from the validation run, so with no
+        #      recompile forced it would publish coverage-instrumented bytecode.
+        # `clean` guarantees a fresh uninstrumented build; assertNoCoverageInstrumentation
+        # and assertNoBenchClasses prove it rather than trusting it.
+        run: |
+          sbt shutdown >/dev/null 2>&1 || true
+          sbt "set ThisBuild / version := \"${GITHUB_REF_NAME#v}\"; clean; rootJVM/assertNoCoverageInstrumentation; rootJVM/assertNoBenchClasses; rootJVM/publish"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # package:prepare is a plain bash script (sbt + jq, both on the runner). Run its
+      # js:build dependency first, then the script directly — no mise needed.
+      - name: Build JavaScript package
+        run: |
+          sbt rootJS/fullOptJS
+          bash .mise/tasks/package/prepare
+        env:
+          # Pass the version explicitly — the tag already carries it. Letting the script
+          # scrape it back out of sbt cost two releases (#544 and the run after it).
+          PACKAGE_VERSION: ${{ github.ref_name }}
+
+      - name: Build WebAssembly package
+        run: |
+          sbt rootWasm/fullLinkJS
+          bash .mise/tasks/package/prepare-wasm
+        env:
+          PACKAGE_VERSION: ${{ github.ref_name }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "26"
+          registry-url: "https://npm.pkg.github.com"
+
+      - name: Publish JS package to GitHub Package Registry
+        run: |
+          if npm view "@fortemate/dicechess-engine@${GITHUB_REF_NAME#v}" version --registry=https://npm.pkg.github.com >/dev/null 2>&1; then
+            echo "@fortemate/dicechess-engine@${GITHUB_REF_NAME#v} is already published, skipping"
+          else
+            npm publish ./dist
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish Wasm package to GitHub Package Registry
+        run: |
+          if npm view "@fortemate/dicechess-engine-wasm@${GITHUB_REF_NAME#v}" version --registry=https://npm.pkg.github.com >/dev/null 2>&1; then
+            echo "@fortemate/dicechess-engine-wasm@${GITHUB_REF_NAME#v} is already published, skipping"
+          else
+            npm publish ./dist-wasm
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Release Assets
+        run: |
+          # Try to upload to the existing release first (created by Ops: Release)
+          # If the release does not exist yet, fallback to creating it
+          gh release upload "${{ github.ref_name }}" \
+            dist/dicechess-engine.js \
+            dist/dicechess-engine.d.ts \
+            dist-wasm/main.js \
+            dist-wasm/main.wasm \
+            dist-wasm/__loader.js \
+            --clobber || \
+          gh release create "${{ github.ref_name }}" \
+            dist/dicechess-engine.js \
+            dist/dicechess-engine.d.ts \
+            dist-wasm/main.js \
+            dist-wasm/main.wasm \
+            dist-wasm/__loader.js \
+            --title "Release ${{ github.ref_name }}" \
+            --notes "Automated release created by CI"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

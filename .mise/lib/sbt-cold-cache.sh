@@ -15,6 +15,16 @@
 #   * `rm -rf`   — guarantees a cold start even if a previous run left the directory.
 #   * the cache lives under `target/`, so it is gitignored and `clean` disposes of it.
 #
+# Do NOT "simplify" this to `set Global / cacheStores := Nil`: that is the
+# obvious-looking fix and it does change the setting's value, but the cache is not read
+# from it — verified ineffective, the compile is still served from cache.
+#
+# This lives in .mise/lib/ rather than .mise/tasks/ deliberately: it takes the sbt
+# command chain as an argument, so it is a helper, not a task, and should not show up in
+# `mise tasks`. It is shared by mise (`coverage`, `check`) and by the CI/release
+# workflows, which invoke it with bash directly — the runner already has the JVM
+# toolchain, so it does not install mise (same pattern as `bash .mise/tasks/package/prepare`).
+#
 # Usage: .mise/lib/sbt-cold-cache.sh '<semicolon-joined sbt command chain>'
 
 set -euo pipefail

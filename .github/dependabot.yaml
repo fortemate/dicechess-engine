@@ -1,0 +1,52 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "08:00"
+    open-pull-requests-limit: 5
+    assignees:
+      - "rabestro"
+    labels:
+      - "ci-cd"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "npm"
+    directory: "/docs"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "08:00"
+    open-pull-requests-limit: 5
+    assignees:
+      - "rabestro"
+    labels:
+      - "ci-cd"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "sbt"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "friday"
+      time: "08:00"
+    open-pull-requests-limit: 5
+    assignees:
+      - "rabestro"
+    labels:
+      - "dependencies"
+      - "ci-cd"
+    commit-message:
+      prefix: "chore"
+    ignore:
+      # ANY sbt major bump is a deliberate, manual migration, never an automated one:
+      # plugins must first be republished for the new sbt binary version, and the build
+      # definition itself needs rewriting. Still current now that the build is on sbt 2 —
+      # this guards 2.x -> 3.x exactly as it guarded 1.x -> 2.x. Minor/patch bumps are
+      # unaffected and still arrive automatically.
+      - dependency-name: "org.scala-sbt:sbt"
+        update-types: ["version-update:semver-major"]
