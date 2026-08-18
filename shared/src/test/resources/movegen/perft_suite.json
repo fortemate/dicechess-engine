@@ -1,0 +1,100 @@
+[
+  {
+    "title": "Initial Position - Pawns Depth 1",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "diceRoll": 1,
+    "depth": 1,
+    "expectedNodes": 16
+  },
+  {
+    "title": "Initial Position - Knights Depth 1",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "diceRoll": 2,
+    "depth": 1,
+    "expectedNodes": 4
+  },
+  {
+    "title": "Initial Position - Bishops Depth 1 (Blocked)",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "diceRoll": 3,
+    "depth": 1,
+    "expectedNodes": 0
+  },
+  {
+    "title": "Initial Position - Rooks Depth 1 (Blocked)",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "diceRoll": 4,
+    "depth": 1,
+    "expectedNodes": 0
+  },
+  {
+    "title": "Initial Position - Queens Depth 1 (Blocked)",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "diceRoll": 5,
+    "depth": 1,
+    "expectedNodes": 0
+  },
+  {
+    "title": "Initial Position - King Depth 1 (Blocked)",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "diceRoll": 6,
+    "depth": 1,
+    "expectedNodes": 0
+  },
+  {
+    "title": "Initial Position - Knights Depth 2",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "diceRoll": 2,
+    "depth": 2,
+    "expectedNodes": 16
+  },
+  {
+    "title": "Kiwipete Position - Pawns Depth 1",
+    "fen": "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+    "diceRoll": 1,
+    "depth": 1,
+    "expectedNodes": 8
+  },
+  {
+    "title": "Kiwipete Position - Knights Depth 1",
+    "fen": "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+    "diceRoll": 2,
+    "depth": 1,
+    "expectedNodes": 11
+  },
+  {
+    "title": "Kiwipete Position - Bishops Depth 1",
+    "fen": "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+    "diceRoll": 3,
+    "depth": 1,
+    "expectedNodes": 11
+  },
+  {
+    "title": "Kiwipete Position - Rooks Depth 1",
+    "fen": "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+    "diceRoll": 4,
+    "depth": 1,
+    "expectedNodes": 5
+  },
+  {
+    "title": "Kiwipete Position - Queens Depth 1",
+    "fen": "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+    "diceRoll": 5,
+    "depth": 1,
+    "expectedNodes": 9
+  },
+  {
+    "title": "Kiwipete Position - King Depth 1",
+    "fen": "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+    "diceRoll": 6,
+    "depth": 1,
+    "expectedNodes": 4
+  },
+  {
+    "title": "Kiwipete Position - Pawns Depth 2",
+    "fen": "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+    "diceRoll": 1,
+    "depth": 2,
+    "expectedNodes": 63
+  }
+]
