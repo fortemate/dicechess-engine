@@ -32,6 +32,8 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Java
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
@@ -99,12 +101,22 @@ jobs:
           registry-url: "https://npm.pkg.github.com"
 
       - name: Publish JS package to GitHub Package Registry
-        run: npm publish ./dist
+        run: |
+          if npm view "@fortemate/dicechess-engine@${GITHUB_REF_NAME#v}" version --registry=https://npm.pkg.github.com >/dev/null 2>&1; then
+            echo "@fortemate/dicechess-engine@${GITHUB_REF_NAME#v} is already published, skipping"
+          else
+            npm publish ./dist
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish Wasm package to GitHub Package Registry
-        run: npm publish ./dist-wasm
+        run: |
+          if npm view "@fortemate/dicechess-engine-wasm@${GITHUB_REF_NAME#v}" version --registry=https://npm.pkg.github.com >/dev/null 2>&1; then
+            echo "@fortemate/dicechess-engine-wasm@${GITHUB_REF_NAME#v} is already published, skipping"
+          else
+            npm publish ./dist-wasm
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

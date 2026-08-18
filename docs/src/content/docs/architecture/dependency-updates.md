@@ -1,6 +1,6 @@
 ---
 title: Dependency Updates
-description: How Dependabot keeps sbt, npm, GitHub Actions, and pre-commit dependencies current in the Dice Chess Engine.
+description: How Dependabot keeps sbt, npm, and GitHub Actions dependencies current in the Dice Chess Engine.
 ---
 
 The Dice Chess Engine relies entirely on **Dependabot version updates** to keep its dependencies current. All configuration lives in [`.github/dependabot.yaml`](https://github.com/fortemate/dicechess-engine/blob/main/.github/dependabot.yaml).
@@ -14,7 +14,6 @@ The Dice Chess Engine relies entirely on **Dependabot version updates** to keep 
 | `sbt` | `/` | Weekly, Friday | Library dependencies in `build.sbt`, sbt plugins in `project/plugins.sbt`, and the sbt version in `project/build.properties` |
 | `github-actions` | `/` | Weekly, Tuesday | Action versions pinned in `.github/workflows/**` |
 | `npm` | `/docs` | Weekly, Wednesday | The Starlight/Astro documentation site's JavaScript dependencies |
-| `pre-commit` | `/` | Weekly, Thursday | Hooks pinned in `.pre-commit-config.yaml` |
 
 Dependabot opened its first `sbt` ecosystem pull requests on 2026-07-05, confirming it bumps sbt plugins and the sbt version itself — not just `build.sbt` library coordinates.
 

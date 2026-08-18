@@ -49,4 +49,4 @@ updates:
       # this guards 2.x -> 3.x exactly as it guarded 1.x -> 2.x. Minor/patch bumps are
       # unaffected and still arrive automatically.
       - dependency-name: "org.scala-sbt:sbt"
-        update-types: [ "version-update:semver-major" ]
+        update-types: ["version-update:semver-major"]

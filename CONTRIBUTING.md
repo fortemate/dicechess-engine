@@ -33,17 +33,20 @@ See `AGENTS.md` for branch-name patterns and agent-specific guidance.
 ### Local Release Preparation
 
 We use a hybrid approach for releases:
+
 1. **Local:** Mise task bumps version and creates git tag
 2. **Automated:** GitHub Actions publishes to npm on new tags
 
 ### Creating a Release
 
 #### 1. Show Release Help (Optional)
+
 ```bash
 mise run release:help
 ```
 
 #### 2. Prepare Release Locally
+
 ```bash
 # From your task branch (after Issue & implementation)
 mise run release:prepare [patch|minor|major]
@@ -55,6 +58,7 @@ mise run release:prepare major  # 0.1.0 → 1.0.0
 ```
 
 The task will:
+
 - ✅ Validate the bump type
 - ✅ Calculate the new semantic version
 - ✅ Show you a summary and ask for confirmation
@@ -64,6 +68,7 @@ The task will:
 - ✅ Create a git tag (e.g., `v0.1.1`)
 
 #### 3. Verify & Review
+
 ```bash
 # Check the commit
 git log -1 --oneline
@@ -74,27 +79,32 @@ git tag -ln
 ```
 
 #### 4. Push to GitHub
+
 ```bash
 git push origin                 # Push commit
 git push origin --tags          # Push tags
 ```
 
 #### 5. Create Pull Request
+
 - Link the PR to your original Issue
 - Reference the release commit: `Closes #XX`
 - Wait for CI checks to pass
 
 #### 6. Auto-Publish
+
 When the version tag is pushed, the GitHub Actions `publish.yaml` workflow triggers
 automatically. It runs sbt directly (no mise on the runner — see the
 [Releases](docs/src/content/docs/architecture/releases.md) doc):
-- Validation: `sbt scalafmtCheckAll 'scalafixAll --check' clean coverage test coverageReport`
+
+- Validation: `bash .mise/lib/sbt-cold-cache.sh 'scalafmtCheckAll; scalafixAll --check; clean; coverage; testOnly *; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport'`
 - Publishes the JVM artifact to GitHub Packages (Maven)
 - Builds the npm packages (`@fortemate/dicechess-engine`, `@fortemate/dicechess-engine-wasm`) and publishes them
 - Creates a GitHub Release with auto-generated release notes
 
 ### Workflow Diagram
-```
+
+```text
 Issue #XX
     ↓
 Branch: task/XX-release-version
