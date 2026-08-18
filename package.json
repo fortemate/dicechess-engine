@@ -39,6 +39,13 @@
 		"name": "Fortemate",
 		"url": "https://fortemate.com"
 	},
+	"contributors": [
+		{
+			"name": "Jegors Čemisovs",
+			"email": "rabestro@gmail.com",
+			"url": "https://github.com/rabestro"
+		}
+	],
 	"license": "AGPL-3.0",
 	"engines": {
 		"node": ">=18"
