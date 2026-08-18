@@ -1,0 +1,37 @@
+# https://editorconfig.org
+root = true
+
+# Universal default rules applied to all files
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# 2-space indentation is the standard for the Scala, SBT, and Web ecosystems
+[*.{scala,sbt,json,toml,yaml,yml,js,mjs,cjs,ts,tsx,jsx,astro,html,css,xml,svelte}]
+indent_style = space
+indent_size = 2
+
+# Configuration specific overrides
+[Makefile]
+indent_style = tab
+indent_size = 4
+
+# Markdown specific settings for documentation
+[*.{md,mdx}]
+trim_trailing_whitespace = false
+
+# General text files
+[*.txt]
+indent_style = space
+indent_size = 4
+
+# Lock Files
+[**/{package-lock.json,yarn.lock,pnpm-lock.yaml}]
+max_line_length = unset
+trim_trailing_whitespace = unset
+indent_style = unset
+indent_size = unset
+end_of_line = unset
+insert_final_newline = unset

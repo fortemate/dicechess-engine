@@ -1,0 +1,32 @@
+*.class
+*.tasty
+*.log
+
+# virtual machine crash logs
+hs_err_pid*
+/.bsp/sbt.json
+
+# Scala/SBT
+target/
+project/target/
+project/project/
+.history/
+.scala-build/
+# Synthetic base directories sbt 2 generates for projectMatrix rows (rootJVM/rootJS)
+.sbt/
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+.DS_Store
+dist/
+dist-wasm/
+.wasm/
+node_modules/
+
+# Local opening book(s) for the arena/eval — never commit book data
+opening_book.json
+opening_book.tsv
+*.book.json
+*.book.tsv

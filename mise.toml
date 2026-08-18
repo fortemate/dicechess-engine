@@ -1,0 +1,114 @@
+[tools]
+# --- Core Runtime & Build ---
+java = "temurin-25"            # Primary runtime, aligned with CI (Java 25)
+node = "26"                    # Required for Astro/Starlight documentation
+
+# --- Git Hooks & Formatting ---
+lefthook = "latest"            # Git hooks manager (pre-commit / pre-push)
+betterleaks = "latest"         # Secret scanning in the pre-commit hook
+scalafmt = "3.11.1"            # native CLI; MUST match version in .scalafmt.conf
+actionlint = "1.7.12"          # GitHub Actions workflow linter (pre-commit + CI)
+
+# --- Workflow CLIs ---
+gh = "latest"                  # GitHub CLI: PRs, issues, releases
+jq = "latest"                  # JSON processor
+
+[tasks.setup]
+description = "📦 Install tooling and register Git hooks locally"
+depends = ["setup:tools", "hook:install"]
+
+[tasks."setup:tools"]
+description = "🛠️  Install system and build dependencies (SBT, universal-ctags, tree)"
+run_windows = """
+winget install --id sbt.sbt --version 2.0.4 --exact --accept-package-agreements --accept-source-agreements
+winget install --id UniversalCtags.UniversalCtags --accept-package-agreements --accept-source-agreements
+winget install --id GnuWin32.Tree --accept-package-agreements --accept-source-agreements
+"""
+run = "brew install sbt universal-ctags tree"
+
+[tasks.compile]
+description = "🔨 Incremental compilation of main and test sources (JVM)"
+run = "sbt rootJVM/compile"
+
+[tasks.run]
+description = "▶️  Start the engine application (JVM CLI)"
+run = "sbt cli/run"
+
+[tasks.test]
+description = "🧪 Execute MUnit automated tests (JVM + JS + Wasm)"
+# sbt 2's bare `test` key is defined as testQuick's "skip if unchanged" semantics, not
+# sbt 1's "run everything" — `testOnly *` is the sbt-2-safe equivalent that always runs
+# the full suite and still fails loudly on a real test failure.
+run = "sbt 'testOnly *'"
+
+[tasks.coverage]
+description = "📊 Run tests with scoverage and generate detailed local reports"
+run = "bash .mise/lib/sbt-cold-cache.sh 'clean; coverage; rootJVM/testOnly *; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport'"
+
+[tasks.check]
+description = "✅ Run a full validation cycle"
+run = "bash .mise/lib/sbt-cold-cache.sh 'scalafixAll --check; clean; scalafmtCheckAll; coverage; testOnly *; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport'"
+
+[tasks.console]
+description = "💻 Launch an interactive Scala REPL"
+run = "sbt cli/console"
+
+[tasks.bench]
+description = "⚡ Run all JMH benchmarks"
+run = "sbt benchmark/Jmh/run"
+
+[tasks."bench:quick"]
+description = "⚡ Run a quick JMH benchmark (3 warmup, 5 measurement, 1 fork)"
+run = "sbt 'benchmark/Jmh/run -wi 3 -i 5 -f 1'"
+
+[tasks."bench:filter"]
+description = "⚡ Run JMH benchmarks matching a regex pattern"
+run = "sbt \"benchmark/Jmh/run {{arg(name=\\\"pattern\\\")}}\""
+
+[tasks.arena]
+description = "⚔️  Run the Bot Battle Arena match runner (JVM)"
+run = "sbt 'arena/runMain dicechess.engine.bench.BotMatchRunner --base-bot {{arg(name=\"base\", default=\"greedy\")}} --games {{arg(name=\"games\", default=\"50\")}} --seed {{arg(name=\"seed\", default=\"42\")}}'"
+
+[tasks."arena:timed"]
+description = "⏱️  Run the time-controlled arena (bot vs baseline across time controls)"
+run = "sbt 'arena/runMain dicechess.engine.bench.TimedArenaRunner --base-bot {{arg(name=\"bot\", default=\"monte-carlo\")}} --opponent {{arg(name=\"baseline\", default=\"aggressive\")}} --games {{arg(name=\"games\", default=\"10\")}} --presets {{arg(name=\"presets\", default=\"1+0,3+2,10+10\")}} --seed {{arg(name=\"seed\", default=\"42\")}}'"
+
+[tasks."arena:book"]
+description = "📖⚔️  Arena: <base> bot vs the same bot + a local opening book"
+run = "sbt 'arena/runMain dicechess.engine.bench.OpeningBookArenaRunner --base-bot {{arg(name=\"base\", default=\"aggressive\")}} --book {{arg(name=\"book\", default=\"opening_book.tsv\")}} --games {{arg(name=\"games\", default=\"50\")}}'"
+
+[tasks.clean]
+description = "🧹 Remove build artifacts"
+run = "sbt clean"
+
+[tasks.format]
+description = "✨ Reformat codebase"
+run = "sbt 'scalafmtAll; scalafixAll'"
+
+[tasks."format:check"]
+description = "🔍 Verify code formatting"
+run = "sbt scalafmtCheckAll"
+
+[tasks."publish:local"]
+description = "📦 Publish the JVM artifact to the local Ivy repository (for downstream development)"
+run = "sbt rootJVM/publishLocal"
+
+[tasks."js:build"]
+description = "📦 Build optimized JavaScript bundle"
+run = "sbt rootJS/fullOptJS"
+
+[tasks."js:dev"]
+description = "📦 Build fast JavaScript bundle for local dev"
+run = "sbt rootJS/fastOptJS"
+
+[tasks."package:clean"]
+description = "🧹 Remove the distribution folder"
+run = "rm -rf dist"
+
+[tasks."hook:install"]
+description = "🪝 Register Git hooks via lefthook"
+run = "lefthook install"
+
+[tasks."hook:run"]
+description = "🏃 Run all pre-commit hook jobs manually across the entire codebase"
+run = "lefthook run pre-commit --all-files"

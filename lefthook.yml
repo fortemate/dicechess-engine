@@ -1,0 +1,30 @@
+# Lefthook — Git hooks configuration
+# Docs: https://github.com/evilmartians/lefthook
+
+pre-commit:
+  parallel: true
+  jobs:
+    # Secret scanning: abort if any staged diff leaks a credential
+    # betterleaks is the successor by the gitleaks author (gitleaks is feature-frozen).
+    # Detection only: no rule validation configured, nothing leaves the machine.
+    - name: betterleaks
+      run: betterleaks git --pre-commit --redact --staged
+
+    # Native scalafmt CLI: milliseconds per commit. The pinned mise version must
+    # match .scalafmt.conf (the native binary does not auto-dispatch versions).
+    - name: scalafmt
+      glob: "**.{scala,sbt}"
+      run: scalafmt --test {staged_files}
+
+    # A broken workflow does not fail CI — it silently stops running, so its checks
+    # simply disappear rather than turn red, and publish/release are never exercised
+    # by a pull request at all.
+    - name: workflow-yaml
+      glob: ".github/workflows/*.y*ml"
+      run: actionlint -shellcheck= {staged_files}
+
+pre-push:
+  jobs:
+    - name: scalafmt-all
+      glob: "**.{scala,sbt}"
+      run: scalafmt --test .
