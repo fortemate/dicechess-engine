@@ -1,0 +1,34 @@
+{
+	"name": "@fortemate/dicechess-engine",
+	"version": "1.0.0",
+	"type": "module",
+	"description": "High-performance Dice Chess engine in Scala.js",
+	"main": "dist/dicechess-engine.js",
+	"types": "dist/dicechess-engine.d.ts",
+	"files": [
+		"dist"
+	],
+	"publishConfig": {
+		"registry": "https://npm.pkg.github.com"
+	},
+	"homepage": "https://fortemate.com",
+	"bugs": {
+		"url": "https://github.com/fortemate/dicechess-engine/issues"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/fortemate/dicechess-engine.git"
+	},
+	"keywords": [
+		"chess",
+		"dice-chess",
+		"engine",
+		"scala-js"
+	],
+	"author": "Fortemate",
+	"license": "AGPL-3.0",
+	"engines": {
+		"node": ">=18"
+	},
+	"sideEffects": false
+}
