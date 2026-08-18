@@ -1,0 +1,88 @@
+{
+  "testCases": [
+    {
+      "name": "Kings at a distance",
+      "description": "Kings positioned on opposite ends of the board with no intervening or threatening pieces.",
+      "fen": "4k3/8/8/8/8/8/8/4K3 b - -",
+      "expectedKingProbability": 0.0
+    },
+    {
+      "name": "At least one bishop",
+      "description": "A single bishop directly attacks the king, making it vulnerable whenever that piece type appears.",
+      "fen": "rnbqkbnr/pppppBpp/8/8/4P3/8/PPPP1PPP/RNB1K1NR w KQkq - 0 1",
+      "expectedKingProbability": 0.4213
+    },
+    {
+      "name": "At least one of two pieces",
+      "description": "Multiple attacking pieces are present, creating a threat if either piece type is rolled.",
+      "fen": "rnb1qbnr/pppppkpp/8/6N1/8/4PQ2/PPPP1PPP/RNB1K2R w KQ - 0 1",
+      "expectedKingProbability": 0.7037
+    },
+    {
+      "name": "Two pieces (different)",
+      "description": "Two different attacking pieces must both appear on the dice to facilitate a capture threat.",
+      "fen": "rnbq1bnr/ppppkppp/8/4p3/1P6/B7/P1PPPPPP/R3KBNR w KQ - 0 1",
+      "expectedKingProbability": 0.1389
+    },
+    {
+      "name": "Two identical pieces (doubles)",
+      "description": "Vulnerability depends on rolling a specific pair of identical attacking pieces.",
+      "fen": "rnbqkbnr/pppppppp/8/8/2B1P3/8/PPPP1PPP/RNB1K1NR w KQ - 0 1",
+      "expectedKingProbability": 0.0741
+    },
+    {
+      "name": "Three identical pieces (triplets)",
+      "description": "The king is threatened only if three identical attacking pieces are rolled simultaneously.",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR w KQ - 0 1",
+      "expectedKingProbability": 0.0046
+    },
+    {
+      "name": "One of three pieces",
+      "description": "Multiple attacking piece types are capable of threatening the king if any one of them appears.",
+      "fen": "rnbq1bnr/ppppkppp/4p3/3N4/3P3B/Q7/PPP1PPPP/R3KBNR w KQ - 0 1",
+      "expectedKingProbability": 0.875
+    },
+    {
+      "name": "One of four pieces",
+      "description": "High likelihood of king capture threat as it depends on any one of four different attacker types appearing.",
+      "fen": "rnbq1bnr/ppppkppp/8/3N2B1/P2P4/Q3R3/1PP1PPPP/4KBNR w K - 0 1",
+      "expectedKingProbability": 0.963
+    },
+    {
+      "name": "One of five pieces",
+      "description": "Almost certain capture threat as nearly any piece type appearing on the dice enables the attack.",
+      "fen": "4R3/8/8/Q3k3/3P4/5N2/7B/6K1 w - - 0 1",
+      "expectedKingProbability": 0.9954
+    },
+    {
+      "name": "Three different pieces",
+      "description": "Threat requires the specific combination of three different attacking piece types.",
+      "fen": "rnbq1bnr/pppppkpp/8/3N4/2P5/1B1P2P1/PP2PP1P/R1B1K2R w KQ - 0 1",
+      "expectedKingProbability": 0.0278
+    },
+    {
+      "name": "Two identical pieces + one different piece",
+      "description": "Threat relies on a specific combination consisting of a pair of identical pieces and one different piece.",
+      "fen": "rnbq1bnr/pppppkpp/8/8/8/2P5/PP1PPPPP/R1B1KB1R w KQ - 0 1",
+      "expectedKingProbability": 0.0139
+    },
+    {
+      "name": "Queen and Bishop threatening the King",
+      "description": "Combined attacking influence from both the queen and bishop.",
+      "fen": "rnbqkbnr/pppppppp/8/1B6/4P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 0 1",
+      "expectedKingProbability": 0.14814814814814814
+    },
+    {
+      "name": "A bishop and the three queens",
+      "description": "Direct attacking pressure combined with support from multiple queen threats.",
+      "fen": "rnbqkbnr/pppppBpp/8/8/4P3/8/PPPP1PPP/RNBQK1NR w KQkq - 0 1",
+      "expectedKingProbability": 0.42592592592592593
+    },
+    {
+      "name": "Two pieces or queens",
+      "description": "Capture threat necessitates specific different piece types to be rolled.",
+      "fen": "rnbq1bnr/ppppkppp/8/4p3/1P6/B7/P1PPPPPP/RN1QKBNR w KQ - 0 1",
+      "expectedKingProbability": 0.14351851851851852
+    }
+  ]
+}

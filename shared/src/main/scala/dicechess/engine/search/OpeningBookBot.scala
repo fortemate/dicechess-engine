@@ -1,0 +1,95 @@
+package dicechess.engine.search
+
+import dicechess.engine.domain.*
+import scala.util.Random
+
+/** A decorator that consults an opening book before falling back to the wrapped algorithm.
+  *
+  * The `book` maps a canonical key (see [[OpeningBook.key]]) to the chosen continuation, a comma-separated list of
+  * long-algebraic micro-moves (e.g. `"e2e4,f1c4"`). When the current position's key is present, the decorator plays the
+  * booked turn instantly — without spending the underlying bot's search budget — which is exactly where a heuristic or
+  * rollout-based engine is weakest and where empirical data is richest. Otherwise it delegates to `underlying`.
+  *
+  * The booked moves are matched against the position's legal turn paths by move **multiset**, so the order stored in
+  * the book does not matter and an entry that cannot be realised legally (a stale or corrupt book) is silently ignored
+  * in favour of the underlying bot rather than played illegally.
+  *
+  * Construct via [[OpeningBookBot.decorate]], which preserves the underlying bot's time-budget capability: wrapping a
+  * [[TimeBudgetedSearch]] yields a [[TimeBudgetedOpeningBookBot]] (the deadline reaches the underlying), while wrapping
+  * a plain bot yields a plain decorator — so a host's `getBestMove` does not advertise a time budget for a bot that
+  * ignores it.
+  *
+  * @param underlying
+  *   the bot to consult when the position is not booked
+  * @param book
+  *   the opening book, keyed per [[OpeningBook.key]]
+  */
+class OpeningBookBot(val underlying: SearchAlgorithm, val book: Map[String, String]) extends SearchAlgorithm:
+
+  override def findBestMove(state: GameState): Option[ScoredSequence] =
+    lookupMove(state).orElse(underlying.findBestMove(state))
+
+  override def findBestMove(state: GameState, random: Random): Option[ScoredSequence] =
+    lookupMove(state).orElse(underlying.findBestMove(state, random))
+
+  override def shouldOfferDouble(state: GameState, currentStake: Int): Boolean =
+    underlying match
+      case drawLogic: DrawOfferLogic => drawLogic.shouldOfferDouble(state, currentStake)
+      case _                         => false
+
+  override def shouldAcceptDouble(state: GameState, currentStake: Int): Boolean =
+    underlying match
+      case drawLogic: DrawOfferLogic => drawLogic.shouldAcceptDouble(state, currentStake)
+      case _                         => false
+
+  override def shouldOfferDraw(state: GameState): Boolean =
+    underlying match
+      case drawLogic: DrawOfferLogic => drawLogic.shouldOfferDraw(state)
+      case _                         => false
+
+  override def shouldAcceptDraw(state: GameState): Boolean =
+    underlying match
+      case drawLogic: DrawOfferLogic => drawLogic.shouldAcceptDraw(state)
+      case _                         => false
+
+  /** Long-algebraic notation of a micro-move including any promotion suffix (e.g. `"e2e4"`, `"e7e8q"`). */
+  private def uci(move: Move): String = move.toUci
+
+  /** Multiset signature of a move sequence: its UCI tokens sorted and joined, so two orderings of the same turn compare
+    * equal.
+    */
+  private def signature(moves: List[String]): String =
+    moves.sorted.mkString(",")
+
+  /** The booked turn for `state`, if the position is booked and the entry is a legal turn here. */
+  protected def lookupMove(state: GameState): Option[ScoredSequence] =
+    for
+      key       <- OpeningBook.key(state)
+      bookMoves <- book.get(key)
+      target = signature(bookMoves.split(",").iterator.map(_.trim).filter(_.nonEmpty).toList)
+      path <- TurnGenerator
+        .generateAllLegalTurnPaths(state)
+        .find(p => signature(p.map(uci)) == target)
+    yield SearchScoring.scorePath(state, path)
+
+/** The time-budgeted [[OpeningBookBot]], used when the wrapped bot is itself a [[TimeBudgetedSearch]] so the deadline
+  * is forwarded on a book miss. Built by [[OpeningBookBot.decorate]].
+  */
+final class TimeBudgetedOpeningBookBot(
+    tbUnderlying: SearchAlgorithm & TimeBudgetedSearch,
+    book: Map[String, String]
+) extends OpeningBookBot(tbUnderlying, book)
+    with TimeBudgetedSearch:
+
+  override def findBestMove(state: GameState, deadlineNanos: Long, random: Random): Option[ScoredSequence] =
+    lookupMove(state).orElse(tbUnderlying.findBestMove(state, deadlineNanos, random))
+
+object OpeningBookBot:
+
+  /** Wraps `underlying` with `book`, preserving its time-budget capability: a [[TimeBudgetedSearch]] stays
+    * time-budgeted, any other algorithm stays plain.
+    */
+  def decorate(underlying: SearchAlgorithm, book: Map[String, String]): SearchAlgorithm =
+    underlying match
+      case tb: TimeBudgetedSearch => new TimeBudgetedOpeningBookBot(tb, book)
+      case _                      => new OpeningBookBot(underlying, book)
