@@ -98,8 +98,8 @@ const acceptDraw = DiceChess.shouldBotAcceptDraw(finalDfen);
 
 ## API Reference & Documentation
 
-* **[Interactive User & Developer Guide](https://jc.id.lv/dicechess-engine-scala/)**: Complete rules, architectural documentation, and live interactive visual catalogs.
-* **[GitHub Repository](https://github.com/rabestro/dicechess-engine-scala)**: Source code, issue tracker, and contribution guidelines.
+* **[Interactive User & Developer Guide](https://fortemate.com/dicechess-engine/)**: Complete rules, architectural documentation, and live interactive visual catalogs.
+* **[GitHub Repository](https://github.com/fortemate/dicechess-engine)**: Source code, issue tracker, and contribution guidelines.
 
 ---
 

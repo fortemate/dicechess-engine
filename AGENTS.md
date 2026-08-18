@@ -5,7 +5,7 @@ Cross-compiled Scala 3 Dice Chess rules engine — the single source of truth fo
 ## Project context
 
 - Public repository, AGPL-3.0 (see `LICENSE`); contributions require a CLA (`CLA.md`, part of an open-core strategy) — external contributors sign inside their first PR (`.github/cla-signatures.json`, enforced by the `CI: CLA` workflow).
-- Ships three artifacts per release, all to GitHub Packages: Maven jar `lv.id.jc:dicechess-engine-scala_3` (JVM), npm `@fortemate/dicechess-engine` (Scala.js, from `dist/`), npm `@fortemate/dicechess-engine-wasm` (WebAssembly, from `dist-wasm/`).
+- Ships three artifacts per release, all to GitHub Packages: Maven jar `com.fortemate:dicechess-engine_3` (JVM), npm `@fortemate/dicechess-engine` (Scala.js, from `dist/`), npm `@fortemate/dicechess-engine-wasm` (WebAssembly, from `dist-wasm/`).
 - Published contracts consumed by dicechess-analytics, the play site, and bots:
   - The DFEN string format (FEN extended with a 7th field = remaining dice pool) — parser in `shared/src/main/scala/dicechess/engine/domain/FenParser.scala`, canonicalization in `movegen/Dfen.scala`.
   - Two exported JS objects: `DiceChess` (`js/src/main/scala/dicechess/engine/api/JsApi.scala`) and `EngineFacade` (`js/src/main/scala/dicechess/engine/EngineFacade.scala`), both typed by the hand-written `js/dicechess-engine.d.ts`.

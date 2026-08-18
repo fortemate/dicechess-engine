@@ -5,7 +5,7 @@ description: In-depth guide on the automated release pipeline, continuous integr
 
 The Dice Chess Engine is a high-performance cross-platform library compiled for JVM, Scala.js, and WebAssembly. Every release delivers **three artifacts**:
 
-* **Maven artifact** `lv.id.jc:dicechess-engine-scala_3` (JVM, for backends such as `dicechess-analytics`)
+* **Maven artifact** `com.fortemate:dicechess-engine_3` (JVM, for backends such as `dicechess-analytics`)
 * **NPM package** `@fortemate/dicechess-engine` (Scala.js, optimized ES Module for browsers)
 * **NPM package** `@fortemate/dicechess-engine-wasm` (WebAssembly, for heavy computation in Web Workers)
 
@@ -33,7 +33,7 @@ sequenceDiagram
     Ops->>Ops: Calculates next version (e.g. 0.1.3)
     Ops->>Git: Updates build.sbt to 0.1.3-SNAPSHOT, commits & pushes
     Ops->>Git: Creates & pushes Git tag v0.1.3
-    Ops->>Mvn: Publishes lv.id.jc:dicechess-engine-scala_3 (JVM jar)
+    Ops->>Mvn: Publishes com.fortemate:dicechess-engine_3 (JVM jar)
     Ops->>Ops: Setup NodeJS 26 & builds JS package (sbt rootJS/fullOptJS + package script)
     Ops->>Npm: Publishes @fortemate/dicechess-engine package
     Ops->>Ops: Creates GitHub Release & uploads assets (js/d.ts)
@@ -62,7 +62,7 @@ sequenceDiagram
   * **Version Calculation**: Bumps the latest tag (e.g. `v0.1.2` ➡️ `v0.1.3` for a `patch` bump).
   * **Descriptor Sync**: Programmatically updates the `version` variable inside `build.sbt` to the new `-SNAPSHOT` format (e.g., `0.1.3-SNAPSHOT`).
   * **Commit & Tag**: Commits the updated `build.sbt` back to the repository and pushes to `main`, then pushes a new Git tag (e.g., `v0.1.3`) pointing to this commit.
-  * **Maven Registry Publish**: Publishes the JVM artifact `lv.id.jc:dicechess-engine-scala_3` to the GitHub Packages Maven registry with the clean release version (the `-SNAPSHOT` suffix is overridden from the tag). See [Maven Artifact & JVM Integration](/dicechess-engine/guidelines/maven-artifact/).
+  * **Maven Registry Publish**: Publishes the JVM artifact `com.fortemate:dicechess-engine_3` to the GitHub Packages Maven registry with the clean release version (the `-SNAPSHOT` suffix is overridden from the tag). See [Maven Artifact & JVM Integration](/dicechess-engine/guidelines/maven-artifact/).
   * **NPM Compilation**: Sets up Node.js 26 and builds the optimized Scala.js JavaScript package and TypeScript declarations via `sbt rootJS/fullOptJS` followed by the `package/prepare` task script (run directly, no mise needed on the runner).
   * **NPM Registry Publish**: Publishes the package `@fortemate/dicechess-engine` to the GitHub Packages registry.
   * **Release Creation & Upload**: Creates the GitHub Release (generating release notes automatically) and uploads the generated `dicechess-engine.js` and `dicechess-engine.d.ts` directly as release assets.

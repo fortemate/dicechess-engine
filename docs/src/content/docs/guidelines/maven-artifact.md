@@ -4,7 +4,7 @@ description: How the engine is published as a JVM library to the GitHub Packages
 ---
 
 The engine is the **single source of truth for Dice Chess rules** across the ecosystem. JVM
-backends — first of all [dicechess-analytics](https://github.com/rabestro/dicechess-analytics)
+backends — first of all [dicechess-analytics](https://github.com/fortemate/dicechess-analytics)
 (the Scala 3 analytics backend) — consume it as a regular Maven dependency instead of
 re-implementing game logic.
 
@@ -15,8 +15,8 @@ Every release publishes the JVM artifact alongside the NPM package:
 
 | Coordinate | Value |
 | :--- | :--- |
-| Group ID | `lv.id.jc` |
-| Artifact ID | `dicechess-engine-scala_3` |
+| Group ID | `com.fortemate` |
+| Artifact ID | `dicechess-engine_3` |
 | Registry | [GitHub Packages Maven](https://github.com/fortemate/dicechess-engine/packages) |
 
 ---
@@ -36,7 +36,7 @@ credentials ++= (for {
   token <- sys.env.get("GITHUB_TOKEN")
 } yield Credentials("GitHub Package Registry", "maven.pkg.github.com", user, token)).toSeq
 
-libraryDependencies += "lv.id.jc" %% "dicechess-engine-scala" % "<latest release>"
+libraryDependencies += "com.fortemate" %% "dicechess-engine" % "<latest release>"
 ```
 
 ---
@@ -73,8 +73,8 @@ Scala binary-version suffix has to be spelled out.
 
 <dependencies>
     <dependency>
-        <groupId>lv.id.jc</groupId>
-        <artifactId>dicechess-engine-scala_3</artifactId>
+        <groupId>com.fortemate</groupId>
+        <artifactId>dicechess-engine_3</artifactId>
         <version>${dicechess.engine.version}</version>
     </dependency>
 </dependencies>
@@ -98,7 +98,7 @@ rather than the environment:
 The `<id>` must match the `<repository>` id exactly, or Maven sends the request unauthenticated
 and GitHub Packages answers `401 Unauthorized`.
 
-[dicechess-bot-java](https://github.com/rabestro/dicechess-bot-java) is the reference consumer.
+[dicechess-bot-java](https://github.com/fortemate/dicechess-bot-java) is the reference consumer.
 
 ### The Scala runtime is two artifacts, not one
 

@@ -40,7 +40,7 @@ Dice Chess is a stochastic chess variant where players roll **three six-sided di
 
 This project compiles from a single Scala 3 codebase into three production artifacts:
 
-* **Maven Package** (`lv.id.jc:dicechess-engine-scala_3`): Full-featured JVM JAR with JMH benchmarks, bot arena, ONNX runtime, and high-speed simulation.
+* **Maven Package** (`com.fortemate:dicechess-engine_3`): Full-featured JVM JAR with JMH benchmarks, bot arena, ONNX runtime, and high-speed simulation.
 * **NPM JavaScript Package** (`@fortemate/dicechess-engine`): ES Module for browsers and Node.js.
 * **NPM WebAssembly Package** (`@fortemate/dicechess-engine-wasm`): WasmGC build running on modern WebAssembly runtimes.
 
