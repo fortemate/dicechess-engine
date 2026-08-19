@@ -39,7 +39,27 @@ fi
 
 echo "$PACKAGE_SPEC is absent from $REGISTRY_URL; publishing"
 if [[ -n "$PROVENANCE_FLAG" ]]; then
-  npm publish "$PACKAGE_DIRECTORY" --registry="$REGISTRY_URL" --access=public --provenance
+  if npm publish "$PACKAGE_DIRECTORY" --registry="$REGISTRY_URL" --access=public --provenance; then
+    exit 0
+  else
+    PUBLISH_STATUS=$?
+  fi
 else
-  npm publish "$PACKAGE_DIRECTORY" --registry="$REGISTRY_URL" --access=public
+  if npm publish "$PACKAGE_DIRECTORY" --registry="$REGISTRY_URL" --access=public; then
+    exit 0
+  else
+    PUBLISH_STATUS=$?
+  fi
 fi
+
+# Another run can win the race between the absence check and publication. Treat that conflict as
+# success only when the exact version is now visible; preserve the original publish failure otherwise.
+if PUBLISHED_VERSION=$(npm view "$PACKAGE_SPEC" version --registry="$REGISTRY_URL" 2>"$VIEW_ERROR"); then
+  if [[ "$PUBLISHED_VERSION" == "$PACKAGE_VERSION" ]]; then
+    echo "$PACKAGE_SPEC was published concurrently to $REGISTRY_URL; continuing"
+    exit 0
+  fi
+fi
+
+echo "error: npm publish failed for $PACKAGE_SPEC in $REGISTRY_URL" >&2
+exit "$PUBLISH_STATUS"

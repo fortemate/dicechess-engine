@@ -47,22 +47,19 @@ verify_package() {
     --registry=https://registry.npmjs.org \
     "$tarball" >/dev/null
 
-  node --input-type=module - \
+  (cd "$consumer" && node --input-type=module - \
     "$consumer/node_modules/$expected_name/package.json" \
-    "$consumer/node_modules/$expected_name" \
     "$expected_name" <<'NODE'
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 
-const [, , manifestPath, packageDirectory, expectedName] = process.argv;
+const [, , manifestPath, expectedName] = process.argv;
 const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
 if (manifest.name !== expectedName) {
   throw new Error(`installed ${manifest.name}, expected ${expectedName}`);
 }
-const entrypoint = manifest.exports['.'].import;
-await import(pathToFileURL(join(packageDirectory, entrypoint)).href);
+await import(expectedName);
 NODE
+  )
 }
 
 verify_package \

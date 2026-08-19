@@ -28,10 +28,11 @@ jobs:
         # is always vX.Y.Z, but a dispatch can target any ref — a branch name would silently
         # publish a garbage version, so refuse anything that is not a release tag.
         run: |
-          case "$GITHUB_REF_NAME" in
-            v[0-9]*.[0-9]*.[0-9]*) echo "Publishing $GITHUB_REF_NAME" ;;
-            *) echo "::error::Refusing to publish from '$GITHUB_REF_NAME' — expected a vX.Y.Z tag"; exit 1 ;;
-          esac
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Refusing to publish from '$GITHUB_REF_NAME' — expected an exact vX.Y.Z tag"
+            exit 1
+          fi
+          echo "Publishing $GITHUB_REF_NAME"
 
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -143,11 +144,14 @@ jobs:
       - name: Publish both packages to npmjs.org through the canonical workflow
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: >-
-          bash .mise/lib/dispatch-npm-publish.sh
-          "${{ github.repository }}"
-          "${{ github.ref_name }}"
-          "${{ github.sha }}"
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          bash .mise/lib/dispatch-npm-publish.sh \
+            "$REPOSITORY" \
+            "$RELEASE_TAG" \
+            "$RELEASE_SHA"
 
       - name: Upload Release Assets
         run: |

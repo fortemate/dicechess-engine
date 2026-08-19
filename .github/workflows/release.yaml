@@ -235,11 +235,14 @@ jobs:
       - name: Publish both packages to npmjs.org through the canonical workflow
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: >-
-          bash .mise/lib/dispatch-npm-publish.sh
-          "${{ github.repository }}"
-          "${{ steps.bump_version.outputs.new_tag }}"
-          "${{ github.sha }}"
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_TAG: ${{ steps.bump_version.outputs.new_tag }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          bash .mise/lib/dispatch-npm-publish.sh \
+            "$REPOSITORY" \
+            "$RELEASE_TAG" \
+            "$RELEASE_SHA"
 
       - name: Create GitHub Release and Upload Assets
         env:

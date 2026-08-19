@@ -107,6 +107,9 @@ BOOTSTRAP_SOURCE="$BOOTSTRAP_ROOT/v0.4.0"
 EXPECTED_SHA=26ce46306b3eeabfa875f6d5a7626098bccf3c89
 
 git fetch origin main tag v0.4.0
+test "$(git branch --show-current)" = main
+test -z "$(git status --porcelain)"
+test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
 test "$(git rev-parse 'v0.4.0^{commit}')" = "$EXPECTED_SHA"
 git worktree add --detach "$BOOTSTRAP_SOURCE" v0.4.0
 cd "$BOOTSTRAP_SOURCE"
@@ -161,6 +164,7 @@ The owner then uses an ephemeral npm configuration for the interactive, 2FA-prot
 
 ```bash
 export NPM_CONFIG_USERCONFIG="$BOOTSTRAP_ROOT/npmrc"
+trap 'rm -f -- "$BOOTSTRAP_ROOT/npmrc"' EXIT
 npm login --registry=https://registry.npmjs.org --auth-type=web
 npm whoami --registry=https://registry.npmjs.org
 
@@ -170,7 +174,9 @@ npm publish "$BOOTSTRAP_ROOT/tarballs/fortemate-dicechess-engine-wasm-0.4.0.tgz"
   --registry=https://registry.npmjs.org --access=public
 
 npm logout --registry=https://registry.npmjs.org
+rm -f -- "$BOOTSTRAP_ROOT/npmrc"
 unset NPM_CONFIG_USERCONFIG
+trap - EXIT
 ```
 
 The one-time interactive bootstrap has no CI provenance. All later releases use OIDC and provenance

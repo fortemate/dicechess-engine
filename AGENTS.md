@@ -35,7 +35,7 @@ mise run setup   # brew install sbt universal-ctags tree + install git hooks
 ```
 
 - Node is required even for plain `sbt 'testOnly *'` — JS/Wasm tests execute on Node. Missing/old Node fails the JS test run, not just docs.
-- Consuming the published Maven/npm artifacts (in downstream repos) needs a `read:packages` GitHub token even though the packages are public. Inside this repo use `mise run publish:local` instead.
+- Maven Central and npmjs.org consumption require no token. Consuming the GitHub Packages npm mirrors needs a `read:packages` token plus `@fortemate:registry=https://npm.pkg.github.com`; inside this repo use `mise run publish:local` for JVM development instead.
 
 Daily tasks (defined in `mise.toml` + executable file tasks under `.mise/tasks/`):
 
