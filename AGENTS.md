@@ -102,6 +102,12 @@ Common failure signatures:
 
 ## Gotchas
 
+- On macOS, `gh` stores its login in Keychain, but an inherited `GH_TOKEN` takes precedence over that
+  credential. If `gh auth status` reports an invalid token even though the Keychain login is valid, run
+  `GH_TOKEN="" gh auth status` and prefix subsequent `gh` commands the same way. In a restricted Codex
+  sandbox, Keychain or network access may still be unavailable; retry the command with elevated sandbox
+  permission before asking the user to log out or authenticate again. Never print `gh auth token` or copy
+  the Keychain credential into a file.
 - Every ```` ```scala ```` fence in Scaladoc is **compiled** by `sbt rootJVM/doc` (`-snippet-compiler:compile`). Non-Scala examples (JSON, pseudocode) must use ```` ```text ````/```` ```json ```` fences — `mise run check` will not catch a bad fence, but `ci.yaml`'s `Scaladoc` step does, on the PR that introduces it (see Documentation).
 - `git add` new `.scala` files **before** `mise run format`: `sbt scalafmtAll` skips untracked files, then the native-scalafmt pre-commit hook fails the commit.
 - Do not "optimize" the `check` task order: `clean` runs before `scalafmtCheckAll` deliberately — sbt-scalafmt's warm cache can skip a misformatted file (#354).
