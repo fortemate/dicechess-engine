@@ -174,10 +174,10 @@ jobs:
         #      recompile forced it would publish coverage-instrumented bytecode.
         # `clean` guarantees a fresh uninstrumented build; assertNoCoverageInstrumentation
         # and assertNoBenchClasses prove it rather than trusting it.
-        # publishSigned signs every artifact; sonatypeReleaseAll promotes the bundle to Maven Central.
+        # publishSigned signs every artifact; sonaRelease uploads the bundle to Maven Central.
         run: |
           sbt shutdown >/dev/null 2>&1 || true
-          sbt "set ThisBuild / version := \"${{ steps.bump_version.outputs.new_version }}\"; clean; rootJVM/assertNoCoverageInstrumentation; rootJVM/assertNoBenchClasses; rootJVM/publishSigned; sonatypeReleaseAll"
+          sbt "set ThisBuild / version := \"${{ steps.bump_version.outputs.new_version }}\"; clean; rootJVM/assertNoCoverageInstrumentation; rootJVM/assertNoBenchClasses; rootJVM/publishSigned; sonaRelease"
         env:
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
           SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}

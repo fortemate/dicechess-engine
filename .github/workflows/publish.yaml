@@ -74,11 +74,11 @@ jobs:
 
       - name: Publish JVM artifact to Maven Central
         # `sbt shutdown` first — see the comment in the coverage step above.
-        # publishSigned signs every artifact with the imported GPG key and uploads to Sonatype.
-        # sonatypeReleaseAll promotes the staged bundle to Maven Central automatically.
+        # publishSigned signs every artifact with the imported GPG key and stages it in Sonatype.
+        # sonaRelease uploads the staged bundle to Maven Central and releases it automatically.
         run: |
           sbt shutdown >/dev/null 2>&1 || true
-          sbt "set ThisBuild / version := \"${GITHUB_REF_NAME#v}\"; clean; rootJVM/assertNoCoverageInstrumentation; rootJVM/assertNoBenchClasses; rootJVM/publishSigned; sonatypeReleaseAll"
+          sbt "set ThisBuild / version := \"${GITHUB_REF_NAME#v}\"; clean; rootJVM/assertNoCoverageInstrumentation; rootJVM/assertNoBenchClasses; rootJVM/publishSigned; sonaRelease"
         env:
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
           SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}

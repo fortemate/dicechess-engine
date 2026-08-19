@@ -37,11 +37,9 @@ ThisBuild / developers := List(
 // sbt-ci-release (see project/plugins.sbt) manages publishTo automatically:
 //   - release tag  → Sonatype staging, then promoted to Maven Central
 //   - SNAPSHOT     → Sonatype snapshot repository
-// sonatypeCredentialHost selects the new Central Portal instead of the legacy OSSRH host.
 // Credentials are injected at publish time via SONATYPE_USERNAME / SONATYPE_PASSWORD; the
 // GPG key is imported by the CI step and unlocked via PGP_PASSPHRASE (sbt-pgp reads this).
 // Local publishing (publishM2, publishLocal) bypasses signing and needs no env vars.
-ThisBuild / sonatypeCredentialHost := "central.sonatype.com"
 
 val ScalaV = "3.8.4"
 
