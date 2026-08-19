@@ -5,7 +5,7 @@ Cross-compiled Scala 3 Dice Chess rules engine — the single source of truth fo
 ## Project context
 
 - Public repository, AGPL-3.0 (see `LICENSE`); contributions require a CLA (`CLA.md`, part of an open-core strategy) — external contributors sign inside their first PR (`.github/cla-signatures.json`, enforced by the `CI: CLA` workflow).
-- Ships three artifacts per release, all to GitHub Packages: Maven jar `com.fortemate:dicechess-engine_3` (JVM), npm `@fortemate/dicechess-engine` (Scala.js, from `dist/`), npm `@fortemate/dicechess-engine-wasm` (WebAssembly, from `dist-wasm/`).
+- Ships three artifacts per release: Maven Central jar `com.fortemate:dicechess-engine_3` (JVM), npmjs.org `@fortemate/dicechess-engine` (Scala.js, from `dist/`), and npmjs.org `@fortemate/dicechess-engine-wasm` (WebAssembly, from `dist-wasm/`). Both npm packages are also published to GitHub Packages as authenticated mirrors.
 - Published contracts consumed by dicechess-analytics, the play site, and bots:
   - The DFEN string format (FEN extended with a 7th field = remaining dice pool) — parser in `shared/src/main/scala/dicechess/engine/domain/FenParser.scala`, canonicalization in `movegen/Dfen.scala`.
   - Two exported JS objects: `DiceChess` (`js/src/main/scala/dicechess/engine/api/JsApi.scala`) and `EngineFacade` (`js/src/main/scala/dicechess/engine/EngineFacade.scala`), both typed by the hand-written `js/dicechess-engine.d.ts`.
@@ -113,7 +113,7 @@ Common failure signatures:
 - Every ```` ```scala ```` fence in Scaladoc is **compiled** by `sbt rootJVM/doc` (`-snippet-compiler:compile`). Non-Scala examples (JSON, pseudocode) must use ```` ```text ````/```` ```json ```` fences — `mise run check` will not catch a bad fence, but `ci.yaml`'s `Scaladoc` step does, on the PR that introduces it (see Documentation).
 - `git add` new `.scala` files **before** `mise run format`: `sbt scalafmtAll` skips untracked files, then the native-scalafmt pre-commit hook fails the commit.
 - Do not "optimize" the `check` task order: `clean` runs before `scalafmtCheckAll` deliberately — sbt-scalafmt's warm cache can skip a misformatted file (#354).
-- `publish.yaml` and `release.yaml` duplicate publish steps intentionally: tags created by `release.yaml` via `GITHUB_TOKEN` do not trigger `publish.yaml` (GitHub anti-recursion). Edit both in sync.
+- `publish.yaml` and `release.yaml` duplicate Maven Central and GitHub Packages steps intentionally: tags created by `release.yaml` via `GITHUB_TOKEN` do not trigger `publish.yaml` (GitHub anti-recursion). Both dispatch and wait for the canonical `npm-publish.yaml` Trusted Publishing workflow because npm permits only one trusted publisher per package. Edit both entry points in sync and keep npmjs.org publication inside the canonical workflow.
 - `deploy-docs.yaml` dynamically discovers `target/out/jvm/scala-<version>/dicechess-engine/api` for the Scaladoc merge.
 - Turn maximality is measured in **dice consumed, not move count** — castling spends two dice in one move; the active color never changes within a turn. Regression suites: `TurnGeneratorSuite` (#347), `EnPassantMicroMoveSuite`.
 - The engine does **not** support Chess960 castling — squares e1/h1/a1 are hardcoded.
