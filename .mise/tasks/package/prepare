@@ -41,10 +41,6 @@ fi
 rm -rf -- dist
 mkdir -p dist
 
-# Sync version in the root package.json
-sed -i.bak "s/\"version\": \"[^\"]*\"/\"version\": \"$CLEAN_VERSION\"/" package.json
-rm package.json.bak
-
 # Copy assets to the distribution folder (sbt 2's shared target/out/ layout, not js/target/)
 cp target/out/sjs1/scala-3.*/dicechess-engine/dicechess-engine-opt/main.js dist/dicechess-engine.js
 cp js/dicechess-engine.d.ts dist/
