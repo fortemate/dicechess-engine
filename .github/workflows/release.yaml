@@ -19,6 +19,7 @@ jobs:
   create-release:
     runs-on: ubuntu-latest
     permissions:
+      actions: write # To dispatch CI for the automatically opened snapshot PR
       contents: write # To push tags and create releases
       packages: write # To publish packages
       checks: write # To publish check runs with test reports
@@ -249,15 +250,37 @@ jobs:
         run: |
           set -euo pipefail
           BRANCH="chore/bump-to-$NEXT_SNAPSHOT"
-          git checkout -b "$BRANCH"
+
+          # Publishing can take long enough for main to advance. Base the bookkeeping
+          # PR on the latest main so it does not accidentally revert newer workflows.
+          git fetch origin main
+          BASE_SHA=$(git rev-parse origin/main)
+          git checkout -b "$BRANCH" "$BASE_SHA"
           sed -i 's/ThisBuild \/ version[[:space:]]*:= "[^"]*"/ThisBuild \/ version              := "'"$NEXT_SNAPSHOT"'"/' build.sbt
 
           if ! git diff --quiet build.sbt; then
+            changed_files=$(git diff --name-only)
+            if [[ "$changed_files" != "build.sbt" ]]; then
+              echo "::error::The next-SNAPSHOT commit must only change build.sbt, found: $changed_files"
+              exit 1
+            fi
+
             git add build.sbt
             git commit -m "chore(release): bump version to $NEXT_SNAPSHOT"
+
+            # Establish the remote branch at the current main SHA before pushing the
+            # bookkeeping commit. The subsequent update then changes only build.sbt
+            # and does not require the unavailable Workflows permission.
+            if gh api "repos/$REPO/git/ref/heads/$BRANCH" >/dev/null 2>&1; then
+              echo "::error::Remote branch $BRANCH already exists"
+              exit 1
+            fi
+            gh api --method POST "repos/$REPO/git/refs" \
+              -f ref="refs/heads/$BRANCH" \
+              -f sha="$BASE_SHA" >/dev/null
             git push origin "$BRANCH"
 
-            gh pr create -R "$REPO" --base main --head "$BRANCH" \
+            pr_url=$(gh pr create -R "$REPO" --base main --head "$BRANCH" \
               --title "chore(release): bump version to $NEXT_SNAPSHOT" \
               --body "Post-release bookkeeping for **$RELEASE_TAG**, opened automatically by \`Ops: Release\`.
 
@@ -265,5 +288,10 @@ jobs:
           development version. Nothing else changes.
 
           \`$RELEASE_TAG\`, its artifacts and its GitHub Release are already published —
-          this pull request only moves the version forward on \`main\`."
+          this pull request only moves the version forward on \`main\`.")
+            echo "Opened $pr_url"
+
+            # Pull-request events created by GITHUB_TOKEN require manual approval.
+            # A workflow_dispatch run verifies the same head SHA immediately.
+            gh workflow run ci.yaml -R "$REPO" --ref "$BRANCH"
           fi
