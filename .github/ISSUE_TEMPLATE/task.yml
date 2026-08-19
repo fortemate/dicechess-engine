@@ -1,0 +1,36 @@
+name: Task
+description: Propose a specific piece of engineering or maintenance work
+type: Task
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Explain why this work is needed and what currently exists.
+    validations:
+      required: true
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: Describe the concrete outcome this task must produce.
+    validations:
+      required: true
+  - type: textarea
+    id: definition-of-done
+    attributes:
+      label: Definition of Done
+      description: List the verifiable conditions that must be true before this issue can be closed.
+      placeholder: |
+        - [ ] The requested work is complete
+        - [ ] Relevant checks pass
+        - [ ] Documentation is updated where needed
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Add implementation constraints, dependencies, links, or alternatives.
+    validations:
+      required: false

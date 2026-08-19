@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Bot API documentation
+    url: https://bots.jc.id.lv
+    about: Protocol reference and starter kits for building your own bot.
+  - name: Report a security vulnerability
+    url: https://github.com/fortemate/.github/blob/main/SECURITY.md
+    about: Please do not open a public issue for security problems.
+  - name: How to play
+    url: https://play.jc.id.lv/rules
+    about: The rules of Dice Chess, in English and Russian.
