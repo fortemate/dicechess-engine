@@ -79,7 +79,9 @@ Common failure signatures:
   - Touched Scaladoc → run `sbt rootJVM/doc` locally; CI's `Scaladoc` step re-checks it on the PR.
   - Touched `movegen/` or `search/` hot paths → attach JMH evidence (`mise run bench:filter <pattern>`) to the PR.
   - Changed bot behavior/strength → attach an arena run (`mise run arena` or `arena:timed`).
-  - Touched `.github/workflows/` → trigger the run manually with `gh workflow run ci.yaml`; such PRs have been observed not to trigger `pull_request` CI. `main` is not a protected branch — extra care.
+  - Touched `.github/workflows/` → trigger the run manually with `gh workflow run ci.yaml`; such PRs have been
+    observed not to trigger `pull_request` CI. `main` requires a PR and rejects deletion/force-push, but does not
+    require approvals or status checks — extra care.
   - Changed the JS API surface → update `js/dicechess-engine.d.ts` in the same PR.
 
 ## Code conventions
