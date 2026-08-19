@@ -12,6 +12,8 @@ on:
   # for tags cut after this change landed.
   workflow_dispatch:
 
+permissions: {}
+
 jobs:
   publish:
     runs-on: ubuntu-latest

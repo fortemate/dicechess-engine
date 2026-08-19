@@ -16,6 +16,8 @@ on:
   # Allows manual execution from Actions tab
   workflow_dispatch:
 
+permissions: {}
+
 # Allow only one concurrent deployment
 concurrency:
   group: "pages"

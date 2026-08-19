@@ -13,6 +13,8 @@ on:
           - major
         default: 'patch'
 
+permissions: {}
+
 jobs:
   create-release:
     runs-on: ubuntu-latest
