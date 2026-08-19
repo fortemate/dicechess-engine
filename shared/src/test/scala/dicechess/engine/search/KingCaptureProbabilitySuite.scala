@@ -5,7 +5,8 @@ import munit.FunSuite
 
 class KingCaptureProbabilitySuite extends FunSuite:
 
-  private val SingleAttackerProb = 91.0 / 216.0 // P(at least one specific die in 3d6)
+  private val SingleAttackerProb  = 91.0 / 216.0  // P(at least one specific die in 3d6)
+  private val TwoAttackerTypeProb = 152.0 / 216.0 // P(at least one of two specific dice in 3d6)
 
   test("kingCaptureProbability returns 0 when no attackers exist") {
     val fen   = "4k3/8/8/8/8/8/8/4K3 w - - 0 1"
@@ -39,13 +40,13 @@ class KingCaptureProbabilitySuite extends FunSuite:
     assertEqualsDouble(prob, SingleAttackerProb, 0.0001)
   }
 
-  test("kingCaptureProbability is > 0 when a blocked rook can be freed") {
-    // Black rook on e8 blocked by a Black pawn on e7 — Black can move the pawn (needs Pawn die)
-    // then capture the king with the rook (needs Rook die). P > 0.
+  test("kingCaptureProbability preserves an indirect path when no direct capture exists") {
+    // Black rook on e8 is blocked by its pawn on e7, but three Rook dice let it route around the blocker and capture
+    // the White king on e5. The depth-1 prefilter must reject the roll and leave the unchanged DFS to find this path.
     val fen   = "4r3/4p3/8/4K3/8/8/8/8 b - - 0 1"
     val state = FenParser.parse(fen).fold(err => fail(s"Failed to parse FEN: $err"), identity)
     val prob  = KingCaptureProbability.kingCaptureProbability(state, Color.White)
-    assert(prob > 0.0, "Rook can be freed by moving the pawn, then capturing the king")
+    assertEquals(prob, 1.0 / 216.0)
   }
 
   test("kingCaptureProbability returns 0 when kings are far apart") {
@@ -90,7 +91,7 @@ class KingCaptureProbabilitySuite extends FunSuite:
 
     assert(exposedProb > safeProb, s"Exposed P=$exposedProb should be > Safe P=$safeProb")
     assert(exposedProb > 0.4, s"Exposed king should have high capture probability: $exposedProb")
-    assert(safeProb > 0.0, s"A blocked rook can still be freed with pawn+rook dice: $safeProb")
+    assert(safeProb > 0.0, s"A blocked rook can still route around the pawn with three Rook dice: $safeProb")
   }
 
   test("captureDFS fails fast instead of recursing forever on castling rights that contradict piece placement (#549)") {
@@ -143,27 +144,82 @@ class KingCaptureProbabilitySuite extends FunSuite:
     }
   }
 
-  // Differential corpus: king/queen capture probabilities captured from the pre-int-encoding (List-based)
-  // captureDFS. The int-slot rewrite must reproduce them bit-for-bit — the dice multiset seen by move generation
-  // is unchanged; a removed die just leaves a harmless empty slot the dicePool getter skips.
-  test("captureDFS int-slot rewrite preserves the capture probabilities (differential corpus)") {
+  // Differential corpus captured before the int-slot rewrite and the depth-1 direct-capture prefilter. Every
+  // optimization must reproduce all four probabilities bit-for-bit. Besides representative positions, the corpus
+  // pins the prefilter's queen-type, per-roll, pawn-direction, multi-target and promotion traps.
+  test("KCP optimizations preserve capture probabilities bit-for-bit (differential corpus)") {
     val cases = List(
-      // (fen, kingWhite, queenWhite, kingBlack, queenBlack)
-      ("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 0.0, 0.0, 0.0, 0.0),
+      // (name, fen, kingWhite, queenWhite, kingBlack, queenBlack)
       (
-        "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
-        0.041666666666666664,
-        0.16203703703703703,
-        0.018518518518518517,
-        0.24074074074074073
+        "initial",
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        0.0,
+        0.0,
+        0.0,
+        0.0
       ),
-      ("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", 0.07407407407407407, 0.0, 0.14814814814814814, 0.0)
+      (
+        "kiwipete",
+        "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+        9.0 / 216.0,
+        35.0 / 216.0,
+        4.0 / 216.0,
+        52.0 / 216.0
+      ),
+      ("endgame", "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", 16.0 / 216.0, 0.0, 32.0 / 216.0, 0.0),
+      ("castling safety", "r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1", 0.0, 0.0, 0.0, 0.0),
+      ("promotion", "k7/4P3/8/8/8/8/8/4K3 w - - 0 1", 0.0, 0.0, 60.0 / 216.0, 0.0),
+      ("queen on rook file", "4q3/8/8/8/4K3/8/8/8 b - - 0 1", SingleAttackerProb, 0.0, 0.0, 0.0),
+      (
+        "queen on bishop diagonal",
+        "8/7q/8/8/4K3/8/8/8 b - - 0 1",
+        SingleAttackerProb,
+        0.0,
+        0.0,
+        1.0 / 216.0
+      ),
+      (
+        "two queens still require only the Queen die",
+        "4q3/7q/8/8/4K3/8/8/8 b - - 0 1",
+        SingleAttackerProb,
+        0.0,
+        0.0,
+        1.0 / 216.0
+      ),
+      (
+        "knight and bishop require either die",
+        "8/7b/5n2/8/4K3/8/8/8 b - - 0 1",
+        TwoAttackerTypeProb,
+        0.0,
+        0.0,
+        0.0
+      ),
+      (
+        "two queen targets are both inspected",
+        "1r6/7b/8/8/4Q3/8/1Q6/8 b - - 0 1",
+        0.0,
+        TwoAttackerTypeProb,
+        0.0,
+        0.0
+      ),
+      ("black pawn attacks forward", "8/8/8/3p4/4K3/8/8/8 b - - 0 1", SingleAttackerProb, 0.0, 0.0, 0.0),
+      ("black pawn does not attack backward", "8/8/8/4K3/3p4/8/8/8 b - - 0 1", 0.0, 0.0, 0.0, 0.0),
+      ("white pawn attacks forward", "8/8/8/4k3/3P4/8/8/8 w - - 0 1", 0.0, 0.0, SingleAttackerProb, 0.0),
+      ("white pawn does not attack backward", "8/8/8/3P4/4k3/8/8/8 w - - 0 1", 0.0, 0.0, 0.0, 0.0),
+      (
+        "promotion capture consumes a Pawn die",
+        "8/8/8/8/8/8/1p6/Q7 b - - 0 1",
+        0.0,
+        SingleAttackerProb,
+        0.0,
+        0.0
+      )
     )
-    cases.foreach { (fen, kW, qW, kB, qB) =>
+    cases.foreach { (name, fen, kW, qW, kB, qB) =>
       val st = FenParser.parse(fen).fold(e => fail(s"bad FEN: $e"), identity)
-      assertEqualsDouble(KingCaptureProbability.kingCaptureProbability(st, Color.White), kW, 1e-12)
-      assertEqualsDouble(KingCaptureProbability.queenCaptureProbability(st, Color.White), qW, 1e-12)
-      assertEqualsDouble(KingCaptureProbability.kingCaptureProbability(st, Color.Black), kB, 1e-12)
-      assertEqualsDouble(KingCaptureProbability.queenCaptureProbability(st, Color.Black), qB, 1e-12)
+      assertEquals(KingCaptureProbability.kingCaptureProbability(st, Color.White), kW, s"$name: White king")
+      assertEquals(KingCaptureProbability.queenCaptureProbability(st, Color.White), qW, s"$name: White queen")
+      assertEquals(KingCaptureProbability.kingCaptureProbability(st, Color.Black), kB, s"$name: Black king")
+      assertEquals(KingCaptureProbability.queenCaptureProbability(st, Color.Black), qB, s"$name: Black queen")
     }
   }
