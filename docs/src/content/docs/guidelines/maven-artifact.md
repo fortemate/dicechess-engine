@@ -1,6 +1,6 @@
 ---
 title: Maven Artifact & JVM Integration
-description: How the engine is published as a JVM library to the GitHub Packages Maven registry and how downstream Scala, Java, and Kotlin projects consume it.
+description: How the engine is published as a JVM library to Maven Central and how downstream Scala, Java, and Kotlin projects consume it.
 ---
 
 The engine is the **single source of truth for Dice Chess rules** across the ecosystem. JVM
@@ -17,25 +17,16 @@ Every release publishes the JVM artifact alongside the NPM package:
 | :--- | :--- |
 | Group ID | `com.fortemate` |
 | Artifact ID | `dicechess-engine_3` |
-| Registry | [GitHub Packages Maven](https://github.com/fortemate/dicechess-engine/packages) |
+| Registry | [Maven Central](https://central.sonatype.com/artifact/com.fortemate/dicechess-engine_3) |
 
 ---
 
 ## Consuming the Artifact (sbt)
 
-GitHub Packages requires authentication **even for public packages**, so consumers need a
-token with the `read:packages` scope. Locally the `GITHUB_ACTOR` / `GITHUB_TOKEN` environment
-variables are used; in GitHub Actions the built-in `GITHUB_TOKEN` works as-is.
+Maven Central is the default resolver for all JVM build tools — no extra resolver or
+authentication is needed.
 
 ```scala
-resolvers += "GitHub Packages (dicechess-engine)" at
-  "https://maven.pkg.github.com/fortemate/dicechess-engine"
-
-credentials ++= (for {
-  user  <- sys.env.get("GITHUB_ACTOR")
-  token <- sys.env.get("GITHUB_TOKEN")
-} yield Credentials("GitHub Package Registry", "maven.pkg.github.com", user, token)).toSeq
-
 libraryDependencies += "com.fortemate" %% "dicechess-engine" % "<latest release>"
 ```
 
@@ -64,13 +55,6 @@ Scala binary-version suffix has to be spelled out.
     <dicechess.engine.version><!-- latest release --></dicechess.engine.version>
 </properties>
 
-<repositories>
-    <repository>
-        <id>github-dicechess-engine</id>
-        <url>https://maven.pkg.github.com/fortemate/dicechess-engine</url>
-    </repository>
-</repositories>
-
 <dependencies>
     <dependency>
         <groupId>com.fortemate</groupId>
@@ -80,23 +64,8 @@ Scala binary-version suffix has to be spelled out.
 </dependencies>
 ```
 
-Authentication works the same way as for sbt, but Maven reads it from `~/.m2/settings.xml`
-rather than the environment:
-
-```xml
-<settings>
-    <servers>
-        <server>
-            <id>github-dicechess-engine</id>
-            <username><!-- GitHub username --></username>
-            <password><!-- token with read:packages --></password>
-        </server>
-    </servers>
-</settings>
-```
-
-The `<id>` must match the `<repository>` id exactly, or Maven sends the request unauthenticated
-and GitHub Packages answers `401 Unauthorized`.
+No `<repositories>` block is needed — Maven Central is configured by default in all standard
+Maven installations.
 
 [dicechess-bot-java](https://github.com/fortemate/dicechess-bot-java) is the reference consumer.
 
@@ -123,6 +92,23 @@ classpath). Verifying is one command — the shim is the jar with a single entry
 
 ```bash
 unzip -l scala3-library_3-*.jar
+```
+
+---
+
+## Migrating from GitHub Packages
+
+Before `v0.3.0`, the artifact was published to GitHub Packages under the same coordinates but
+required a `read:packages` GitHub token. If your project still has the old resolver, remove it:
+
+```scala
+// Remove these lines — no longer needed:
+// resolvers += "GitHub Packages (dicechess-engine)" at
+//   "https://maven.pkg.github.com/fortemate/dicechess-engine"
+// credentials ++= ...
+
+// Keep only:
+libraryDependencies += "com.fortemate" %% "dicechess-engine" % "<latest release>"
 ```
 
 ---
@@ -155,13 +141,18 @@ to a real release before opening a PR — CI has no access to your local reposit
 
 ## How Publishing Works
 
-- `build.sbt` defines `publishTo` (GitHub Packages) and reads credentials from the
-  `GITHUB_ACTOR` / `GITHUB_TOKEN` environment variables; the `benchmark` module is excluded
-  via `publish / skip := true`.
-- Both CD workflows (`release.yaml` and `publish.yaml`) run
-  `sbt "set ThisBuild / version := \"<tag>\"" rootJVM/publish`, so the registry always
-  receives the clean release version without the `-SNAPSHOT` suffix.
+- `build.sbt` sets `sonatypeCredentialHost := "central.sonatype.com"`, selecting the new Sonatype
+  Central Portal. `sbt-ci-release` (via `project/plugins.sbt`) manages `publishTo` automatically:
+  a release version goes to Sonatype staging, a `-SNAPSHOT` goes to the snapshot repository.
+- Every artifact is **GPG-signed** by `sbt-pgp` using the org key stored in the `PGP_SECRET`
+  org secret; the passphrase is in `PGP_PASSPHRASE`. Maven Central verifies the signature against
+  the public key published at `keyserver.ubuntu.com`.
+- Both CD workflows (`release.yaml` and `publish.yaml`) import the GPG key, then run
+  `sbt "... rootJVM/publishSigned; sonatypeReleaseAll"` — `publishSigned` uploads the signed
+  bundle to Sonatype staging, `sonatypeReleaseAll` promotes it to Maven Central.
+- The `benchmark`, `arena`, and `cli` modules are excluded via `publish / skip := true`.
 - The steps are intentionally duplicated in both workflows: tags pushed by `release.yaml`
   via `GITHUB_TOKEN` do not trigger `publish.yaml` (GitHub's recursion guard).
 
 See [CI/CD & Automated Releases](/dicechess-engine/architecture/releases/) for the full pipeline.
+ full pipeline.

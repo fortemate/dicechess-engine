@@ -33,14 +33,13 @@ ThisBuild / developers := List(
   )
 )
 
-// Publishing (JVM artifact → GitHub Packages Maven registry).
-ThisBuild / publishTo := Some(
-  "GitHub Packages" at "https://maven.pkg.github.com/fortemate/dicechess-engine"
-)
-ThisBuild / credentials ++= (for {
-  user  <- sys.env.get("GITHUB_ACTOR")
-  token <- sys.env.get("GITHUB_TOKEN")
-} yield Credentials("GitHub Package Registry", "maven.pkg.github.com", user, token)).toSeq
+// Publishing (JVM artifact → Maven Central via Sonatype Central Portal).
+// sbt-ci-release (see project/plugins.sbt) manages publishTo automatically:
+//   - release tag  → Sonatype staging, then promoted to Maven Central
+//   - SNAPSHOT     → Sonatype snapshot repository
+// Credentials are injected at publish time via SONATYPE_USERNAME / SONATYPE_PASSWORD; the
+// GPG key is imported by the CI step and unlocked via PGP_PASSPHRASE (sbt-pgp reads this).
+// Local publishing (publishM2, publishLocal) bypasses signing and needs no env vars.
 
 val ScalaV = "3.8.4"
 
