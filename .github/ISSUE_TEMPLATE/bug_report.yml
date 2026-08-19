@@ -1,0 +1,74 @@
+name: Bug report
+description: Report an unexpected problem or incorrect behavior
+type: Bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping us improve Fortemate. Please do not report security vulnerabilities here; use the private security link instead.
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Describe the situation, affected component, and anything needed to understand the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest reliable sequence that demonstrates the problem.
+      placeholder: |
+        1. Start ...
+        2. Configure ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: Describe the expected behavior and the outcome the fix must achieve.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Describe what happens instead, including relevant errors or symptoms.
+    validations:
+      required: true
+  - type: textarea
+    id: definition-of-done
+    attributes:
+      label: Definition of Done
+      description: List the verifiable conditions that must be true before this issue can be closed.
+      placeholder: |
+        - [ ] A regression test reproduces the problem
+        - [ ] The fix is implemented
+        - [ ] Relevant documentation is updated
+    validations:
+      required: true
+  - type: input
+    id: location
+    attributes:
+      label: Location
+      description: Add a URL, game or replay link, bot name, package, or source location if applicable.
+      placeholder: https://play.jc.id.lv/replay/...
+    validations:
+      required: false
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include browser and OS for the web app, or language, runtime, and library versions for developer tools.
+      placeholder: Firefox 142 on macOS / Java 25, dicechess-bot-runtime 1.0.1
+    validations:
+      required: false
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add logs, screenshots, traces, or other relevant information.
+    validations:
+      required: false
