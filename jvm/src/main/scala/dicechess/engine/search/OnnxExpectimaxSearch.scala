@@ -53,16 +53,12 @@ final class OnnxExpectimaxSearch(
 ) extends TimeBudgetedSearch
     with AutoCloseable:
 
-  private val onnx        = new OnnxEvalSearch(modelPath, extractFeatures)
-  private val rescoreOnnx = rootRescore.map(r => new OnnxEvalSearch(r.modelPath, r.extractFeatures))
-  private val expectimax  = new ExpectimaxSearch(
-    (states, color) => onnx.onnxEvalBatch(states, color),
+  private val (onnx, rescoreOnnx, expectimax) = OnnxExpectimaxSearchInitialization.initialize(
+    modelPath,
     config,
-    for
-      session <- rescoreOnnx
-      r       <- rootRescore
-    yield RootRescore((states, color) => session.onnxEvalBatch(states, color), r.weight),
-    if preRankWithModel then (states, color) => onnx.onnxEvalBatch(states, color) else ExpectimaxSearch.materialBatch,
+    extractFeatures,
+    rootRescore,
+    preRankWithModel,
     statsSink
   )
 
@@ -78,3 +74,47 @@ final class OnnxExpectimaxSearch(
   override def close(): Unit =
     onnx.close()
     rescoreOnnx.foreach(_.close())
+
+private[search] object OnnxExpectimaxSearchInitialization:
+
+  type SessionFactory = (String, (GameState, Color) => Array[Float]) => OnnxEvalSearch
+
+  private val DefaultSessionFactory: SessionFactory =
+    (path, features) => new OnnxEvalSearch(path, features)
+
+  def initialize(
+      modelPath: String,
+      config: ExpectimaxConfig,
+      extractFeatures: (GameState, Color) => Array[Float],
+      rootRescore: Option[RootRescoreModel],
+      preRankWithModel: Boolean,
+      statsSink: RootSearchStats => Unit,
+      sessionFactory: SessionFactory = DefaultSessionFactory
+  ): (OnnxEvalSearch, Option[OnnxEvalSearch], ExpectimaxSearch) =
+    val onnx        = sessionFactory(modelPath, extractFeatures)
+    var rescoreOnnx = Option.empty[OnnxEvalSearch]
+    try
+      rescoreOnnx = rootRescore.map(r => sessionFactory(r.modelPath, r.extractFeatures))
+      val expectimax = new ExpectimaxSearch(
+        (states, color) => onnx.onnxEvalBatch(states, color),
+        config,
+        for
+          session <- rescoreOnnx
+          r       <- rootRescore
+        yield RootRescore((states, color) => session.onnxEvalBatch(states, color), r.weight),
+        if preRankWithModel then (states, color) => onnx.onnxEvalBatch(states, color)
+        else ExpectimaxSearch.materialBatch,
+        statsSink
+      )
+      (onnx, rescoreOnnx, expectimax)
+    catch
+      case error: Throwable =>
+        rescoreOnnx.foreach(closeSuppressing(_, error))
+        closeSuppressing(onnx, error)
+        throw error // scalafix:ok(DisableSyntax.throw)
+
+  private def closeSuppressing(session: OnnxEvalSearch, originalError: Throwable): Unit =
+    try session.close()
+    catch
+      case closeError: Throwable =>
+        if closeError ne originalError then originalError.addSuppressed(closeError)

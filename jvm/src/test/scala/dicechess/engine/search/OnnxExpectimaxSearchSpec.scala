@@ -3,6 +3,7 @@ package dicechess.engine.search
 import dicechess.engine.domain.*
 import munit.FunSuite
 
+import scala.util.Failure
 import scala.util.Random
 
 /** Plumbing checks for the ONNX-backed 2-ply bot against the throwaway synthetic model (no chess signal — the real
@@ -49,6 +50,36 @@ class OnnxExpectimaxSearchSpec extends FunSuite:
     )
     try assert(bot.findBestMove(state).isDefined)
     finally bot.close() // must not throw closing two sessions
+
+  test("closes the main session when root-rescore session creation fails"):
+    val creationFailure = new IllegalStateException("root-rescore session creation failed")
+    var mainSession     = Option.empty[OnnxEvalSearch]
+    var mainClosed      = false
+    val sessionFactory: OnnxExpectimaxSearchInitialization.SessionFactory = (_, features) =>
+      mainSession match
+        case None =>
+          val session = new OnnxEvalSearch(modelPath, features):
+            override def close(): Unit =
+              super.close()
+              mainClosed = true
+          mainSession = Some(session)
+          session
+        case Some(_) => Failure(creationFailure).get
+
+    try
+      val thrown = intercept[IllegalStateException]:
+        OnnxExpectimaxSearchInitialization.initialize(
+          modelPath,
+          ExpectimaxConfig(),
+          OnnxFeatures.extract,
+          Some(RootRescoreModel("unused", OnnxFeatures.extract, weight = 0.5)),
+          preRankWithModel = false,
+          ExpectimaxSearch.NoStats,
+          sessionFactory
+        )
+      assert(thrown eq creationFailure)
+      assert(mainClosed)
+    finally if !mainClosed then mainSession.foreach(_.close())
 
   test("preRankWithModel reuses the single main session (no second one) and still returns a legal turn"):
     // Plumbing check only (real pre-rank-changes-selection behaviour is covered against a stub evalBatch in
