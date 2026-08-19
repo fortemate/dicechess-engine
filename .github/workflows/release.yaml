@@ -156,20 +156,32 @@ jobs:
           git tag ${{ steps.bump_version.outputs.new_tag }}
           git push origin ${{ steps.bump_version.outputs.new_tag }}
 
-      - name: Publish JVM artifact to GitHub Packages (Maven)
+      - name: Import GPG signing key
+        # sbt-pgp reads PGP_PASSPHRASE from the environment to unlock the key.
+        # allow-loopback-pinentry lets gpg-agent accept the passphrase non-interactively.
+        env:
+          PGP_SECRET: ${{ secrets.PGP_SECRET }}
+        run: |
+          echo "$PGP_SECRET" | base64 --decode | gpg --batch --yes --import
+          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+          gpgconf --kill gpg-agent
+
+      - name: Publish JVM artifact to Maven Central
         # `sbt shutdown` first, and it is load-bearing twice over. sbt 2's thin client reuses
         # the server started by an earlier step, so this step would otherwise inherit:
-        #   1. that step's environment — frozen before GITHUB_TOKEN existed, leaving
-        #      `credentials` empty in build.sbt and publishing dying with 401 Unauthorized;
+        #   1. that step's environment — SONATYPE_* / PGP_* vars not present in the earlier step;
         #   2. its session `set coverageEnabled := true` from the validation run, so with no
         #      recompile forced it would publish coverage-instrumented bytecode.
         # `clean` guarantees a fresh uninstrumented build; assertNoCoverageInstrumentation
         # and assertNoBenchClasses prove it rather than trusting it.
+        # publishSigned signs every artifact; sonatypeReleaseAll promotes the bundle to Maven Central.
         run: |
           sbt shutdown >/dev/null 2>&1 || true
-          sbt "set ThisBuild / version := \"${{ steps.bump_version.outputs.new_version }}\"; clean; rootJVM/assertNoCoverageInstrumentation; rootJVM/assertNoBenchClasses; rootJVM/publish"
+          sbt "set ThisBuild / version := \"${{ steps.bump_version.outputs.new_version }}\"; clean; rootJVM/assertNoCoverageInstrumentation; rootJVM/assertNoBenchClasses; rootJVM/publishSigned; sonatypeReleaseAll"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+          PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
 
       # package:prepare is a plain bash script (sbt + jq, both on the runner). Run its
       # js:build dependency first, then the script directly — no mise needed.
