@@ -32,16 +32,53 @@ object KingCaptureProbability:
     val targets        = targetBB & defenderPieces
     if targets.isEmpty then break(0.0)
 
-    val opponent = defenderColor.opponent
-    var count    = 0
-    var i        = 0
+    val opponent       = defenderColor.opponent
+    val captureDieMask = directCaptureDiceMask(state, targets, opponent)
+    var count          = 0
+    var i              = 0
     while i < DiceRolls.weighted.length do
       val (rolls, weight) = DiceRolls.weighted(i)
-      val testState       = state.withActiveColor(opponent).withDicePool(rolls)
-      if captureDFS(testState, targets, GameFlags.DiceSlots) then count += weight
+      if captureDieMask != 0 && (captureDieMask & diceMask(rolls)) != 0 then count += weight
+      else
+        val testState = state.withActiveColor(opponent).withDicePool(rolls)
+        if captureDFS(testState, targets, GameFlags.DiceSlots) then count += weight
       i += 1
     count.toDouble / DiceRolls.totalOrderedRolls
   }
+
+  /** Dice for piece types that can capture any target in one micro-move from the root position.
+    *
+    * [[MoveGenerator.allAttackers]] intentionally merges queens into both slider geometries, so its result must be
+    * intersected with each exact piece-type bitboard. Otherwise a diagonal queen would also enable a Bishop die, and an
+    * orthogonal queen would enable a Rook die. Every target is inspected because promotion can create several queens of
+    * the defended color.
+    */
+  private def directCaptureDiceMask(state: GameState, targets: Bitboard, attackerColor: Color): Int =
+    var mask             = 0
+    var remainingTargets = targets.value
+    while remainingTargets != 0L do
+      val target    = Square.fromIndex(java.lang.Long.numberOfTrailingZeros(remainingTargets))
+      val attackers = MoveGenerator.allAttackers(state, target, attackerColor)
+
+      if !(attackers & state.pawns).isEmpty then mask |= dieBit(PieceType.Pawn)
+      if !(attackers & state.knights).isEmpty then mask |= dieBit(PieceType.Knight)
+      if !(attackers & state.bishops).isEmpty then mask |= dieBit(PieceType.Bishop)
+      if !(attackers & state.rooks).isEmpty then mask |= dieBit(PieceType.Rook)
+      if !(attackers & state.queens).isEmpty then mask |= dieBit(PieceType.Queen)
+      if !(attackers & state.kings).isEmpty then mask |= dieBit(PieceType.King)
+
+      remainingTargets &= remainingTargets - 1
+    mask
+
+  private inline def dieBit(pieceType: PieceType): Int = 1 << (pieceType.diceValue - 1)
+
+  private def diceMask(dice: List[Int]): Int =
+    var mask      = 0
+    var remaining = dice
+    while remaining.nonEmpty do
+      mask |= 1 << (remaining.head - 1)
+      remaining = remaining.tail
+    mask
 
   /** Depth‑first search over all micro‑move sequences.
     *

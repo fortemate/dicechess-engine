@@ -14,6 +14,9 @@ import scala.compiletime.uninitialized
   * benchmark establishes the baseline for KCP optimizations; measure on defended-king mid/endgames (not a hanging king)
   * so a direct-capture fast-path cannot flatter the numbers.
   *
+  * The opt-in `direct-rook` position pairs a defended king under direct rook attack with an opposite-side no-hit
+  * control. Run it with `-p position=direct-rook` and report it separately from the conservative default corpus.
+  *
   * Returning the primitive `Double` is enough for JMH to consume the result and prevent dead-code elimination.
   */
 @BenchmarkMode(Array(Mode.AverageTime))
@@ -23,6 +26,8 @@ import scala.compiletime.uninitialized
 @Fork(1)
 @State(Scope.Thread)
 class KingCaptureProbabilityBenchmark:
+
+  private val DirectRookPosition = "8/2p5/3p4/KP5r/1R5k/8/4P1P1/8 w - - 0 1"
 
   @Param(Array("initial", "kiwipete", "endgame"))
   var position: String = uninitialized
@@ -35,7 +40,8 @@ class KingCaptureProbabilityBenchmark:
 
   @Setup(Level.Trial)
   def setup(): Unit =
-    state = BenchmarkPositions.parse(BenchmarkPositions.AllPositions(position))
+    val fen = if position == "direct-rook" then DirectRookPosition else BenchmarkPositions.AllPositions(position)
+    state = BenchmarkPositions.parse(fen)
     defenderColor = if defender == "white" then Color.White else Color.Black
 
   @Benchmark
