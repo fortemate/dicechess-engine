@@ -192,7 +192,18 @@ lazy val rootJS  = root.js(ScalaV)
 lazy val dicechessEngine = (project in file("."))
   .aggregate(rootJVM, rootJS, rootWasm, benchmark, arena, cli)
   .settings(
-    name           := "dicechess-engine-aggregate",
+    name := "dicechess-engine-aggregate",
+    // sonaRelease runs from this unpublished aggregate project. Override sbt's default
+    // aggregate-based name and random suffix with the published, Scala-cross-versioned JVM
+    // coordinate. sonaDeploymentName is Central Portal display metadata only: it does not
+    // change the staged bundle, artifact coordinates, or the number of deployments.
+    sonaDeploymentName := {
+      val module = CrossVersion(
+        (rootJVM / scalaVersion).value,
+        (rootJVM / scalaBinaryVersion).value
+      )((rootJVM / projectID).value)
+      s"${module.organization}:${module.name}:${module.revision}"
+    },
     publish / skip := true
   )
 
