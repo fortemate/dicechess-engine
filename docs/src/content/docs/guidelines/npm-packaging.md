@@ -3,10 +3,22 @@ title: NPM Packaging & Local Integration
 description: How the Scala.js engine is packaged for NPM, why the packaging logic lives in a single task script, and how to test changes locally in downstream frontends.
 ---
 
-The Dice Chess Engine is a **cross-platform library** compiled for both the JVM and JavaScript targets via **Scala.js**. To accommodate different client environments and performance requirements, the engine is compiled and published as two separate NPM packages:
+The Dice Chess Engine is a **cross-platform library** compiled for both the JVM and JavaScript targets via **Scala.js**. To accommodate different client environments and performance requirements, the engine is compiled and published as two separate npm packages:
 
-1. **[`@fortemate/dicechess-engine`](https://github.com/fortemate/dicechess-engine/pkgs/npm/dicechess-engine)** — A pure JavaScript build (ES Module) optimized for synchronous execution.
-2. **[`@fortemate/dicechess-engine-wasm`](https://github.com/fortemate/dicechess-engine/pkgs/npm/dicechess-engine-wasm)** — A WebAssembly (Wasm) build featuring full support for computation-heavy search workloads.
+1. **[`@fortemate/dicechess-engine`](https://www.npmjs.com/package/@fortemate/dicechess-engine)** — A pure JavaScript build (ES Module) optimized for synchronous execution.
+2. **[`@fortemate/dicechess-engine-wasm`](https://www.npmjs.com/package/@fortemate/dicechess-engine-wasm)** — A WebAssembly (Wasm) build featuring full support for computation-heavy search workloads.
+
+Install either package directly from npmjs.org. No token or custom `.npmrc` is required:
+
+```bash
+npm install @fortemate/dicechess-engine
+# or
+npm install @fortemate/dicechess-engine-wasm
+```
+
+The same names and versions are mirrored to GitHub Packages. That mirror requires a GitHub Packages
+read token and an `@fortemate:registry=https://npm.pkg.github.com` scope mapping; it is not the default
+installation path.
 
 JVM backends consume the engine via the [Maven artifact](/dicechess-engine/guidelines/maven-artifact/) instead.
 
@@ -20,7 +32,7 @@ To select the most appropriate package for your application, consult the compari
 
 | Attribute | Pure JS (`@fortemate/dicechess-engine`) | WebAssembly (`@fortemate/dicechess-engine-wasm`) |
 | :--- | :--- | :--- |
-| **Compiled Files** | `dicechess-engine.js`, `dicechess-engine.d.ts` | `main.js`, `main.wasm`, `__loader.js`, `dicechess-engine.d.ts` |
+| **Compiled Files** | `dicechess-engine.js`, `dicechess-engine.d.ts` | `main.js`, `main.wasm`, `main.wasm.map`, `__loader.js`, `dicechess-engine.d.ts` |
 | **Download Size** | **1.37 MB** (uncompressed) | **~487 KB** total (472 KB `.wasm`) |
 | **Initialization** | Synchronous (immediate import) | Asynchronous (loads `.wasm` via top-level await) |
 | **Move Gen Speed** | Standard (e.g. 5,000 iterations: **112 ms**) | Fast (e.g. 5,000 iterations: **85 ms** / **1.3x speedup**) |
@@ -38,12 +50,13 @@ To select the most appropriate package for your application, consult the compari
 
 ## Packaging Lifecycle Tasks
 
-Three `mise` tasks manage the packaging and distribution lifecycle:
+Four `mise` tasks manage the packaging and distribution lifecycle:
 
 | Task | Description |
 | :--- | :--- |
 | `mise run package:prepare` | Build optimized pure JavaScript package and assemble the `dist/` directory |
 | `mise run package:prepare-wasm` | Build optimized WebAssembly package and assemble the `dist-wasm/` directory |
+| `mise run package:verify` | Dry-run both tarballs, validate their exact contents and metadata, install them into clean temporary projects, and import their entry points |
 | `mise run package:clean` | Remove both the `dist/` and `dist-wasm/` directories |
 
 ---

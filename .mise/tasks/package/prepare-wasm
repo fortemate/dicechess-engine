@@ -6,8 +6,8 @@ set -euo pipefail
 
 # Determine the version.
 #
-# CI passes it explicitly via PACKAGE_VERSION, because it already knows it — the release
-# workflow from its version bump, publish.yaml from the tag name. Scraping it back out of
+# CI passes it explicitly via PACKAGE_VERSION, because it already knows it — release.yaml
+# from its version bump and the tag-based publishing workflows from the tag name. Scraping it back out of
 # sbt there was pure risk for no gain, and it cost two releases: the output shape depends
 # on session state (an unscoped `print version` prints one line *per project* once
 # `set ThisBuild / version := ...` has run) and, in CI, on which stream sbt writes to.
@@ -27,7 +27,7 @@ if [[ -z "$VERSION" ]]; then
   printf '%s\n' "${SBT_OUT:-<sbt was not queried>}" | sed 's/^/         /' >&2
   exit 1
 fi
-# Normalise: publish.yaml passes the tag name (vX.Y.Z), release.yaml passes a bare
+# Normalise: tag-based workflows pass the tag name (vX.Y.Z), release.yaml passes a bare
 # version, and the sbt fallback yields X.Y.Z-SNAPSHOT. npm accepts none of the prefixed or
 # suffixed forms, so strip both here rather than relying on every caller to do it.
 CLEAN_VERSION="${VERSION#v}"
@@ -58,5 +58,8 @@ jq --arg ver "$CLEAN_VERSION" '
   .name = "@fortemate/dicechess-engine-wasm" |
   .main = "main.js" |
   .types = "dicechess-engine.d.ts" |
+  .exports["."].types = "./dicechess-engine.d.ts" |
+  .exports["."].import = "./main.js" |
+  .exports["."].default = "./main.js" |
   del(.files)
 ' package.json > dist-wasm/package.json

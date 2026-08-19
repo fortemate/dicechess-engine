@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+#MISE description="🔎 Verify npm tarballs and clean-project installation"
+
+set -euo pipefail
+
+JS_PACKAGE_DIRECTORY=${1:-dist}
+WASM_PACKAGE_DIRECTORY=${2:-dist-wasm}
+TEMP_DIRECTORY=$(mktemp -d)
+trap 'rm -rf -- "$TEMP_DIRECTORY"' EXIT
+
+verify_package() {
+  local package_directory
+  package_directory=$(cd "$1" && pwd)
+  local expected_name=$2
+  shift 2
+  local expected_files=("$@")
+  local dry_run_json="$TEMP_DIRECTORY/dry-run.json"
+  local pack_json="$TEMP_DIRECTORY/pack.json"
+  local actual_files="$TEMP_DIRECTORY/actual-files.txt"
+  local expected_files_list="$TEMP_DIRECTORY/expected-files.txt"
+
+  jq -e \
+    --arg name "$expected_name" \
+    '.name == $name and
+     (.version | test("^[0-9]+\\.[0-9]+\\.[0-9]+$")) and
+     (.repository.url == "git+https://github.com/fortemate/dicechess-engine.git") and
+     (.publishConfig.registry == null) and
+     (.publishConfig.access == "public")' \
+    "$package_directory/package.json" >/dev/null
+
+  npm pack --dry-run --json "$package_directory" >"$dry_run_json"
+  jq -r '.[0].files[].path' "$dry_run_json" | sort >"$actual_files"
+  printf '%s\n' "${expected_files[@]}" | sort >"$expected_files_list"
+  diff -u "$expected_files_list" "$actual_files"
+
+  npm pack --json --pack-destination "$TEMP_DIRECTORY" "$package_directory" >"$pack_json"
+  local tarball_name
+  tarball_name=$(jq -er '.[0].filename' "$pack_json")
+  local tarball="$TEMP_DIRECTORY/$tarball_name"
+  local consumer="$TEMP_DIRECTORY/consumer-${expected_name##*/}"
+  mkdir -p "$consumer"
+
+  (cd "$consumer" && npm init --yes --scope=verification >/dev/null)
+  npm install \
+    --prefix "$consumer" \
+    --ignore-scripts \
+    --registry=https://registry.npmjs.org \
+    "$tarball" >/dev/null
+
+  (cd "$consumer" && node --input-type=module - \
+    "$consumer/node_modules/$expected_name/package.json" \
+    "$expected_name" <<'NODE'
+import { readFile } from 'node:fs/promises';
+
+const [, , manifestPath, expectedName] = process.argv;
+const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+if (manifest.name !== expectedName) {
+  throw new Error(`installed ${manifest.name}, expected ${expectedName}`);
+}
+await import(expectedName);
+NODE
+  )
+}
+
+verify_package \
+  "$JS_PACKAGE_DIRECTORY" \
+  '@fortemate/dicechess-engine' \
+  README.md \
+  dicechess-engine.d.ts \
+  dicechess-engine.js \
+  package.json
+
+verify_package \
+  "$WASM_PACKAGE_DIRECTORY" \
+  '@fortemate/dicechess-engine-wasm' \
+  README.md \
+  __loader.js \
+  dicechess-engine.d.ts \
+  main.js \
+  main.wasm \
+  main.wasm.map \
+  package.json

@@ -159,7 +159,21 @@ jobs:
           git tag ${{ steps.bump_version.outputs.new_tag }}
           git push origin ${{ steps.bump_version.outputs.new_tag }}
 
+      - name: Check Maven Central for this version
+        id: maven
+        env:
+          RELEASE_VERSION: ${{ steps.bump_version.outputs.new_version }}
+        run: |
+          POM_URL="https://repo1.maven.org/maven2/com/fortemate/dicechess-engine_3/$RELEASE_VERSION/dicechess-engine_3-$RELEASE_VERSION.pom"
+          HTTP_STATUS=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --retry 3 "$POM_URL")
+          case "$HTTP_STATUS" in
+            200) echo "publish=false" >> "$GITHUB_OUTPUT"; echo "Maven artifact $RELEASE_VERSION already exists; skipping" ;;
+            404) echo "publish=true" >> "$GITHUB_OUTPUT"; echo "Maven artifact $RELEASE_VERSION is absent; publishing" ;;
+            *) echo "::error::Maven Central returned HTTP $HTTP_STATUS for $POM_URL"; exit 1 ;;
+          esac
+
       - name: Import GPG signing key
+        if: steps.maven.outputs.publish == 'true'
         # sbt-pgp reads PGP_PASSPHRASE from the environment to unlock the key.
         # allow-loopback-pinentry lets gpg-agent accept the passphrase non-interactively.
         env:
@@ -170,6 +184,7 @@ jobs:
           gpgconf --kill gpg-agent
 
       - name: Publish JVM artifact to Maven Central
+        if: steps.maven.outputs.publish == 'true'
         # `sbt shutdown` first, and it is load-bearing twice over. sbt 2's thin client reuses
         # the server started by an earlier step, so this step would otherwise inherit:
         #   1. that step's environment — SONATYPE_* / PGP_* vars not present in the earlier step;
@@ -197,16 +212,6 @@ jobs:
           # scrape it back out of sbt cost two releases (#544 and the run after it).
           PACKAGE_VERSION: ${{ steps.bump_version.outputs.new_version }}
 
-      - name: Publish to GitHub Package Registry
-        run: |
-          if npm view "@fortemate/dicechess-engine@${{ steps.bump_version.outputs.new_version }}" version --registry=https://npm.pkg.github.com >/dev/null 2>&1; then
-            echo "@fortemate/dicechess-engine@${{ steps.bump_version.outputs.new_version }} is already published, skipping"
-          else
-            npm publish ./dist
-          fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build WebAssembly package
         run: |
           sbt rootWasm/fullLinkJS
@@ -214,15 +219,30 @@ jobs:
         env:
           PACKAGE_VERSION: ${{ steps.bump_version.outputs.new_version }}
 
-      - name: Publish Wasm package to GitHub Package Registry
-        run: |
-          if npm view "@fortemate/dicechess-engine-wasm@${{ steps.bump_version.outputs.new_version }}" version --registry=https://npm.pkg.github.com >/dev/null 2>&1; then
-            echo "@fortemate/dicechess-engine-wasm@${{ steps.bump_version.outputs.new_version }} is already published, skipping"
-          else
-            npm publish ./dist-wasm
-          fi
+      - name: Verify package tarballs and clean installation
+        run: bash .mise/tasks/package/verify
+
+      - name: Publish JavaScript package to GitHub Packages
+        run: bash .mise/lib/npm-publish-if-missing.sh ./dist https://npm.pkg.github.com
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish WebAssembly package to GitHub Packages
+        run: bash .mise/lib/npm-publish-if-missing.sh ./dist-wasm https://npm.pkg.github.com
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish both packages to npmjs.org through the canonical workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_TAG: ${{ steps.bump_version.outputs.new_tag }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          bash .mise/lib/dispatch-npm-publish.sh \
+            "$REPOSITORY" \
+            "$RELEASE_TAG" \
+            "$RELEASE_SHA"
 
       - name: Create GitHub Release and Upload Assets
         env:

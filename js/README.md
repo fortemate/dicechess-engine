@@ -8,11 +8,15 @@ Designed for maximum performance in web browsers, hybrid apps, and Node.js serve
 
 ## Installation
 
-Install the package via npm or your preferred package manager:
+Install the package from npmjs.org via npm or your preferred package manager. No registry mapping or
+authentication token is required:
 
 ```bash
 npm install @fortemate/dicechess-engine
 ```
+
+An authenticated mirror is also available from
+[GitHub Packages](https://github.com/fortemate/dicechess-engine/pkgs/npm/dicechess-engine).
 
 ---
 

@@ -70,6 +70,12 @@ mise run check
 
 ### JavaScript / TypeScript
 
+Install from npmjs.org without a token or custom registry configuration:
+
+```bash
+npm install @fortemate/dicechess-engine
+```
+
 ```typescript
 import { DiceChess, EngineFacade } from '@fortemate/dicechess-engine';
 
