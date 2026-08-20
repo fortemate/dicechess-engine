@@ -93,11 +93,13 @@ private[bench] object ArenaOptions:
       case "rawboard" => dicechess.engine.search.RawBoardFeatures.extract
       case other      => sys.error(s"Unknown feature set '$other'")
 
+  private val limitMustBePositive = "limit must be > 0"
+
   def candidateLimitOpt(default: Int = ExpectimaxConfig().candidateLimit): Opts[Int] =
     Opts
       .option[Int]("candidate-limit", help = s"Candidate limit for expectimax search (default: $default)")
       .withDefault(default)
-      .validate("limit must be > 0")(_ > 0)
+      .validate(limitMustBePositive)(_ > 0)
 
   /** The same option without a default, for runners that must tell "not given" from "given the default value".
     *
@@ -108,7 +110,7 @@ private[bench] object ArenaOptions:
   val optionalCandidateLimitOpt: Opts[Option[Int]] =
     Opts
       .option[Int]("candidate-limit", help = "Candidate limit for expectimax search (expectimax only)")
-      .validate("limit must be > 0")(_ > 0)
+      .validate(limitMustBePositive)(_ > 0)
       .orNone
 
   def searchOpt: Opts[SearchKind] =
@@ -184,7 +186,7 @@ private[bench] object ArenaOptions:
     Opts
       .option[Int]("limit", help = s"Production candidate limit under test (default: $default)")
       .withDefault(default)
-      .validate("limit must be > 0")(_ > 0)
+      .validate(limitMustBePositive)(_ > 0)
 
   /** Parses `args` and runs the command, turning both a bad argument list and a failure inside the command body into a
     * one-line `Left`.
