@@ -59,20 +59,24 @@ object Json:
     case JInt(value)  => sb.append(value)
     case JNum(value)  => sb.append(if value.isNaN || value.isInfinite then "null" else value.toString)
     case JStr(value)  => appendString(sb, value)
-    case JArr(items)  =>
-      sb.append('[')
-      for (item, i) <- items.zipWithIndex do
-        if i > 0 then sb.append(',')
-        appendTo(sb, item)
-      sb.append(']')
-    case JObj(fields) =>
-      sb.append('{')
-      for ((key, value), i) <- fields.zipWithIndex do
-        if i > 0 then sb.append(',')
-        appendString(sb, key)
-        sb.append(':')
-        appendTo(sb, value)
-      sb.append('}')
+    case JArr(items)  => appendArray(sb, items)
+    case JObj(fields) => appendObject(sb, fields)
+
+  private def appendArray(sb: StringBuilder, items: List[Json]): Unit =
+    sb.append('[')
+    for (item, i) <- items.zipWithIndex do
+      if i > 0 then sb.append(',')
+      appendTo(sb, item)
+    sb.append(']')
+
+  private def appendObject(sb: StringBuilder, fields: List[(String, Json)]): Unit =
+    sb.append('{')
+    for ((key, value), i) <- fields.zipWithIndex do
+      if i > 0 then sb.append(',')
+      appendString(sb, key)
+      sb.append(':')
+      appendTo(sb, value)
+    sb.append('}')
 
   private def appendString(sb: StringBuilder, value: String): Unit =
     sb.append('"')
@@ -125,25 +129,30 @@ object Json:
     if afterBrace < s.length && s.charAt(afterBrace) == '}' then Right((JObj(Nil), afterBrace + 1))
     else
       def loop(i: Int, acc: List[(String, Json)]): Either[String, (Json, Int)] =
-        if i >= s.length || s.charAt(i) != '"' then Left(s"expected object key (string) at $i")
-        else
-          parseString(s, i).flatMap { case (key, afterKey) =>
-            val afterColonWs = skipWs(s, afterKey)
-            if afterColonWs >= s.length || s.charAt(afterColonWs) != ':' then Left(s"expected ':' at $afterColonWs")
-            else
-              val valueStart = skipWs(s, afterColonWs + 1)
-              parseValue(s, valueStart).flatMap { case (value, afterValue) =>
-                val next    = acc :+ (key -> value)
-                val afterWs = skipWs(s, afterValue)
-                if afterWs >= s.length then Left(s"unexpected end of input at $afterWs")
-                else
-                  s.charAt(afterWs) match
-                    case ',' => loop(skipWs(s, afterWs + 1), next)
-                    case '}' => Right((JObj(next), afterWs + 1))
-                    case c   => Left(s"expected ',' or '}' at $afterWs, found '$c'")
-              }
-          }
+        parseObjectField(s, i).flatMap { case (key, value, afterValue) =>
+          val next    = acc :+ (key -> value)
+          val afterWs = skipWs(s, afterValue)
+          if afterWs >= s.length then Left(s"unexpected end of input at $afterWs")
+          else
+            s.charAt(afterWs) match
+              case ',' => loop(skipWs(s, afterWs + 1), next)
+              case '}' => Right((JObj(next), afterWs + 1))
+              case c   => Left(s"expected ',' or '}' at $afterWs, found '$c'")
+        }
       loop(afterBrace, Nil)
+
+  private def parseObjectField(s: String, i: Int): Either[String, (String, Json, Int)] =
+    if i >= s.length || s.charAt(i) != '"' then Left(s"expected object key (string) at $i")
+    else
+      parseString(s, i).flatMap { case (key, afterKey) =>
+        val afterColonWs = skipWs(s, afterKey)
+        if afterColonWs >= s.length || s.charAt(afterColonWs) != ':' then Left(s"expected ':' at $afterColonWs")
+        else
+          val valueStart = skipWs(s, afterColonWs + 1)
+          parseValue(s, valueStart).map { case (value, afterValue) =>
+            (key, value, afterValue)
+          }
+      }
 
   private def parseArray(s: String, start: Int): Either[String, (Json, Int)] =
     val afterBracket = skipWs(s, start + 1)
@@ -170,29 +179,35 @@ object Json:
         s.charAt(i) match
           case '"'  => Right((sb.toString, i + 1))
           case '\\' =>
-            if i + 1 >= s.length then Left(s"unterminated escape at $i")
-            else
-              s.charAt(i + 1) match
-                case '"'  => sb.append('"'); loop(i + 2)
-                case '\\' => sb.append('\\'); loop(i + 2)
-                case '/'  => sb.append('/'); loop(i + 2)
-                case 'n'  => sb.append('\n'); loop(i + 2)
-                case 'r'  => sb.append('\r'); loop(i + 2)
-                case 't'  => sb.append('\t'); loop(i + 2)
-                case 'b'  => sb.append('\b'); loop(i + 2)
-                case 'f'  => sb.append('\f'); loop(i + 2)
-                case 'u'  =>
-                  if i + 6 > s.length then Left(s"incomplete unicode escape at $i")
-                  else
-                    val hex = s.substring(i + 2, i + 6)
-                    parseHex4(hex) match
-                      case Some(code) => sb.append(code.toChar); loop(i + 6)
-                      case None       => Left(s"invalid unicode escape '$hex' at $i")
-                case c => Left(s"invalid escape character '$c' at $i")
+            parseEscape(s, i).flatMap { case (ch, nextI) =>
+              sb.append(ch)
+              loop(nextI)
+            }
           case c =>
             sb.append(c)
             loop(i + 1)
     loop(start + 1)
+
+  private def parseEscape(s: String, i: Int): Either[String, (Char, Int)] =
+    if i + 1 >= s.length then Left(s"unterminated escape at $i")
+    else
+      s.charAt(i + 1) match
+        case '"'  => Right(('"', i + 2))
+        case '\\' => Right(('\\', i + 2))
+        case '/'  => Right(('/', i + 2))
+        case 'n'  => Right(('\n', i + 2))
+        case 'r'  => Right(('\r', i + 2))
+        case 't'  => Right(('\t', i + 2))
+        case 'b'  => Right(('\b', i + 2))
+        case 'f'  => Right(('\f', i + 2))
+        case 'u'  =>
+          if i + 6 > s.length then Left(s"incomplete unicode escape at $i")
+          else
+            val hex = s.substring(i + 2, i + 6)
+            parseHex4(hex) match
+              case Some(code) => Right((code.toChar, i + 6))
+              case None       => Left(s"invalid unicode escape '$hex' at $i")
+        case c => Left(s"invalid escape character '$c' at $i")
 
   /** Parses a 4-digit `\u` escape as hexadecimal (`Character.digit` reports invalid digits as `-1` instead of throwing,
     * unlike `Integer.parseInt`/`String.toIntOption`, which default to radix 10 and would silently misdecode e.g. `A` as
@@ -205,22 +220,30 @@ object Json:
       if digits.exists(_ < 0) then None else Some(digits.foldLeft(0)((acc, d) => acc * 16 + d))
 
   private def parseNumber(s: String, start: Int): Either[String, (Json, Int)] =
-    var i = start
-    if i < s.length && s.charAt(i) == '-' then i += 1
-    val digitsStart = i
-    while i < s.length && s.charAt(i).isDigit do i += 1
-    if i == digitsStart then Left(s"invalid number at $start")
+    val afterMinus = if start < s.length && s.charAt(start) == '-' then start + 1 else start
+    val afterWhole = consumeDigits(s, afterMinus)
+    if afterWhole == afterMinus then Left(s"invalid number at $start")
     else
-      var isFloat = false
-      if i < s.length && s.charAt(i) == '.' then
-        isFloat = true
-        i += 1
-        while i < s.length && s.charAt(i).isDigit do i += 1
-      if i < s.length && (s.charAt(i) == 'e' || s.charAt(i) == 'E') then
-        isFloat = true
-        i += 1
-        if i < s.length && (s.charAt(i) == '+' || s.charAt(i) == '-') then i += 1
-        while i < s.length && s.charAt(i).isDigit do i += 1
-      val text = s.substring(start, i)
-      if isFloat then text.toDoubleOption.map(d => (JNum(d), i)).toRight(s"invalid number '$text' at $start")
-      else text.toLongOption.map(l => (JInt(l), i)).toRight(s"invalid number '$text' at $start")
+      val (afterFraction, hasFraction) = consumeFraction(s, afterWhole)
+      val (afterExponent, hasExponent) = consumeExponent(s, afterFraction)
+      val text                         = s.substring(start, afterExponent)
+      if hasFraction || hasExponent then
+        text.toDoubleOption.map(d => (JNum(d), afterExponent)).toRight(s"invalid number '$text' at $start")
+      else text.toLongOption.map(l => (JInt(l), afterExponent)).toRight(s"invalid number '$text' at $start")
+
+  private def consumeDigits(s: String, start: Int): Int =
+    var i = start
+    while i < s.length && s.charAt(i).isDigit do i += 1
+    i
+
+  private def consumeFraction(s: String, start: Int): (Int, Boolean) =
+    if start < s.length && s.charAt(start) == '.' then (consumeDigits(s, start + 1), true)
+    else (start, false)
+
+  private def consumeExponent(s: String, start: Int): (Int, Boolean) =
+    if start < s.length && (s.charAt(start) == 'e' || s.charAt(start) == 'E') then
+      val afterE    = start + 1
+      val afterSign =
+        if afterE < s.length && (s.charAt(afterE) == '+' || s.charAt(afterE) == '-') then afterE + 1 else afterE
+      (consumeDigits(s, afterSign), true)
+    else (start, false)
