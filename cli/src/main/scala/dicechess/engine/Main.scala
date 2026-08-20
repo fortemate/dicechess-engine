@@ -48,7 +48,7 @@ object Main:
     finally
       terminal.close()
 
-  private def processLine(line: String, parser: org.jline.reader.Parser): Boolean =
+  private[engine] def processLine(line: String, parser: org.jline.reader.Parser): Boolean =
     if line == "exit" || line == "quit" then false
     else
       import scala.jdk.CollectionConverters.*
