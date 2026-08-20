@@ -128,18 +128,45 @@ These tests prove that the algorithm respects core game semantics and obvious ta
 
 This level protects correctness and prevents regressions that would otherwise be hidden inside large simulations.
 
-### Level 2: Scenario Suite
+### Level 2: Deterministic Scenario Suite
 
-This suite is a curated set of fixed positions designed to stress the evaluator and shallow search logic.
-* immediate king capture
-* unblock-and-capture
-* promotion race
-* king exposure after material gain
-* sacrificial trap
-* high-mobility versus low-mobility positions
-* symmetric positions used to verify deterministic tie-breaking
+The implemented scenario suite is a small, versioned catalog of fixed positions designed to expose evaluator and
+shallow-search differences without the noise of a full match. The bundled catalog lives at
+[`arena/src/main/resources/search-evaluation/core-v1.json`](https://github.com/fortemate/dicechess-engine/blob/main/arena/src/main/resources/search-evaluation/core-v1.json)
+and covers:
 
-Each scenario defines the FEN, dice multiset, expected preferred line, and the rationale. This suite must remain small enough to run in every local `mise run check`.
+* tactical decisions, including immediate king captures and material choices
+* defensive decisions around king exposure and blocking attacks
+* endgame decisions, including promotions and sparse captures
+* forced passes when none of the remaining dice can move
+
+Each scenario has a stable ID, category, rationale, DFEN (including the remaining dice pool), and either a set of
+allowed turn paths or an expected pass. The catalog also names an explicit seed set. Every candidate and baseline
+decision is checked for legality and expectation matching, so a report distinguishes improvements, regressions,
+shared matches, and shared misses. The focused fixture and reproducibility tests run as part of `mise run check`.
+
+Run the default comparison (`aggressive` against `greedy`) with:
+
+```bash
+mise run arena:evaluate
+```
+
+The task accepts positional `bot`, `baseline`, and `fixtures` arguments:
+
+```bash
+mise run arena:evaluate aggressive greedy arena/src/main/resources/search-evaluation/core-v1.json
+```
+
+The runner prints a human-readable row for every scenario and seed. For an additive-stable, machine-readable JSON
+report, invoke the runner directly with `--json`:
+
+```bash
+sbt 'arena/runMain dicechess.engine.bench.SearchEvaluationRunner --bot aggressive --baseline greedy --json target/search-evaluation.json'
+```
+
+The JSON report records the fixture and seed-set identities, both bot identities, per-run decisions and scores,
+legality and expectation results, comparison classifications, and aggregate totals. Preserve fixture IDs and seed-set
+IDs when comparing archived reports; add a new version when their meaning changes.
 
 ### Level 3: Mass Simulation (Bot Arena)
 
@@ -196,13 +223,13 @@ This makes search changes reviewable inside pull requests instead of relying on 
 
 ## Suggested Issue Decomposition
 
-The future search engine tasks are decomposed as follows:
+[Search evaluation reports and fixtures](https://github.com/fortemate/dicechess-engine/issues/24) are implemented.
+The remaining future search engine tasks are decomposed as follows:
 
 1. `Expectimax search skeleton` (Milestone v0.6)
 2. `Star1 and Star2 pruning implementation`
 3. `Zobrist Hashing & Transposition Table integration`
 4. `Structured concurrency: parallelize chance-nodes using Ox`
-5. `Search evaluation reports and fixtures`
 
 ## Milestone Mapping
 

@@ -47,6 +47,7 @@ mise run compile | run | console | coverage | clean
 mise run bench | bench:quick | bench:filter <regex>     # JMH benchmarks
 mise run arena [base] [games]                           # bot arena (BotMatchRunner)
 mise run arena:timed | arena:book                       # time-controlled / opening-book arenas
+mise run arena:evaluate [bot] [baseline] [fixtures]     # deterministic search scenario comparison
 mise run js:build | js:dev | wasm:build                 # bundles
 mise run publish:local                                  # JVM jar to local Ivy for downstream dev
 mise run docs:dev | docs:build                          # docs site (runs the doc generators first)
