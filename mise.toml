@@ -77,6 +77,10 @@ run = "sbt 'arena/runMain dicechess.engine.bench.TimedArenaRunner --base-bot {{a
 description = "📖⚔️  Arena: <base> bot vs the same bot + a local opening book"
 run = "sbt 'arena/runMain dicechess.engine.bench.OpeningBookArenaRunner --base-bot {{arg(name=\"base\", default=\"aggressive\")}} --book {{arg(name=\"book\", default=\"opening_book.tsv\")}} --games {{arg(name=\"games\", default=\"50\")}}'"
 
+[tasks."arena:evaluate"]
+description = "🔬 Compare two bots on the deterministic search scenario catalog"
+run = "sbt 'arena/runMain dicechess.engine.bench.SearchEvaluationRunner --bot {{arg(name=\"bot\", default=\"aggressive\")}} --baseline {{arg(name=\"baseline\", default=\"greedy\")}} --fixtures {{arg(name=\"fixtures\", default=\"arena/src/main/resources/search-evaluation/core-v1.json\")}}'"
+
 [tasks.clean]
 description = "🧹 Remove build artifacts"
 run = "sbt clean"
@@ -138,4 +142,3 @@ run = "lefthook install"
 [tasks."hook:run"]
 description = "🏃 Run all pre-commit hook jobs manually across the entire codebase"
 run = "lefthook run pre-commit --all-files"
-
