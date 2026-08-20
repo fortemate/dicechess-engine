@@ -3,7 +3,7 @@ package dicechess.engine.bench
 import java.nio.file.Files
 
 import dicechess.engine.domain.{FenParser, GameState, Move, Square}
-import dicechess.engine.search.{BotInfo, BotRegistry, ScoredSequence, SearchAlgorithm, SearchScoring}
+import dicechess.engine.search.{ScoredSequence, SearchAlgorithm, SearchScoring}
 import munit.FunSuite
 
 class SearchEvaluationSpec extends FunSuite:
@@ -114,10 +114,8 @@ class SearchEvaluationSpec extends FunSuite:
       state(dfen),
       SearchExpectation.Turns(List(List("a1a8")))
     )
-    val fixtures  = SearchFixtureSet("test", "test", "one", List(42L), List(scenario))
-    val oracleId  = "search-evaluation-oracle"
-    val passingId = "search-evaluation-pass"
-    val oracle    = new SearchAlgorithm:
+    val fixtures = SearchFixtureSet("test", "test", "one", List(42L), List(scenario))
+    val oracle   = new SearchAlgorithm:
       override def findBestMove(state: GameState): Option[ScoredSequence] =
         val _ = state
         Some(
@@ -131,35 +129,32 @@ class SearchEvaluationSpec extends FunSuite:
         val _ = state
         None
 
-    val oracleRegistration = BotRegistry.registerCustomBot(
-      BotInfo(oracleId, "Oracle", "test oracle", 1, true),
-      oracle
-    )
-    val passRegistration = BotRegistry.registerCustomBot(
-      BotInfo(passingId, "Pass", "test miss", 1, true),
-      passing
-    )
-    try
-      val improved = SearchEvaluation.run(fixtures, passingId, oracleId).fold(error => fail(error), identity)
-      assertEquals(improved.results.head.comparison, SearchComparison.CandidateImproved)
-      assertEquals(improved.summary.candidateImprovements, 1)
-      assertEquals(improved.summary.baselineIllegal, 1)
+    def evaluate(baseline: SearchAlgorithm, candidate: SearchAlgorithm): SearchEvaluationReport =
+      SearchEvaluation.evaluate(
+        fixtures,
+        SearchBotIdentity("baseline", "Baseline"),
+        baseline,
+        SearchBotIdentity("candidate", "Candidate"),
+        candidate
+      )
 
-      val regressed = SearchEvaluation.run(fixtures, oracleId, passingId).fold(error => fail(error), identity)
-      assertEquals(regressed.results.head.comparison, SearchComparison.CandidateRegressed)
-      assertEquals(regressed.summary.candidateRegressions, 1)
-      assertEquals(regressed.summary.candidateIllegal, 1)
+    val improved = evaluate(passing, oracle)
+    assertEquals(improved.results.head.comparison, SearchComparison.CandidateImproved)
+    assertEquals(improved.summary.candidateImprovements, 1)
+    assertEquals(improved.summary.baselineIllegal, 1)
 
-      val matched = SearchEvaluation.run(fixtures, oracleId, oracleId).fold(error => fail(error), identity)
-      assertEquals(matched.results.head.comparison, SearchComparison.BothMatched)
-      assert(matched.results.head.sameDecision)
+    val regressed = evaluate(oracle, passing)
+    assertEquals(regressed.results.head.comparison, SearchComparison.CandidateRegressed)
+    assertEquals(regressed.summary.candidateRegressions, 1)
+    assertEquals(regressed.summary.candidateIllegal, 1)
 
-      val missed = SearchEvaluation.run(fixtures, passingId, passingId).fold(error => fail(error), identity)
-      assertEquals(missed.results.head.comparison, SearchComparison.BothMissed)
-      assert(missed.results.head.sameDecision)
-    finally
-      passRegistration.close()
-      oracleRegistration.close()
+    val matched = evaluate(oracle, oracle)
+    assertEquals(matched.results.head.comparison, SearchComparison.BothMatched)
+    assert(matched.results.head.sameDecision)
+
+    val missed = evaluate(passing, passing)
+    assertEquals(missed.results.head.comparison, SearchComparison.BothMissed)
+    assert(missed.results.head.sameDecision)
 
   test("running the same bot on both sides is reproducible for every fixture and seed"):
     val fixtures = SearchFixtureCatalog.load(None).fold(error => fail(error), identity)

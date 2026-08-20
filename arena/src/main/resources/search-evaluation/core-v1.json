@@ -10,7 +10,7 @@
     {
       "id": "tactical-immediate-rook-capture",
       "category": "tactical",
-      "description": "Take an exposed king immediately instead of spending the remaining pawn dice",
+      "description": "Take an exposed king with the only usable die while two pawn dice stay unusable",
       "dfen": "k7/8/8/8/8/8/8/R3K3 w - - 0 1 PPR",
       "expectedTurns": [["a1a8"]]
     },
@@ -39,7 +39,7 @@
       "id": "defensive-block-open-file",
       "category": "defensive",
       "description": "Block the rook line instead of taking a poisoned queen",
-      "dfen": "4r2q/8/8/8/8/2B5/8/4K3 w - - 0 1 B",
+      "dfen": "k3r2q/8/8/8/8/2B5/8/4K3 w - - 0 1 B",
       "expectedTurns": [["c3e5"]]
     },
     {

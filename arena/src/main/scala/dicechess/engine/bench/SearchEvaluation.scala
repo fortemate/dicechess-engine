@@ -1,7 +1,8 @@
 package dicechess.engine.bench
 
+import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
-import scala.io.Source
+import java.util.Locale
 import scala.util.{Random, Try, Using}
 
 import cats.syntax.all.*
@@ -68,7 +69,7 @@ private[bench] object SearchFixtureCatalog:
         Option(getClass.getClassLoader.getResourceAsStream(DefaultResource))
           .toRight(s"bundled fixture resource '$DefaultResource' was not found")
           .flatMap(stream =>
-            Try(Using.resource(stream)(in => Source.fromInputStream(in).mkString)).toEither
+            Try(Using.resource(stream)(in => new String(in.readAllBytes(), StandardCharsets.UTF_8))).toEither
               .leftMap(e => s"failed to read bundled fixture resource '$DefaultResource': ${e.getMessage}")
           )
     input.flatMap(parse)
@@ -301,38 +302,47 @@ private[bench] object SearchEvaluation:
     for
       baseline  <- resolveBot(baselineId, "baseline")
       candidate <- resolveBot(candidateId, "candidate")
-    yield
-      val results = fixtures.scenarios.flatMap { scenario =>
-        val legalTurns = TurnGenerator.generateAllLegalTurnPaths(scenario.state).map(_.map(_.toUci))
-        fixtures.seeds.map { seed =>
-          val baselineDecision  = decide(baseline._2, scenario.state, legalTurns, seed)
-          val candidateDecision = decide(candidate._2, scenario.state, legalTurns, seed)
-          val baselineMatched   = scenario.expectation.matches(baselineDecision)
-          val candidateMatched  = scenario.expectation.matches(candidateDecision)
-          val comparison        = (baselineMatched, candidateMatched) match
-            case (false, true)  => SearchComparison.CandidateImproved
-            case (true, false)  => SearchComparison.CandidateRegressed
-            case (true, true)   => SearchComparison.BothMatched
-            case (false, false) => SearchComparison.BothMissed
-          SearchEvaluationResult(
-            scenario,
-            seed,
-            baselineDecision,
-            candidateDecision,
-            baselineMatched,
-            candidateMatched,
-            comparison,
-            sameDecision = baselineDecision.passed == candidateDecision.passed &&
-              baselineDecision.moves == candidateDecision.moves
-          )
-        }
+    yield evaluate(
+      fixtures,
+      SearchBotIdentity(baseline._1.id, baseline._1.name),
+      baseline._2,
+      SearchBotIdentity(candidate._1.id, candidate._1.name),
+      candidate._2
+    )
+
+  private[bench] def evaluate(
+      fixtures: SearchFixtureSet,
+      baseline: SearchBotIdentity,
+      baselineAlgorithm: SearchAlgorithm,
+      candidate: SearchBotIdentity,
+      candidateAlgorithm: SearchAlgorithm
+  ): SearchEvaluationReport =
+    val results = fixtures.scenarios.flatMap { scenario =>
+      val legalTurns = TurnGenerator.generateAllLegalTurnPaths(scenario.state).map(_.map(_.toUci))
+      fixtures.seeds.map { seed =>
+        val baselineDecision  = decide(baselineAlgorithm, scenario.state, legalTurns, seed)
+        val candidateDecision = decide(candidateAlgorithm, scenario.state, legalTurns, seed)
+        val baselineMatched   = scenario.expectation.matches(baselineDecision)
+        val candidateMatched  = scenario.expectation.matches(candidateDecision)
+        val comparison        = (baselineMatched, candidateMatched) match
+          case (false, true)  => SearchComparison.CandidateImproved
+          case (true, false)  => SearchComparison.CandidateRegressed
+          case (true, true)   => SearchComparison.BothMatched
+          case (false, false) => SearchComparison.BothMissed
+        SearchEvaluationResult(
+          scenario,
+          seed,
+          baselineDecision,
+          candidateDecision,
+          baselineMatched,
+          candidateMatched,
+          comparison,
+          sameDecision = baselineDecision.passed == candidateDecision.passed &&
+            baselineDecision.moves == candidateDecision.moves
+        )
       }
-      SearchEvaluationReport(
-        fixtures,
-        SearchBotIdentity(baseline._1.id, baseline._1.name),
-        SearchBotIdentity(candidate._1.id, candidate._1.name),
-        results
-      )
+    }
+    SearchEvaluationReport(fixtures, baseline, candidate, results)
 
   /** Builds the additive-stable machine-readable report. Existing v1 fields retain their names and types; future
     * extensions may add fields without invalidating archived reports.
@@ -401,11 +411,11 @@ private[bench] object SearchEvaluation:
       println(s"Illegal decisions: candidate ${summary.candidateIllegal}, baseline ${summary.baselineIllegal}")
 
   private def resolveBot(id: String, role: String): Either[String, (BotInfo, SearchAlgorithm)] =
-    val normalized = id.toLowerCase
+    val normalized = id.toLowerCase(Locale.ROOT)
     for
       algorithm <- BotRegistry.getAlgorithm(normalized).toRight(s"Unknown $role bot '$id'")
       info      <- BotRegistry.availableBots
-        .find(_.id.toLowerCase == normalized)
+        .find(_.id.toLowerCase(Locale.ROOT) == normalized)
         .toRight(s"Metadata for $role bot '$id' was not found")
     yield (info, algorithm)
 
