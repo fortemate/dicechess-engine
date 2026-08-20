@@ -104,25 +104,25 @@ object JsApi:
       newBotName: String
   ): Boolean =
     // Exported to JS, so any argument may arrive as `null`; reject rather than throw on eager parsing.
-    if Option(tsvString).isEmpty || Option(baseBotId).isEmpty
-      || Option(newBotId).isEmpty || Option(newBotName).isEmpty
-    then false
-    else
-      (BotRegistry.getAlgorithm(baseBotId), OpeningBookParser.parse(tsvString)) match
-        case (Some(baseBot), Right(book)) =>
-          val difficulty =
-            BotRegistry.availableBots.find(_.id.equalsIgnoreCase(baseBotId)).map(_.difficulty).getOrElse(5)
-          val info = BotInfo(
-            id = newBotId,
-            name = newBotName,
-            description = s"Opening-book bot decorating '$baseBotId'.",
-            difficulty = difficulty,
-            isExperimental = true
-          )
-          // `decorate` preserves the base bot's time-budget capability (a plain bot stays plain).
-          BotRegistry.registerCustomBot(info, OpeningBookBot.decorate(baseBot, book))
-          true
-        case _ => false
+    Option(tsvString).isDefined && Option(baseBotId).isDefined
+      && Option(newBotId).isDefined && Option(newBotName).isDefined
+      && {
+        (BotRegistry.getAlgorithm(baseBotId), OpeningBookParser.parse(tsvString)) match
+          case (Some(baseBot), Right(book)) =>
+            val difficulty =
+              BotRegistry.availableBots.find(_.id.equalsIgnoreCase(baseBotId)).map(_.difficulty).getOrElse(5)
+            val info = BotInfo(
+              id = newBotId,
+              name = newBotName,
+              description = s"Opening-book bot decorating '$baseBotId'.",
+              difficulty = difficulty,
+              isExperimental = true
+            )
+            // `decorate` preserves the base bot's time-budget capability (a plain bot stays plain).
+            BotRegistry.registerCustomBot(info, OpeningBookBot.decorate(baseBot, book))
+            true
+          case _ => false
+      }
 
   /** Web Worker transport + rollout-granularity slack subtracted from the time-managed budget (see
     * [[dicechess.engine.search.TimeManager.budgetMs]]). The engine runs inside a worker, so a `postMessage` round-trip
