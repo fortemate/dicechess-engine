@@ -37,18 +37,7 @@ object Main:
       while running do
         try
           val line = lineReader.readLine("dicechess> ").trim
-          if line.nonEmpty then
-            if line == "exit" || line == "quit" then running = false
-            else
-              import scala.jdk.CollectionConverters.*
-              val parsedLine = parser.parse(line, 0)
-              val tokens     = parsedLine.words().asScala.toList
-
-              if tokens.headOption.contains("help") then println(Commands.rootCommand.showHelp)
-              else
-                Commands.rootCommand.parse(tokens) match
-                  case Left(help) => System.err.println(help)
-                  case Right(cmd) => Commands.execute(cmd)
+          if line.nonEmpty then running = processLine(line, parser)
         catch
           case _: UserInterruptException =>
           // Ignore, just clear the line
@@ -58,3 +47,17 @@ object Main:
             System.err.println(s"Error: ${e.getMessage}")
     finally
       terminal.close()
+
+  private def processLine(line: String, parser: org.jline.reader.Parser): Boolean =
+    if line == "exit" || line == "quit" then false
+    else
+      import scala.jdk.CollectionConverters.*
+      val parsedLine = parser.parse(line, 0)
+      val tokens     = parsedLine.words().asScala.toList
+
+      if tokens.headOption.contains("help") then println(Commands.rootCommand.showHelp)
+      else
+        Commands.rootCommand.parse(tokens) match
+          case Left(help) => System.err.println(help)
+          case Right(cmd) => Commands.execute(cmd)
+      true
