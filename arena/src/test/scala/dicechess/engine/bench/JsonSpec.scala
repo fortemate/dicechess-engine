@@ -50,12 +50,29 @@ class JsonSpec extends FunSuite:
     assertEquals(Json.parse("1e3"), Right(Json.num(1000.0)))
   }
 
+  test("parse: rejects malformed numbers correctly across components") {
+    // Isolated minus without digits
+    assertEquals(Json.parse("-"), Left("invalid number at 0"))
+    // Incomplete exponent
+    assertEquals(Json.parse("42e"), Left("invalid number '42e' at 0"))
+    assertEquals(Json.parse("42e+"), Left("invalid number '42e+' at 0"))
+  }
+
   test("parse: \\u escapes are decoded as hexadecimal, not decimal") {
     // \u0041 is code point 0x41 = 'A'; decimal parsing would wrongly decode it as code point 41 ('(' is 40, ')' 41).
     assertEquals(Json.parse("\"\\u0041\""), Right(Json.str("A")))
     // Escapes whose digits include a-f are the case decimal parsing can't even represent.
     assertEquals(Json.parse("\"\\u00Ff\""), Right(Json.str(0xff.toChar.toString)))
-    assert(Json.parse("\"\\uzzzz\"").isLeft)
+    assertEquals(Json.parse("\"\\uzzzz\""), Left("invalid unicode escape 'zzzz' at 1"))
+  }
+
+  test("parse: rejects malformed escapes") {
+    // Dangling backslash
+    assertEquals(Json.parse("\"\\"), Left("unterminated escape at 1"))
+    // Unknown escape character
+    assertEquals(Json.parse("\"\\q\""), Left("invalid escape character 'q' at 1"))
+    // Incomplete unicode escape (less than 4 characters left in string after \u)
+    assertEquals(Json.parse("\"\\u004"), Left("incomplete unicode escape at 1"))
   }
 
   test("render: a control character below 0x20 round-trips through its \\u escape") {

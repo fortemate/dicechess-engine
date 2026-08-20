@@ -55,7 +55,10 @@ class ArenaOptionsSpec extends FunSuite:
   test("limit validation") {
     val command = Command("test", "test")(ArenaOptions.limitOpt(24))
     assert(command.parse(Seq("--limit", "10"), sys.env).isRight)
-    assert(command.parse(Seq("--limit", "0"), sys.env).isLeft)
+
+    command.parse(Seq("--limit", "0"), sys.env) match
+      case Left(help) => assert(help.toString.contains("limit must be > 0"))
+      case Right(_)   => fail("Expected Left for invalid limit")
   }
 
   test("every advertised feature set has an extractor") {
