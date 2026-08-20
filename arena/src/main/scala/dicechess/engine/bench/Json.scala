@@ -4,8 +4,8 @@ package dicechess.engine.bench
   * (#521).
   *
   * Hand-rolled rather than pulling in a JSON library: the engine has no JSON dependency anywhere else, and the report
-  * shapes here are small and fully under this module's control. [[parse]] exists only so `BotMatchRunnerSpec` can
-  * verify the emitted schema — production code exclusively writes JSON, never reads it.
+  * shapes here are small and fully under this module's control. [[parse]] parses JSON syntax for reports and fixture
+  * catalogs; [[SearchFixtureCatalog.parse]] validates the versioned fixture schema.
   */
 enum Json derives CanEqual:
   case JNull

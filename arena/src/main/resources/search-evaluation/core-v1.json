@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "id": "core-search-v1",
+  "description": "Deterministic tactical, defensive, endgame, and forced-pass decisions for search comparisons",
+  "seedSet": {
+    "id": "stable-0-7-42-v1",
+    "values": [0, 7, 42]
+  },
+  "scenarios": [
+    {
+      "id": "tactical-immediate-rook-capture",
+      "category": "tactical",
+      "description": "Take an exposed king with the only usable die while two pawn dice stay unusable",
+      "dfen": "k7/8/8/8/8/8/8/R3K3 w - - 0 1 PPR",
+      "expectedTurns": [["a1a8"]]
+    },
+    {
+      "id": "tactical-immediate-knight-capture",
+      "category": "tactical",
+      "description": "A knight die gives a one-move capture of the opposing king",
+      "dfen": "4k3/8/3N4/8/8/8/8/4K3 w - - 0 1 PPN",
+      "expectedTurns": [["d6e8"]]
+    },
+    {
+      "id": "tactical-shortest-terminal-line",
+      "category": "tactical",
+      "description": "Prefer the direct rook capture over a longer two-rook terminal line",
+      "dfen": "k7/8/8/8/8/8/8/R3K2R w - - 0 1 RR",
+      "expectedTurns": [["a1a8"]]
+    },
+    {
+      "id": "tactical-capture-higher-value-piece",
+      "category": "tactical",
+      "description": "Choose the queen capture over an equally reachable knight",
+      "dfen": "4k3/8/8/2n1q3/3P4/8/8/4K3 w - - 0 1 P",
+      "expectedTurns": [["d4e5"]]
+    },
+    {
+      "id": "defensive-block-open-file",
+      "category": "defensive",
+      "description": "Block the rook line instead of taking a poisoned queen",
+      "dfen": "k3r2q/8/8/8/8/2B5/8/4K3 w - - 0 1 B",
+      "expectedTurns": [["c3e5"]]
+    },
+    {
+      "id": "defensive-king-leaves-rook-file",
+      "category": "defensive",
+      "description": "Move the king off the attacked e-file rather than stepping forward on it",
+      "dfen": "4r2k/8/8/8/8/8/8/4K3 w - - 0 1 K",
+      "expectedTurns": [["e1d1"], ["e1f1"], ["e1d2"], ["e1f2"]]
+    },
+    {
+      "id": "defensive-avoid-bishop-loss-square",
+      "category": "defensive",
+      "description": "Avoid the only king square permanently reachable by the opposing bishop",
+      "dfen": "7k/8/8/b7/8/8/5P2/4K3 w - - 0 1 NBK",
+      "expectedTurns": [["e1d1"], ["e1e2"], ["e1f1"]]
+    },
+    {
+      "id": "endgame-white-queen-promotion",
+      "category": "endgame",
+      "description": "Promote the advanced white pawn to the highest-value piece",
+      "dfen": "7k/P7/8/8/8/8/8/7K w - - 0 1 P",
+      "expectedTurns": [["a7a8q"]]
+    },
+    {
+      "id": "endgame-black-queen-promotion",
+      "category": "endgame",
+      "description": "Promote the advanced black pawn to the highest-value piece",
+      "dfen": "k7/8/8/8/8/8/7p/K7 b - - 0 1 p",
+      "expectedTurns": [["h2h1q"]]
+    },
+    {
+      "id": "endgame-pawn-captures-rook",
+      "category": "endgame",
+      "description": "Take the loose rook in a sparse pawn ending",
+      "dfen": "7k/8/8/8/8/4r3/3P4/7K w - - 0 1 P",
+      "expectedTurns": [["d2e3"]]
+    },
+    {
+      "id": "forced-pass-no-white-pawns",
+      "category": "forced-pass",
+      "description": "White has only a king but rolled three pawn dice",
+      "dfen": "4k3/8/8/8/8/8/8/4K3 w - - 0 1 PPP",
+      "expectPass": true
+    },
+    {
+      "id": "forced-pass-no-black-knights",
+      "category": "forced-pass",
+      "description": "Black has only a king but rolled three knight dice",
+      "dfen": "7k/8/8/8/8/8/8/K7 b - - 0 1 nnn",
+      "expectPass": true
+    }
+  ]
+}
