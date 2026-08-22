@@ -1,0 +1,5 @@
+# Canonical author identities.
+# Format: Proper Name <proper@email> Commit Name <commit@email>
+# See git-check-mailmap(1), git-shortlog(1).
+
+Jegors Čemisovs <jegors.cemisovs@gmail.com> rabestro <52966251+rabestro@users.noreply.github.com>
