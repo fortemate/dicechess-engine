@@ -50,7 +50,13 @@ object OnnxTimedArenaRunner:
           .getOrElse(sys.error(s"Baseline bot with ID '$baseline' not found in BotRegistry!"))
 
         val botId = "onnx-timed"
-        val bot   = OnnxArenaBot.register(
+        // Measurement probe: when STATS_OUT is set, one RootSearchStats line per bot move is appended there,
+        // prefixed by the active time control — raw material for effective-width comparisons across builds.
+        val statsWriter   = sys.env.get("STATS_OUT").map(p => new java.io.PrintWriter(new java.io.FileWriter(p), true))
+        @volatile var currentPreset = ""
+        val sink: dicechess.engine.search.RootSearchStats => Unit =
+          s => statsWriter.foreach(w => w.println(s"$currentPreset\t$s"))
+        val bot = OnnxArenaBot.register(
           botId,
           modelPath,
           featureSet,
@@ -59,7 +65,8 @@ object OnnxTimedArenaRunner:
           SearchKind.Expectimax,
           ExpectimaxConfig(candidateLimit),
           baselineInfo.difficulty,
-          s"clock-aware timed arena over $modelPath"
+          s"clock-aware timed arena over $modelPath",
+          statsSink = sink
         )
         Using.resource(bot) { _ =>
           println(
@@ -67,7 +74,8 @@ object OnnxTimedArenaRunner:
           )
           val controls = TimedArenaRunner.parsePresets(presets)
           val results  =
-            controls.map(tc =>
+            controls.map { tc =>
+              currentPreset = tc.toString
               BotMatchRunner.runTimedMatch(
                 botId,
                 baseline,
@@ -79,8 +87,9 @@ object OnnxTimedArenaRunner:
                   baselineTimeManager = TimeManager(baselinePolicy)
                 )
               )
-            )
+            }
           BotMatchRunner.printTimedSummary(botId, baseline, results)
+          statsWriter.foreach(_.close())
         }
       }
     }
