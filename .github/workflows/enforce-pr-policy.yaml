@@ -25,13 +25,22 @@ jobs:
             const body = context.payload.pull_request.body || "";
             // Allowed branch prefixes: task|feat|feature|bug|refactor|chore|docs|ci|test|perf
             const pattern = /^(task|feat(ure)?|bug|refactor|chore|docs|ci|test|perf)\/((issue-)?\d+-)?[a-z0-9-]+$/;
-            if (!pattern.test(headRef)) {
-              core.setFailed(`Branch "${headRef}" must be <type>/<short-desc> — type one of task|feat|bug|refactor|chore|docs|ci|test|perf, optionally <type>/<id>-<short-desc> to link an issue.`);
+            const issuePattern = /(Closes|Resolves|Fixes)\s+#\d+/i;
+
+            const isConventional = pattern.test(headRef);
+            const hasIssueLink = issuePattern.test(body);
+
+            if (!isConventional) {
+              if (!hasIssueLink) {
+                core.setFailed(`Branch "${headRef}" does not follow the convention <type>/<short-desc> (or <type>/<id>-<short-desc>) and has no closing issue link. Tool-managed branches must include "Closes #<n>", "Fixes #<n>", or "Resolves #<n>" in the PR body.`);
+                return;
+              }
+              console.log('Tool-managed branch accepted with closing issue link.');
               return;
             }
+
             const hasIssueId = /^[a-z]+\/(issue-)?\d+-/.test(headRef);
-            const issuePattern = /(Closes|Resolves|Fixes)\s+#\d+/i;
-            if (hasIssueId && !issuePattern.test(body)) {
+            if (hasIssueId && !hasIssueLink) {
               core.setFailed('A branch that references an issue number must link it: add "Closes #<n>" (or Fixes/Resolves) to the PR body.');
               return;
             }
