@@ -161,7 +161,7 @@ Common failure signatures:
 - Split large work into small, reviewable PRs.
 
 ## Issue management
-<!-- dc-shared:issue-management v2 — keep identical across Fortemate repositories -->
+<!-- dc-shared:issue-management v3 — keep identical across Fortemate repositories -->
 
 - Use the native GitHub Issue Type as the canonical work classification:
   - `Bug` for unexpected or incorrect behavior.
@@ -178,7 +178,7 @@ Common failure signatures:
   - `Ready` means sufficiently defined and available to start.
   - `In progress` means someone is actively working on it.
   - `In review` means implementation is waiting for review or validation.
-  - `Done` means the Issue is closed or the pull request is merged.
+  - `Done` means the Issue is closed.
 - Set the Project `Execution tier` during triage:
   - `Routine` for a bounded, reversible task suitable for Jules or another low-cost agent.
   - `Mid` for a well-scoped task that needs a stronger coding agent with iterative supervision.
@@ -188,9 +188,9 @@ Common failure signatures:
   - A blank value means the Issue has not been routed yet.
 - Leave the organization `Priority` Issue field blank for normal work. Set it only to deliberately jump the queue: `Urgent` for an immediate incident, security problem, or release blocker; `High` for important or blocking planned work. Never replace organization fields with labels or duplicate Project fields.
 - Triage establishes Type, Execution tier, applicable labels, Project membership, Status, and relationships (plus Priority only for queue-jumpers). Assign an Issue only when a person owns its next action, and assign the active owner before moving it to `In progress`; unassigned means agent pool or no current owner, not low priority.
-- Use parent/sub-issue relationships for independently actionable decomposition, `Blocking`/`Blocked by` for hard ordering dependencies, and `Relates to` for non-blocking associations. If the live UI or API cannot create a relation, add an explicit `Related: owner/repository#<id>` cross-reference. Do not simulate relationships with title prefixes, labels, or duplicate task lists.
+- Use parent/sub-issue relationships for independently actionable decomposition, `Blocking`/`Blocked by` for hard ordering dependencies, and `Relates to` for non-blocking associations. If the live UI or API cannot create a relation, add an explicit typed cross-reference that preserves its semantics: `Parent:`, `Sub-issue:`, `Blocking:`, `Blocked by:`, or `Related:` followed by `owner/repository#<id>`. Do not simulate relationships with title prefixes, labels, or duplicate task lists.
 - When a pull request targets the repository's default branch and fully completes an Issue, link it with `Closes #<id>` or `Closes owner/repository#<id>`. Use a non-closing reference for partial work or for a pull request targeting any other branch.
-- After every Issue, pull-request, or Project mutation, read the item back. For an Issue, verify Type, Issue fields, labels, assignee, relationships, Project membership, and Status. For a pull request, verify base/head branches, draft and merge state, labels, assignees/reviewers, linked Issues, Project membership, and Status; Issue Type and Issue fields do not apply. Report any metadata that the available API or UI could not set.
+- After every Issue, pull-request, or Project mutation, read the item back. For an Issue, verify Type, Issue fields, labels, assignee, relationships, Project membership, and Status. For a pull request, verify base/head branches, draft and merge state, labels, assignees/reviewers, and linked Issues; pull requests are never Project items, and Issue Type and Issue fields do not apply. Report any metadata that the available API or UI could not set.
 - The human owner reviews, approves, and merges pull requests. Agents never merge pull requests or execute releases.
 
 <!-- /dc-shared:issue-management -->
