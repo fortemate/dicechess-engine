@@ -1,6 +1,13 @@
 package dicechess.engine.bench
 
-import dicechess.engine.search.{BotInfo, BotRegistry, ExpectimaxConfig, OnnxEvalSearch, OnnxExpectimaxSearch, RootSearchStats}
+import dicechess.engine.search.{
+  BotInfo,
+  BotRegistry,
+  ExpectimaxConfig,
+  OnnxEvalSearch,
+  OnnxExpectimaxSearch,
+  RootSearchStats
+}
 
 /** Makes an ONNX model playable by the arena, by giving it a [[BotRegistry]] id.
   *
