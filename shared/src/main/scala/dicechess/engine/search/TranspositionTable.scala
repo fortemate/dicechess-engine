@@ -67,18 +67,18 @@ class TranspositionTable(capacityPowerOfTwo: Int = 1 << 18):
     java.util.Arrays.fill(checksums, 0L)
     resetTelemetry()
 
-  inline private def computeChecksum(
+  private inline def computeChecksum(
       key: Long,
       value: Double,
       boundByte: Byte,
       depth: Int,
       lossTainted: Boolean
   ): Long =
-    key ^ java.lang.Double.doubleToRawLongBits(value) ^ (boundByte.toLong << 56) ^ ((depth & 0xff).toLong << 48) ^ (if lossTainted
-                                                                                                                     then
-                                                                                                                       1L << 40
-                                                                                                                     else
-                                                                                                                       0L)
+    key ^ java.lang.Double.doubleToRawLongBits(
+      value
+    ) ^ (boundByte.toLong << 56) ^ ((depth & 0xff).toLong << 48) ^ (if lossTainted
+                                                                    then 1L << 40
+                                                                    else 0L)
 
   /** Probes the transposition table for `key`.
     *

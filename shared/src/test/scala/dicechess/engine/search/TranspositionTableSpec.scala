@@ -90,10 +90,10 @@ class TranspositionTableSpec extends FunSuite:
     assertEquals(tt.probe(key), None)
 
   test("concurrent reads and writes are thread-safe and never throw exceptions"):
-    val tt          = new TranspositionTable(4096)
-    val numThreads  = 8
-    val executor    = Executors.newFixedThreadPool(numThreads)
-    val iterations  = 20000
+    val tt         = new TranspositionTable(4096)
+    val numThreads = 8
+    val executor   = Executors.newFixedThreadPool(numThreads)
+    val iterations = 20000
 
     for t <- 0 until numThreads do
       executor.submit(new Runnable {
@@ -101,10 +101,8 @@ class TranspositionTableSpec extends FunSuite:
           var i = 0
           while i < iterations do
             val key = (t * 1000 + (i % 100)).toLong
-            if i % 2 == 0 then
-              tt.store(key, i.toDouble, TTBound.Exact, depth = i % 4, lossTainted = (i % 3 == 0))
-            else
-              tt.probe(key)
+            if i % 2 == 0 then tt.store(key, i.toDouble, TTBound.Exact, depth = i % 4, lossTainted = i % 3 == 0)
+            else tt.probe(key)
             i += 1
       })
 

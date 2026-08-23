@@ -25,7 +25,7 @@ class ExpectimaxTTSpec extends FunSuite:
       )
 
       val ttTable = new TranspositionTable(1024)
-      val ttOn = new ExpectimaxSearch(
+      val ttOn    = new ExpectimaxSearch(
         evalBatch = evalMaterialBatch,
         config = ExpectimaxConfig(candidateLimit = candidateLimit, exactOnlyMode = true),
         tt = Some(ttTable)
@@ -51,7 +51,7 @@ class ExpectimaxTTSpec extends FunSuite:
     val state         = FenParser.parse(middlegameFen).fold(fail(_), identity)
 
     val ttTable = new TranspositionTable(1024)
-    val search = new ExpectimaxSearch(
+    val search  = new ExpectimaxSearch(
       evalBatch = evalMaterialBatch,
       config = ExpectimaxConfig(candidateLimit = 16),
       tt = Some(ttTable)
@@ -69,7 +69,7 @@ class ExpectimaxTTSpec extends FunSuite:
     val state = FenParser.parse(fen).fold(fail(_), identity)
 
     val ttTable = new TranspositionTable(1024)
-    val search = new ExpectimaxSearch(
+    val search  = new ExpectimaxSearch(
       evalBatch = evalMaterialBatch,
       config = ExpectimaxConfig(candidateLimit = 12, exactOnlyMode = false),
       tt = Some(ttTable)

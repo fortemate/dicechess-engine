@@ -252,28 +252,44 @@ final class ExpectimaxSearch(
       deadlineNanos: Long,
       alpha: Double
   ): ChanceNodeResult =
-    val key = oppToMove.zobristHash
-    tt.flatMap(_.probe(key)) match
+    val key    = oppToMove.zobristHash
+    val cached = tt.flatMap(_.probe(key))
+    val ttHit  = cached match
       case Some(entry) if entry.depth >= config.depth - 1 =>
         if entry.bound == TTBound.Exact then
-          return ChanceNodeResult(
-            value = entry.value,
-            lossTainted = entry.lossTainted,
-            complete = true,
-            pruned = false,
-            rollsProcessed = 56
+          Some(
+            ChanceNodeResult(
+              value = entry.value,
+              lossTainted = entry.lossTainted,
+              complete = true,
+              pruned = false,
+              rollsProcessed = 56
+            )
           )
         else if !config.exactOnlyMode && entry.bound == TTBound.UpperBound && entry.value <= alpha then
-          return ChanceNodeResult(
-            value = entry.value,
-            lossTainted = entry.lossTainted,
-            complete = false,
-            pruned = true,
-            rollsProcessed = 0,
-            probePruned = true
+          Some(
+            ChanceNodeResult(
+              value = entry.value,
+              lossTainted = entry.lossTainted,
+              complete = false,
+              pruned = true,
+              rollsProcessed = 0,
+              probePruned = true
+            )
           )
-      case _ => ()
+        else None
+      case _ => None
 
+    if ttHit.isDefined then ttHit.get
+    else computeChanceNodeValue(oppToMove, myColor, deadlineNanos, alpha, key)
+
+  private def computeChanceNodeValue(
+      oppToMove: GameState,
+      myColor: Color,
+      deadlineNanos: Long,
+      alpha: Double,
+      key: Long
+  ): ChanceNodeResult =
     val checkClock    = timed(deadlineNanos)
     val rolls         = DiceRolls.byWeightDescending
     val totalRolls    = rolls.length
@@ -428,8 +444,7 @@ final class ExpectimaxSearch(
           )
 
     tt.foreach { table =>
-      if res.complete then
-        table.store(key, res.value, TTBound.Exact, config.depth - 1, res.lossTainted)
+      if res.complete then table.store(key, res.value, TTBound.Exact, config.depth - 1, res.lossTainted)
       else if res.pruned && !config.exactOnlyMode then
         table.store(key, res.value, TTBound.UpperBound, config.depth - 1, res.lossTainted)
     }

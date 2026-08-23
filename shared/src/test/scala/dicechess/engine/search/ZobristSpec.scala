@@ -11,7 +11,7 @@ class ZobristSpec extends FunSuite:
 
     assert(paths.nonEmpty)
     for path <- paths do
-      val ended = path.foldLeft(initial)((s, move) => s.makeMove(move)).endTurn()
+      val ended    = path.foldLeft(initial)((s, move) => s.makeMove(move)).endTurn()
       val computed = Zobrist.computeKey(ended)
       if ended.zobristHash != computed then
         println(s"Path: ${path.map(m => s"${m.fromSquare.toNotation}${m.toSquare.toNotation}")}")
