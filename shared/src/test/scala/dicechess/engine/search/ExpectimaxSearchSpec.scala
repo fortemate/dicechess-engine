@@ -145,7 +145,9 @@ class ExpectimaxSearchSpec extends FunSuite:
     assert(bot.findBestMove(rootRescorePosition, Random(0)).isDefined)
     assertEquals(
       stats,
-      Some(RootSearchStats(legalTurns = 4, candidatesSelected = 4, candidatesCompleted = 3, cutoffs = 1, rollsSaved = 55))
+      Some(
+        RootSearchStats(legalTurns = 4, candidatesSelected = 4, candidatesCompleted = 3, cutoffs = 1, rollsSaved = 55)
+      )
     )
     assert(!stats.get.deadlineTruncated)
 
