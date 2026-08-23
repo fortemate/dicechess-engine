@@ -24,6 +24,11 @@ import dicechess.engine.search.{BotRegistry, ExpectimaxConfig, TimeManager}
   * candidates per move at the same wall-clock budget. Only compare models to each other on **one box, in one session**
   * — never against a number measured elsewhere. This is the single easiest way to misread this harness.
   *
+  * ⚠️ And within that one session, **interleave A/B runs** (A, B, A, B — not A, A, B, B): concurrent load on the box
+  * lands on whichever run is unlucky enough to overlap it. A back-to-back Star1 comparison once showed a bogus 15×
+  * wall-clock difference for exactly this reason — the second run coincided with unrelated sbt builds; the interleaved
+  * rerun measured the true effect at −11%.
+  *
   * Usage:
   * `sbt 'arena/runMain dicechess.engine.bench.OnnxTimedArenaRunner <modelPath> --features material --baseline aggressive --games 10 --candidate-limit 24 --presets 1+0,3+2,10+10 --seed 42'`
   */
