@@ -7,83 +7,82 @@ Assign tasks to these milestones logically. Each milestone must be fully tested 
 
 [View current milestones on GitHub](https://github.com/fortemate/dicechess-engine/milestones?sort=title&direction=asc)
 
+> **Note on history.** This page was rewritten after the migration to the Fortemate organization. An earlier revision marked the search milestones as completed while several of their key deliverables (Zobrist/TT, Star1/Star2 pruning, depth > 2, parallel search) were in fact never implemented. The completed section below lists only what actually shipped; everything else moved back into the open milestones, which match the GitHub milestone list one-to-one.
+
 ---
 
-## ✅ v0.1 - Foundation & Core Types
+## Completed (shipped in the v0.1–v0.4 line)
 
-* **Status**: Completed 🏆
-* **Scope**: Project setup (SBT 2.x / Scala 3), configuration, `mise` setup.
-* **Key Deliverables**:
-  * Implementation of basic Opaque Types (`Bitboard`, `Square`, `Piece`, `Color`).
-  * Basic FEN parsing and serialization.
-  * DFEN extension (7th field for dice pool, multiple en-passant targets).
+### ✅ v0.1 - Foundation & Core Types
 
-## ✅ v0.2 - Move Generation (Classic)
+- Project setup (SBT 2.x / Scala 3), configuration, `mise` setup.
+- Opaque core types (`Bitboard`, `Square`, `Piece`, `Color`).
+- FEN parsing/serialization and the DFEN extension (7th field for the dice pool, multiple en-passant targets).
 
-* **Status**: Completed 🏆
-* **Scope**: Fast legal and pseudo-legal move computation.
-* **Key Deliverables**:
-  * Bitwise operations and precomputed attack tables (Magic Bitboards).
-  * Pawn, knight, king, and sliding piece move generation.
-  * Perft (Performance Test) framework integration to verify move correctness.
+### ✅ v0.2 - Move Generation (Classic)
 
-## ✅ v0.3 - Dice Chess Mechanics
+- Bitwise operations and precomputed attack tables (Magic Bitboards).
+- Pawn, knight, king, and sliding piece move generation.
+- Perft framework integration to verify move correctness.
 
-* **Status**: Completed 🏆
-* **Scope**: Integrating physical probability layers of Dice Chess.
-* **Key Deliverables**:
-  * Dice roll representations.
-  * Filtering pseudo-legal moves based on dice outcomes.
-  * Game state management with random events.
-  * Maximum Micro-moves Rule enforcement.
-  * Turn lifecycle: roll → generate moves → apply micro-moves → endTurn.
+### ✅ v0.3 - Dice Chess Mechanics
 
-## ✅ v0.4 - Basic Bot & Gameplay
+- Dice roll representation (216 ordered rolls / 56 weighted multisets).
+- Filtering pseudo-legal moves by dice outcomes; Maximum Micro-moves Rule enforcement.
+- Turn lifecycle: roll → generate moves → apply micro-moves → endTurn.
 
-* **Status**: Completed 🏆
-* **Scope**: Validating game mechanics and state transitions with primitive bots.
-* **Key Deliverables**:
-  * Implementation of 7 primitive bots: Random, Checkmate-Aware, Greedy, Cautious Greedy, Aggressive, Monte-Carlo, Expectimax.
-  * Integration with Scala.js for browser-based execution.
-  * Dedicated Svelte/Vite PWA test harness for human vs. engine testing.
-  * JVM Battle Arena for bot-vs-bot win-rate validation.
+### ✅ v0.4 - Bots, Evaluation & Integrations (current line)
 
-## ✅ v0.5 - Evaluation & Heuristics
+The 0.4.x line also absorbed deliverables originally slated for later milestones:
 
-* **Status**: Completed 🏆
-* **Scope**: Understanding board values statically and efficiently caching calculations.
-* **Key Deliverables**:
-  * Static evaluation function (Material balance, Piece-Square Tables).
-  * Zobrist Hashing and Transposition Tables (TT) for caching board states.
-  * King Capture Probability analysis (exact enumeration of 216 dice outcomes).
+- Bot roster: Random, Checkmate-Aware, Greedy, Cautious Greedy, Aggressive, Monte-Carlo, plus the ONNX-backed searches.
+- Static evaluation (`Evaluator`, material and aggressive variants) and exact King Capture Probability (per-roll enumeration over all 216 outcomes).
+- **2-ply** expectimax with chance nodes (`ExpectimaxSearch`): material pre-ranking, top-K candidate expansion, per-roll deadline honouring, leaf deduplication (`LeafKey`, ~78% duplicates).
+- Time management subsystem (`TimeManager` policies incl. empirical-v1 + `TimeBudgetedSearch`).
+- Rao-Blackwellized Monte-Carlo pre-roll equity estimator.
+- ONNX model integration (`OnnxEvalSearch`, `OnnxExpectimaxSearch`), opening book (`OpeningBook`, `OpeningBookBot`, `OpeningBookParser`), doubling cube and draw-offer logic.
+- Scala.js / WasmGC artifacts, JVM Battle Arena, seeded evaluation fixtures, JMH benchmarks.
 
-## ✅ v0.6 - Expectimax Search Engine
+---
 
-* **Status**: Completed 🏆
-* **Scope**: Deep probabilistic search with chance nodes.
-* **Key Deliverables**:
-  * Deep Expectimax search implementation with chance nodes (216 ordered rolls / 56 unique multisets).
-  * Star1/Star2 pruning for chance nodes to reduce search tree.
-  * Time management subsystem (`TimeManager` policy + `TimeBudgetedSearch` honouring).
-  * Rao-Blackwellized Monte-Carlo pre-roll equity estimator.
-  * Structured concurrency with Virtual Threads (`Ox`) for parallel chance-node evaluation.
+## Open milestones
 
-## ✅ v0.7 - Advanced Features
+### 🚧 v0.5 - Search Foundations: Zobrist & TT
 
-* **Status**: Completed 🏆
-* **Scope**: Production-ready features and integrations.
-* **Key Deliverables**:
-  * ONNX model integration for learned evaluation (`OnnxEvalSearch`, `OnnxExpectimaxSearch`).
-  * Opening book support for common positions (`OpeningBook`, `OpeningBookBot`, `OpeningBookParser`).
-  * Doubling cube logic and draw offer handling (`DrawOfferLogic`).
-  * JMH benchmarks for performance validation.
+- **Scope**: Caching groundwork required before any deeper search.
+- **Key Deliverables**:
+  - Zobrist hashing over position, active color, castling, en passant, and the remaining dice pool.
+  - Transposition table with bound-typed entries (exact / lower / upper) and thread-safe reads.
+  - Search/evaluation hot-path groundwork (KCP optimization track).
 
-## 🚀 v1.0 - Production & Optimization
+### 🚧 v0.6 - Star Pruning & Search Depth 3
 
-* **Scope**: Deployment optimization and infrastructure operations.
-* **Key Deliverables**:
-  * GraalVM Native Image compilation for fast startup.
-  * Dockerfile optimization for containerized deployment.
-  * CI/CD pipeline improvements (release automation, publishing).
-  * Deployment configurations for Oracle Cloud Free Tier (Ampere ARM64).
+- **Scope**: Cutoffs at chance nodes and the first depth increase. Tracked by [Epic #56](https://github.com/fortemate/dicechess-engine/issues/56); design in the internal wiki (`model/star-pruning-depth-3`).
+- **Key Deliverables**:
+  - Star1 pruning in `ExpectimaxSearch` chance nodes (weight-ordered rolls, fail-soft bounds, cutoff telemetry).
+  - Star2 probing with batched top-1 opponent replies.
+  - Configurable `searchDepth`; depth-3 implementation gated by paired SPRT duels.
+  - Structured concurrency with Virtual Threads (`Ox`) for parallel chance-node evaluation.
 
+### 🚧 v0.7 - Fast Learned Evaluation (NNUE track)
+
+- **Scope**: Engine-side support for a fast learned evaluator — the designated remaining strength lever once search is squeezed (value-model roadmap step 3c).
+- **Key Deliverables**:
+  - Quantized integer inference with an incremental (NNUE-style) accumulator inside make/undo.
+  - Replacing ONNX Runtime on the search hot path; ONNX stays for training-side export and analysis serving.
+
+### 🚧 v0.8 - Self-Play & Book Distillation
+
+- **Scope**: The engine as a data generator for training flywheels.
+- **Key Deliverables**:
+  - In-engine self-play generation (`TurnGenerator`-based) with seeded reproducibility.
+  - Self-play-distilled opening book to replace the human-game book (measured weaker in arena: booked vs bookless 327–316).
+
+### 🚀 v1.0 - Production & Optimization
+
+- **Scope**: Deployment optimization and infrastructure operations.
+- **Key Deliverables**:
+  - GraalVM Native Image compilation for fast startup.
+  - Dockerfile optimization for containerized deployment.
+  - CI/CD pipeline improvements (release automation, publishing).
+  - Deployment configurations for Oracle Cloud Free Tier (Ampere ARM64).
