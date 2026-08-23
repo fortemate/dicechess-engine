@@ -312,6 +312,8 @@ case class Turn(diceRoll: Int, microMoves: List[MicroMove]) derives CanEqual:
   * @param fullMoveNumber
   *   Full-move counter; incremented after each Black move (starts at 1 per FEN convention).
   */
+import dicechess.engine.search.Zobrist
+
 case class GameState(
     whitePieces: Bitboard,
     blackPieces: Bitboard,
@@ -324,9 +326,15 @@ case class GameState(
     mailbox: Mailbox,
     flags: GameFlags,
     enPassant: Bitboard,
-    fullMoveNumber: Int
+    fullMoveNumber: Int,
+    zobristKey: Long = 0L
 ) derives CanEqual:
   inline def activeColor: Color = flags.activeColor
+
+  /** Returns the precalculated Zobrist key, or computes it on demand if unpopulated (0L). */
+  def zobristHash: Long =
+    if zobristKey != 0L then zobristKey
+    else Zobrist.computeKey(this)
 
   /** Removes all en-passant targets created by the specified color.
     *
@@ -336,14 +344,18 @@ case class GameState(
     val targetRank = if color.isWhite then 3 else 6
     var ep         = enPassant.value
     var newEp      = Bitboard.empty
+    var key        = zobristHash
     while ep != 0 do {
-      val sq = Square.fromIndex(java.lang.Long.numberOfTrailingZeros(ep))
+      val sqIdx = java.lang.Long.numberOfTrailingZeros(ep)
+      val sq    = Square.fromIndex(sqIdx)
       if sq.rank != targetRank then {
         newEp = newEp.add(sq)
+      } else {
+        key ^= Zobrist.EnPassantTable(sqIdx)
       }
       ep &= ep - 1
     }
-    copy(enPassant = newEp)
+    copy(enPassant = newEp, zobristKey = key)
 
   def castlingRights: String =
     val cr = flags.castlingRights
@@ -415,10 +427,13 @@ case class GameState(
     val nextFullMove = if flags.activeColor.isBlack then fullMoveNumber + 1 else fullMoveNumber
 
     val cleanedState = clearEnPassant(nextColor)
+    var key          = cleanedState.zobristHash ^ Zobrist.ActiveColorKey
+    key ^= Zobrist.dicePoolKey(cleanedState.flags) ^ Zobrist.dicePoolKey(0, 0, 0)
 
     cleanedState.copy(
       flags = cleanedState.flags.withActiveColor(nextColor).withDicePool(Nil),
-      fullMoveNumber = nextFullMove
+      fullMoveNumber = nextFullMove,
+      zobristKey = key
     )
 
   /** Returns a copy of this state with the active color set to `c`.
@@ -426,7 +441,9 @@ case class GameState(
     * Used during move generation to explicitly override the active color.
     */
   def withActiveColor(c: Color): GameState =
-    copy(flags = flags.withActiveColor(c))
+    val oldKey = zobristHash
+    val newKey = if c != activeColor then oldKey ^ Zobrist.ActiveColorKey else oldKey
+    copy(flags = flags.withActiveColor(c), zobristKey = newKey)
 
   /** Returns a copy of this state with the dice pool replaced by `pool`.
     *
@@ -436,10 +453,14 @@ case class GameState(
     *   up to three die values; excess elements are silently ignored
     */
   def withDicePool(pool: List[Int]): GameState =
-    copy(flags = flags.withDicePool(pool))
+    val nextFlags = flags.withDicePool(pool)
+    val key       = zobristHash ^ Zobrist.dicePoolKey(flags) ^ Zobrist.dicePoolKey(nextFlags)
+    copy(flags = nextFlags, zobristKey = key)
 
   /** Overwrites only the dice-pool slots of this state's flags with those from `src`, leaving all other flag bits
     * (castling, EP, active color, HMC) untouched. Allocation-free alternative to [[withDicePool]] for hot paths.
     */
   inline def withDiceSlotsOf(src: GameFlags): GameState =
-    copy(flags = flags.withDiceSlotsOf(src))
+    val nextFlags = flags.withDiceSlotsOf(src)
+    val key       = zobristHash ^ Zobrist.dicePoolKey(flags) ^ Zobrist.dicePoolKey(nextFlags)
+    copy(flags = nextFlags, zobristKey = key)

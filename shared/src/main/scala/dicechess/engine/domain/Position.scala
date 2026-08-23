@@ -266,6 +266,33 @@ extension (state: GameState)
       ep &= ep - 1
     }
 
+    import dicechess.engine.search.Zobrist
+
+    var key = state.zobristHash
+    key ^= Zobrist.pieceKey(movingPiece.color, movingPiece.pieceType, from)
+
+    if isEnPassantCapture then {
+      val victimSq = Square.fromIndex(to.index + rankOffset)
+      key ^= Zobrist.pieceKey(movingPiece.color.opponent, PieceType.Pawn, victimSq)
+    } else {
+      targetPiece.foreach { p =>
+        key ^= Zobrist.pieceKey(p.color, p.pieceType, to)
+      }
+    }
+
+    key ^= Zobrist.pieceKey(movingPiece.color, finalPieceType, to)
+
+    var epDiff = state.enPassant.value ^ finalEnPassant.value
+    while epDiff != 0L do {
+      val sqIdx = java.lang.Long.numberOfTrailingZeros(epDiff)
+      key ^= Zobrist.EnPassantTable(sqIdx)
+      epDiff &= epDiff - 1L
+    }
+
+    if newCastlingRights != state.flags.castlingRights then {
+      key ^= Zobrist.CastlingTable(state.flags.castlingRights) ^ Zobrist.CastlingTable(newCastlingRights)
+    }
+
     val newFlags = GameFlags.fromList(
       color = state.activeColor,
       castlingRights = newCastlingRights,
@@ -273,6 +300,8 @@ extension (state: GameState)
       dicePool = nextDicePool,
       halfMoveClock = newHalfMoveClock
     )
+
+    key ^= Zobrist.dicePoolKey(state.flags) ^ Zobrist.dicePoolKey(newFlags)
 
     state.copy(
       whitePieces = b.white,
@@ -285,7 +314,8 @@ extension (state: GameState)
       kings = b.kings,
       mailbox = Mailbox.fromBuilder(b.mailbox),
       flags = newFlags,
-      enPassant = finalEnPassant
+      enPassant = finalEnPassant,
+      zobristKey = key
     )
   }
 
@@ -390,6 +420,53 @@ extension (state: GameState)
       epV &= epV - 1L
     }
 
+    import dicechess.engine.search.Zobrist
+
+    var key = state.zobristHash
+    key ^= Zobrist.pieceKey(color, mover.pieceType, from)
+
+    target.foreach { p =>
+      key ^= Zobrist.pieceKey(p.color, p.pieceType, to)
+    }
+
+    mv.flags match {
+      case Move.DoublePawnPush =>
+        key ^= Zobrist.pieceKey(color, PieceType.Pawn, to)
+
+      case Move.EnPassantCapture =>
+        val victimSq = Square.fromIndex(to.index + rankOffset)
+        key ^= Zobrist.pieceKey(color.opponent, PieceType.Pawn, victimSq)
+        key ^= Zobrist.pieceKey(color, PieceType.Pawn, to)
+
+      case Move.KingCastle =>
+        key ^= Zobrist.pieceKey(color, PieceType.King, to)
+        val (rFrom, rTo) = if isWhite then (Square('h', 1), Square('f', 1)) else (Square('h', 8), Square('f', 8))
+        key ^= Zobrist.pieceKey(color, PieceType.Rook, rFrom) ^ Zobrist.pieceKey(color, PieceType.Rook, rTo)
+
+      case Move.QueenCastle =>
+        key ^= Zobrist.pieceKey(color, PieceType.King, to)
+        val (rFrom, rTo) = if isWhite then (Square('a', 1), Square('d', 1)) else (Square('a', 8), Square('d', 8))
+        key ^= Zobrist.pieceKey(color, PieceType.Rook, rFrom) ^ Zobrist.pieceKey(color, PieceType.Rook, rTo)
+
+      case _ if mv.isPromotion =>
+        val promType = Position.promotionPieceType(mv.flags)
+        key ^= Zobrist.pieceKey(color, promType, to)
+
+      case _ =>
+        key ^= Zobrist.pieceKey(color, mover.pieceType, to)
+    }
+
+    var epDiff = state.enPassant.value ^ newEnPassant.value
+    while epDiff != 0L do {
+      val sqIdx = java.lang.Long.numberOfTrailingZeros(epDiff)
+      key ^= Zobrist.EnPassantTable(sqIdx)
+      epDiff &= epDiff - 1L
+    }
+
+    if newCastlingRights != state.flags.castlingRights then {
+      key ^= Zobrist.CastlingTable(state.flags.castlingRights) ^ Zobrist.CastlingTable(newCastlingRights)
+    }
+
     val newFlags = GameFlags.fromList(
       color = state.activeColor,
       castlingRights = newCastlingRights,
@@ -397,6 +474,8 @@ extension (state: GameState)
       dicePool = Nil,
       halfMoveClock = newHalfMoveClock
     )
+
+    key ^= Zobrist.dicePoolKey(state.flags) ^ Zobrist.dicePoolKey(newFlags)
 
     state.copy(
       whitePieces = b.white,
@@ -409,6 +488,7 @@ extension (state: GameState)
       kings = b.kings,
       mailbox = Mailbox.fromBuilder(b.mailbox),
       flags = newFlags,
-      enPassant = newEnPassant
+      enPassant = newEnPassant,
+      zobristKey = key
     )
   }

@@ -11,8 +11,13 @@ import scala.util.Random
   *   expanded to full depth. Dice Chess routinely offers hundreds of legal turns per roll, so expanding all of them
   *   through a chance node is infeasible; this bounds the branching at the decision node. Must be positive.
   */
-final case class ExpectimaxConfig(candidateLimit: Int = 8):
+final case class ExpectimaxConfig(
+    candidateLimit: Int = 8,
+    exactOnlyMode: Boolean = false,
+    depth: Int = 2
+):
   require(candidateLimit > 0, s"candidateLimit must be positive, got $candidateLimit")
+  require(depth >= 1, s"depth must be at least 1, got $depth")
 
 /** Root-level rescoring: after the search's own chance-node expectation is computed for each root candidate, blend it
   * with a second, cheaper-at-the-root evaluator run *once* on the candidates' own resulting positions (before the
@@ -114,7 +119,8 @@ final class ExpectimaxSearch(
     config: ExpectimaxConfig = ExpectimaxConfig(),
     rootRescore: Option[RootRescore] = None,
     preRank: (Array[GameState], Color) => Array[Int] = ExpectimaxSearch.materialBatch,
-    statsSink: RootSearchStats => Unit = ExpectimaxSearch.NoStats
+    statsSink: RootSearchStats => Unit = ExpectimaxSearch.NoStats,
+    tt: Option[TranspositionTable] = None
 ) extends TimeBudgetedSearch:
 
   import ExpectimaxSearch.*
@@ -246,6 +252,28 @@ final class ExpectimaxSearch(
       deadlineNanos: Long,
       alpha: Double
   ): ChanceNodeResult =
+    val key = oppToMove.zobristHash
+    tt.flatMap(_.probe(key)) match
+      case Some(entry) if entry.depth >= config.depth - 1 =>
+        if entry.bound == TTBound.Exact then
+          return ChanceNodeResult(
+            value = entry.value,
+            lossTainted = entry.lossTainted,
+            complete = true,
+            pruned = false,
+            rollsProcessed = 56
+          )
+        else if !config.exactOnlyMode && entry.bound == TTBound.UpperBound && entry.value <= alpha then
+          return ChanceNodeResult(
+            value = entry.value,
+            lossTainted = entry.lossTainted,
+            complete = false,
+            pruned = true,
+            rollsProcessed = 0,
+            probePruned = true
+          )
+      case _ => ()
+
     val checkClock    = timed(deadlineNanos)
     val rolls         = DiceRolls.byWeightDescending
     val totalRolls    = rolls.length
@@ -321,82 +349,92 @@ final class ExpectimaxSearch(
 
         if remainingCeiling(0) < alpha then cutByStar2 = true
 
-    if cutByStar2 then
-      ChanceNodeResult(
-        value = remainingCeiling(0),
-        lossTainted = lossTainted,
-        complete = false,
-        pruned = true,
-        rollsProcessed = 0,
-        probePruned = true
-      )
-    else if cutByDeadline then
-      ChanceNodeResult(
-        value = 0.0,
-        lossTainted = lossTainted,
-        complete = false,
-        pruned = false,
-        rollsProcessed = 0
-      )
-    else
-      // Fall through to Star1 roll iteration, using probe values as per-roll ceilings when available
-      var acc             = 0.0
-      var processedWeight = 0
-      var i               = 0
-
-      while i < totalRolls && !cutByDeadline && !cutByStar1 do
-        val remainingProb = (DiceRolls.totalOrderedRolls - processedWeight).toDouble / DiceRolls.totalOrderedRolls
-        val upperBound    =
-          if alpha > Double.NegativeInfinity then acc + remainingCeiling(i)
-          else acc + remainingProb * UpperScoreBound
-
-        if alpha > Double.NegativeInfinity && upperBound < alpha then cutByStar1 = true
-        else if checkClock && System.nanoTime() >= deadlineNanos then cutByDeadline = true
-        else
-          val (roll, weight) = rolls(i)
-          val rolled         = oppToMove.withDicePool(roll)
-          val replies        =
-            if allReplies(i) != null then allReplies(i)
-            else TurnGenerator.generateAllLegalTurnPaths(rolled)
-
-          val rollValue =
-            if replies.isEmpty then evalOne(oppToMove.endTurn(), myColor)
-            else opponentMinValue(rolled, replies, myColor)
-
-          if rollValue == LossValue then lossTainted = true
-          acc += (weight.toDouble / DiceRolls.totalOrderedRolls) * rollValue
-          processedWeight += weight
-          i += 1
-
-      if cutByStar1 then
-        val remainingProb = (DiceRolls.totalOrderedRolls - processedWeight).toDouble / DiceRolls.totalOrderedRolls
-        val upperBound    =
-          if alpha > Double.NegativeInfinity then acc + remainingCeiling(i)
-          else acc + remainingProb * UpperScoreBound
-
+    val res: ChanceNodeResult =
+      if cutByStar2 then
         ChanceNodeResult(
-          value = upperBound,
+          value = remainingCeiling(0),
           lossTainted = lossTainted,
           complete = false,
           pruned = true,
-          rollsProcessed = i
+          rollsProcessed = 0,
+          probePruned = true
         )
       else if cutByDeadline then
         ChanceNodeResult(
-          value = acc,
+          value = 0.0,
           lossTainted = lossTainted,
           complete = false,
           pruned = false,
-          rollsProcessed = i
+          rollsProcessed = 0
         )
       else
-        ChanceNodeResult(
-          value = acc,
-          lossTainted = lossTainted,
-          complete = true,
-          pruned = false,
-          rollsProcessed = i
-        )
+        // Fall through to Star1 roll iteration, using probe values as per-roll ceilings when available
+        var acc             = 0.0
+        var processedWeight = 0
+        var i               = 0
+
+        while i < totalRolls && !cutByDeadline && !cutByStar1 do
+          val remainingProb = (DiceRolls.totalOrderedRolls - processedWeight).toDouble / DiceRolls.totalOrderedRolls
+          val upperBound    =
+            if alpha > Double.NegativeInfinity then acc + remainingCeiling(i)
+            else acc + remainingProb * UpperScoreBound
+
+          if alpha > Double.NegativeInfinity && upperBound < alpha then cutByStar1 = true
+          else if checkClock && System.nanoTime() >= deadlineNanos then cutByDeadline = true
+          else
+            val (roll, weight) = rolls(i)
+            val rolled         = oppToMove.withDicePool(roll)
+            val replies        =
+              if allReplies(i) ne null then allReplies(i) // scalafix:ok(DisableSyntax.null)
+              else TurnGenerator.generateAllLegalTurnPaths(rolled)
+
+            val rollValue =
+              if replies.isEmpty then evalOne(oppToMove.endTurn(), myColor)
+              else opponentMinValue(rolled, replies, myColor)
+
+            if rollValue == LossValue then lossTainted = true
+            acc += (weight.toDouble / DiceRolls.totalOrderedRolls) * rollValue
+            processedWeight += weight
+            i += 1
+
+        if cutByStar1 then
+          val remainingProb = (DiceRolls.totalOrderedRolls - processedWeight).toDouble / DiceRolls.totalOrderedRolls
+          val upperBound    =
+            if alpha > Double.NegativeInfinity then acc + remainingCeiling(i)
+            else acc + remainingProb * UpperScoreBound
+
+          ChanceNodeResult(
+            value = upperBound,
+            lossTainted = lossTainted,
+            complete = false,
+            pruned = true,
+            rollsProcessed = i
+          )
+        else if cutByDeadline then
+          ChanceNodeResult(
+            value = acc,
+            lossTainted = lossTainted,
+            complete = false,
+            pruned = false,
+            rollsProcessed = i
+          )
+        else
+          ChanceNodeResult(
+            value = acc,
+            lossTainted = lossTainted,
+            complete = true,
+            pruned = false,
+            rollsProcessed = i
+          )
+
+    tt.foreach { table =>
+      if res.complete then
+        table.store(key, res.value, TTBound.Exact, config.depth - 1, res.lossTainted)
+      else if res.pruned && !config.exactOnlyMode then
+        table.store(key, res.value, TTBound.UpperBound, config.depth - 1, res.lossTainted)
+    }
+
+    res
 
   /** The opponent picks the reply that is worst for us. A reply capturing our king is worst of all ([[LossValue]]);
     * otherwise the resulting leaves are scored in one batch and the minimum is taken.
