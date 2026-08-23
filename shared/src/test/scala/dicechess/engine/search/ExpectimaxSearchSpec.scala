@@ -139,11 +139,14 @@ class ExpectimaxSearchSpec extends FunSuite:
 
   test("statsSink reports full width when no deadline applies"):
     // rootRescorePosition offers exactly the four king steps d1/d2/e2/f1 (see the fixture comment), all within the
-    // default candidate limit — so selected == completed == 4 and nothing was truncated.
+    // default candidate limit — 3 complete and 1 (loss-tainted d2) is pruned by Star1 cutoff.
     var stats = Option.empty[RootSearchStats]
     val bot   = ExpectimaxSearch(materialBatch, statsSink = s => stats = Some(s))
     assert(bot.findBestMove(rootRescorePosition, Random(0)).isDefined)
-    assertEquals(stats, Some(RootSearchStats(legalTurns = 4, candidatesSelected = 4, candidatesCompleted = 4)))
+    assertEquals(
+      stats,
+      Some(RootSearchStats(legalTurns = 4, candidatesSelected = 4, candidatesCompleted = 3, cutoffs = 1, rollsSaved = 55))
+    )
     assert(!stats.get.deadlineTruncated)
 
   test("an already-elapsed deadline completes nothing and falls back to the pre-ranker (#496)"):
@@ -179,7 +182,16 @@ class ExpectimaxSearchSpec extends FunSuite:
     assert(bot.findBestMove(rootRescorePosition, far, Random(0)).isDefined)
     assertEquals(
       stats,
-      Some(RootSearchStats(legalTurns = 4, candidatesSelected = 4, candidatesCompleted = 4, candidatesAbandoned = 0))
+      Some(
+        RootSearchStats(
+          legalTurns = 4,
+          candidatesSelected = 4,
+          candidatesCompleted = 3,
+          candidatesAbandoned = 0,
+          cutoffs = 1,
+          rollsSaved = 55
+        )
+      )
     )
     assert(!stats.get.deadlineTruncated)
     assert(!stats.get.fellBackToPreRank)
@@ -223,8 +235,28 @@ class ExpectimaxSearchSpec extends FunSuite:
       val untimed   = timedBot.findBestMove(rootRescorePosition, Random(seed)).map(s => uci(s.moves))
       val reference = search().findBestMove(rootRescorePosition, Random(seed)).map(s => uci(s.moves))
       assertEquals(untimed, reference, s"seed $seed")
-      assertEquals(stats.map(_.candidatesCompleted), Some(4), s"seed $seed")
+      assertEquals(stats.map(_.candidatesCompleted), Some(3), s"seed $seed")
+      assertEquals(stats.map(_.cutoffs), Some(1), s"seed $seed")
       assertEquals(stats.map(_.candidatesAbandoned), Some(0), s"seed $seed")
+
+  test("Star1 pruning reduces processed rolls and records cutoffs in RootSearchStats"):
+    // Position where candidate 0 achieves a strong score and subsequent candidates are provably worse.
+    val state = parse("1r4k1/p4ppp/8/8/8/8/5PPP/R5K1 w - - 0 1").withDicePool(List(2, 2, 4))
+    var stats = Option.empty[RootSearchStats]
+    val bot   = ExpectimaxSearch(materialBatch, statsSink = s => stats = Some(s))
+    assert(bot.findBestMove(state, Random(0)).isDefined)
+    val s = stats.getOrElse(fail("expected stats"))
+    assert(s.cutoffs > 0, s"expected cutoffs > 0, got $s")
+    assert(s.rollsSaved > 0, s"expected rollsSaved > 0, got $s")
+
+  test("Star1 pruning is disabled when rootRescore is configured"):
+    val rescore = Some(RootRescore(prefers('d', 1), weight = 0.5))
+    var stats   = Option.empty[RootSearchStats]
+    val bot     = ExpectimaxSearch(materialBatch, rootRescore = rescore, statsSink = s => stats = Some(s))
+    assert(bot.findBestMove(rootRescorePosition, Random(0)).isDefined)
+    val s = stats.getOrElse(fail("expected stats"))
+    assertEquals(s.cutoffs, 0, s"rootRescore must disable Star1 pruning, got $s")
+    assertEquals(s.candidatesCompleted, 4)
 
   test("statsSink reports 0/0 on an immediate king capture — no candidate was ever expanded"):
     val state = parse("k7/8/8/8/8/8/8/R3K3 w - - 0 1").withDicePool(List(1, 1, 4))

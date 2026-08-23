@@ -44,3 +44,12 @@ object DiceRolls:
         case _ => 6 // ABC — six orderings
       builder += ((multiset, weight))
     IArray.from(builder.result())
+
+  /** The 56 distinct sorted dice multisets ordered by occurrence weight descending.
+    *
+    * The 20 weight-6 multisets come first (covering 55.6% of probability mass), followed by the 30 weight-3
+    * multisets, then the 6 weight-1 multisets. Sorting by descending weight collapses probability bounds fastest
+    * during chance-node pruning (e.g. Star1).
+    */
+  val byWeightDescending: IArray[(List[Int], Int)] =
+    IArray.from(weighted.toSeq.sortBy { case (_, w) => -w })

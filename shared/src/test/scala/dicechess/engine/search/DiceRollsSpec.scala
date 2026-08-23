@@ -38,3 +38,12 @@ class DiceRollsSpec extends FunSuite:
     assertEquals(byWeight.get(1), Some(6), "AAA multisets")
     assertEquals(byWeight.get(3), Some(30), "AAB/ABB multisets")
     assertEquals(byWeight.get(6), Some(20), "ABC multisets")
+
+  test("byWeightDescending contains same 56 multisets ordered by weight descending"):
+    val desc = DiceRolls.byWeightDescending
+    assertEquals(desc.length, 56)
+    assertEquals(desc.map(_._1).toSet, DiceRolls.weighted.map(_._1).toSet)
+    assertEquals(desc.take(20).map(_._2).toList, List.fill(20)(6))
+    assertEquals(desc.slice(20, 50).map(_._2).toList, List.fill(30)(3))
+    assertEquals(desc.takeRight(6).map(_._2).toList, List.fill(6)(1))
+    assertEquals(desc.map(_._2).sum, 216)
