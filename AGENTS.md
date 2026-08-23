@@ -138,7 +138,7 @@ Common failure signatures:
 <!-- dc-shared:git-pr v2 — keep identical across dicechess repos -->
 - Never commit to `main`. Branch: `<type>/<short-desc>` or `<type>/<id>-<short-desc>`
   (types: `task|feat|bug|refactor|chore|docs|ci|test|perf`; `feature` is accepted as an alias
-  of `feat`). Carry an issue id only when the PR will fully complete that issue. When the PR targets
+  of `feat`). External integrations and tool-managed environments (e.g. Jules) that enforce their own branch naming strategy are accepted by PR Policy only if the PR body explicitly includes a closing issue reference (`Closes #<id>`, `Fixes #<id>`, or `Resolves #<id>`). Workflow workarounds for unrelated purposes remain strictly forbidden. Carry an issue id only when the PR will fully complete that issue. When the PR targets
   `main`, include `Closes #<id>` in its body; for partial work or another target branch, use a sub-issue
   id where appropriate and a non-closing reference.
 - **The branch type chooses the release-notes section** — `.github/labeler.yml` turns it into a
