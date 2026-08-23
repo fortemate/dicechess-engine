@@ -1,6 +1,13 @@
 package dicechess.engine.bench
 
-import dicechess.engine.search.{BotInfo, BotRegistry, ExpectimaxConfig, OnnxEvalSearch, OnnxExpectimaxSearch}
+import dicechess.engine.search.{
+  BotInfo,
+  BotRegistry,
+  ExpectimaxConfig,
+  OnnxEvalSearch,
+  OnnxExpectimaxSearch,
+  RootSearchStats
+}
 
 /** Makes an ONNX model playable by the arena, by giving it a [[BotRegistry]] id.
   *
@@ -33,7 +40,8 @@ private[bench] object OnnxArenaBot:
       searchKind: SearchKind,
       config: ExpectimaxConfig,
       difficulty: Int,
-      description: String
+      description: String,
+      statsSink: RootSearchStats => Unit = _ => ()
   ): BotRegistry.Registration =
     val extract     = ArenaOptions.extractFeatures(featureSet)
     val (bot, name) = searchKind match
@@ -41,7 +49,7 @@ private[bench] object OnnxArenaBot:
         (new OnnxEvalSearch(modelPath, extract), s"ONNX One-Ply ($featureSet)")
       case SearchKind.Expectimax =>
         (
-          new OnnxExpectimaxSearch(modelPath, config, extract),
+          new OnnxExpectimaxSearch(modelPath, config, extract, statsSink = statsSink),
           s"ONNX Expectimax ($featureSet, K=${config.candidateLimit})"
         )
 
