@@ -70,7 +70,13 @@ For each weighted dice roll in the chance node:
 
 The distinct leaf states under a roll are scored in a single call to `evalBatch(leaves, color)`. Scoring in batches eliminates per-leaf call overhead and enables vectorized or hardware-accelerated evaluation (e.g. via ONNX Runtime in [`OnnxExpectimaxSearch`](/dicechess-engine/architecture/search/07-onnx-integration/)).
 
-### 5. Root Rescoring (`RootRescore`)
+### 5. Star Pruning (Star1 & Star2 Probing)
+
+To avoid expanding full chance-node subtrees that cannot beat the current best candidate ($\alpha$), `ExpectimaxSearch` uses two levels of star pruning:
+- **Star1 Pruning**: As weighted dice rolls are processed in weight-descending order, an upper bound on remaining expectation is maintained ($acc + P_{\text{rem}} \cdot U$). When $acc + P_{\text{rem}} \cdot U \le \alpha$, the remaining rolls are skipped.
+- **Star2 Probing**: Before expanding a candidate's chance node, each of the 56 rolls is probed with a single top-1 opponent reply (pre-ranked by material). All 56 probed positions are evaluated in a single batched `evalBatch` call. If the probed upper bound sum satisfies $\sum p_i \cdot \text{probe}_i \le \alpha$, the candidate's chance node is pruned immediately without full per-roll expansion. If probing does not prune the node, the probed values serve as tighter per-roll ceilings during Star1 roll iteration.
+
+### 6. Root Rescoring (`RootRescore`)
 
 An optional `RootRescore` blends the chance-node search value with a second, tactically sharp but leaf-prohibitive evaluator computed once on the resulting candidate positions (before the opponent's roll):
 
@@ -78,12 +84,12 @@ $$\text{score} = (1 - w) \times V_{\text{search}} + w \times V_{\text{rescore}}$
 
 This allows expensive evaluations (such as 216-outcome King Capture Probability features) to run at the root ($K$ states) without burdening the thousands of leaves under chance nodes. Candidates tainted by an unavoidable king capture on any opponent roll are never rescored and remain ranked last.
 
-### 6. Time Management & Telemetry
+### 7. Time Management & Telemetry
 
 `ExpectimaxSearch` extends `TimeBudgetedSearch` and coordinates with [`TimeManager`](/dicechess-engine/architecture/search/05-time-management/):
 - **Fine-grained clock checks**: The deadline is checked **between dice rolls inside the chance node** (~$1/56$ of a candidate), not merely between candidates.
 - **Anytime contract**: Truncated candidates (cut mid-expansion) are abandoned and discarded rather than compared against completed candidates. If the deadline expires before even one candidate completes, the search falls back to the pre-ranker's top pick.
-- **Telemetry sink (`RootSearchStats`)**: An optional `statsSink` receives search diagnostics per move (`legalTurns`, `candidatesSelected`, `candidatesCompleted`, `candidatesAbandoned`), reporting whether the deadline truncated candidate expansion.
+- **Telemetry sink (`RootSearchStats`)**: An optional `statsSink` receives search diagnostics per move (`legalTurns`, `candidatesSelected`, `candidatesCompleted`, `candidatesAbandoned`, `cutoffs`, `rollsSaved`, `probeCutoffs`), reporting cutoff telemetry and deadline truncation.
 
 ---
 
@@ -153,8 +159,7 @@ When finished, call `registration.close()` to unregister the bot and release ass
 
 Planned search optimizations not yet implemented in `ExpectimaxSearch` are documented in the [Search Roadmap & Evaluation](/dicechess-engine/architecture/search/03-search-roadmap/):
 
-1. **Star1 and Star2 Pruning**: Calculating upper and lower bounds on mathematical expectation to prune chance-node subtrees.
-2. **Transposition Tables & Zobrist Hashing**: Cross-node and cross-ply caching of search values and bounds.
+1. **Transposition Tables & Zobrist Hashing**: Cross-node and cross-ply caching of search values and bounds.
 3. **Parallel Chance Nodes**: Concurrent branch evaluation across CPU cores.
 4. **Arbitrary Depth ($d > 2$) & Iterative Deepening**: Deep multi-ply tree traversal within time budgets.
 

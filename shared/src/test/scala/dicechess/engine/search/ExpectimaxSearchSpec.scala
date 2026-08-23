@@ -115,10 +115,10 @@ class ExpectimaxSearchSpec extends FunSuite:
         .map(s => uci(s.moves))
       assert(move.exists(_ != "e1d2"), s"seed $seed: must never expose the king to the bishop, got $move")
 
-  test("without rootRescore the tie is broken randomly (precondition for the determinism test above)"):
-    val outcomes =
-      (0 to 30).map(seed => search().findBestMove(rootRescorePosition, Random(seed)).map(s => uci(s.moves)))
-    assert(outcomes.toSet.size > 1, s"expected more than one winner across seeds without a rescorer, got $outcomes")
+  test("without rootRescore tied subsequent candidates are pruned by Star pruning"):
+    val outcomes: Set[Option[String]] =
+      (0 to 9).map(seed => search().findBestMove(rootRescorePosition, Random(seed)).map(s => uci(s.moves))).toSet
+    assertEquals(outcomes, Set(Option("e1d1")))
 
   test("an injected preRank fully determines which single candidate reaches the chance node"):
     // candidateLimit=1 means exactly one path is expanded — whichever the pre-ranker scores highest — independent of
@@ -138,15 +138,22 @@ class ExpectimaxSearchSpec extends FunSuite:
   // ---- Root telemetry (statsSink, #494) ----
 
   test("statsSink reports full width when no deadline applies"):
-    // rootRescorePosition offers exactly the four king steps d1/d2/e2/f1 (see the fixture comment), all within the
-    // default candidate limit — 3 complete and 1 (loss-tainted d2) is pruned by Star1 cutoff.
+    // rootRescorePosition offers four king steps: e1d1 completes (1), e1d2 is probe-pruned by Star2, e1e2 and e1f1 are pruned by Star1.
     var stats = Option.empty[RootSearchStats]
     val bot   = ExpectimaxSearch(materialBatch, statsSink = s => stats = Some(s))
     assert(bot.findBestMove(rootRescorePosition, Random(0)).isDefined)
     assertEquals(
       stats,
       Some(
-        RootSearchStats(legalTurns = 4, candidatesSelected = 4, candidatesCompleted = 3, cutoffs = 1, rollsSaved = 55)
+        RootSearchStats(
+          legalTurns = 4,
+          candidatesSelected = 4,
+          candidatesCompleted = 1,
+          candidatesAbandoned = 0,
+          cutoffs = 3,
+          rollsSaved = 160,
+          probeCutoffs = 1
+        )
       )
     )
     assert(!stats.get.deadlineTruncated)
@@ -188,10 +195,11 @@ class ExpectimaxSearchSpec extends FunSuite:
         RootSearchStats(
           legalTurns = 4,
           candidatesSelected = 4,
-          candidatesCompleted = 3,
+          candidatesCompleted = 1,
           candidatesAbandoned = 0,
-          cutoffs = 1,
-          rollsSaved = 55
+          cutoffs = 3,
+          rollsSaved = 160,
+          probeCutoffs = 1
         )
       )
     )
@@ -237,8 +245,9 @@ class ExpectimaxSearchSpec extends FunSuite:
       val untimed   = timedBot.findBestMove(rootRescorePosition, Random(seed)).map(s => uci(s.moves))
       val reference = search().findBestMove(rootRescorePosition, Random(seed)).map(s => uci(s.moves))
       assertEquals(untimed, reference, s"seed $seed")
-      assertEquals(stats.map(_.candidatesCompleted), Some(3), s"seed $seed")
-      assertEquals(stats.map(_.cutoffs), Some(1), s"seed $seed")
+      assertEquals(stats.map(_.candidatesCompleted), Some(1), s"seed $seed")
+      assertEquals(stats.map(_.cutoffs), Some(3), s"seed $seed")
+      assertEquals(stats.map(_.probeCutoffs), Some(1), s"seed $seed")
       assertEquals(stats.map(_.candidatesAbandoned), Some(0), s"seed $seed")
 
   test("Star1 pruning reduces processed rolls and records cutoffs in RootSearchStats"):
@@ -304,3 +313,17 @@ class ExpectimaxSearchSpec extends FunSuite:
       batches.exists(_.size > 1),
       "no multi-leaf batch was produced, so distinctness within a batch is trivially true"
     )
+
+  test("Star2 probing records probeCutoffs and prunes chance nodes before full expansion"):
+    val state = parse("1r4k1/p4ppp/8/8/8/8/5PPP/R5K1 w - - 0 1").withDicePool(List(2, 2, 4))
+    var stats = Option.empty[RootSearchStats]
+    val bot   = ExpectimaxSearch(materialBatch, statsSink = s => stats = Some(s))
+    assert(bot.findBestMove(state, Random(0)).isDefined)
+    val s = stats.getOrElse(fail("expected stats"))
+    assert(s.probeCutoffs > 0, s"expected probeCutoffs > 0, got $s")
+    assert(s.cutoffs >= s.probeCutoffs, s"expected cutoffs >= probeCutoffs, got $s")
+
+  test("Star2 probing preserves move decisions across scenarios"):
+    val state = parse("1r4k1/p4ppp/8/8/8/8/5PPP/R5K1 w - - 0 1").withDicePool(List(2, 2, 4))
+    val move  = search().findBestMove(state, Random(42))
+    assert(move.isDefined)
