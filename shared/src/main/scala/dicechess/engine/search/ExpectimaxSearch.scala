@@ -319,7 +319,7 @@ final class ExpectimaxSearch(
             remainingCeiling(k + 1) + (weight.toDouble / DiceRolls.totalOrderedRolls) * remainingCeiling(k)
           k -= 1
 
-        if remainingCeiling(0) <= alpha then cutByStar2 = true
+        if remainingCeiling(0) < alpha then cutByStar2 = true
 
     if cutByStar2 then
       ChanceNodeResult(
@@ -350,17 +350,15 @@ final class ExpectimaxSearch(
           if alpha > Double.NegativeInfinity then acc + remainingCeiling(i)
           else acc + remainingProb * UpperScoreBound
 
-        if alpha > Double.NegativeInfinity && upperBound <= alpha then cutByStar1 = true
+        if alpha > Double.NegativeInfinity && upperBound < alpha then cutByStar1 = true
         else if checkClock && System.nanoTime() >= deadlineNanos then cutByDeadline = true
         else
           val (roll, weight) = rolls(i)
+          val rolled         = oppToMove.withDicePool(roll)
           val replies        =
             if allReplies(i) != null then allReplies(i)
-            else
-              val rolled = oppToMove.withDicePool(roll)
-              TurnGenerator.generateAllLegalTurnPaths(rolled)
+            else TurnGenerator.generateAllLegalTurnPaths(rolled)
 
-          val rolled    = oppToMove.withDicePool(roll)
           val rollValue =
             if replies.isEmpty then evalOne(oppToMove.endTurn(), myColor)
             else opponentMinValue(rolled, replies, myColor)

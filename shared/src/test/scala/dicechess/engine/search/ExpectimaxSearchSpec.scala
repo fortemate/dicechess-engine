@@ -115,10 +115,16 @@ class ExpectimaxSearchSpec extends FunSuite:
         .map(s => uci(s.moves))
       assert(move.exists(_ != "e1d2"), s"seed $seed: must never expose the king to the bishop, got $move")
 
-  test("without rootRescore tied subsequent candidates are pruned by Star pruning"):
+  test("without rootRescore inferior candidates are pruned by Star pruning"):
     val outcomes: Set[Option[String]] =
-      (0 to 9).map(seed => search().findBestMove(rootRescorePosition, Random(seed)).map(s => uci(s.moves))).toSet
+      (0 to 30).map(seed => search().findBestMove(rootRescorePosition, Random(seed)).map(s => uci(s.moves))).toSet
     assertEquals(outcomes, Set(Option("e1d1")))
+
+  test("without rootRescore tied candidates break ties randomly"):
+    val equalBatch: (Array[GameState], Color) => Array[Int] = (states, _) => states.map(_ => 0)
+    val bot                                                 = ExpectimaxSearch(equalBatch)
+    val outcomes = (0 to 30).map(seed => bot.findBestMove(rootRescorePosition, Random(seed)).map(s => uci(s.moves)))
+    assert(outcomes.toSet.size > 1, s"expected random tie-breaking among equal candidates, got $outcomes")
 
   test("an injected preRank fully determines which single candidate reaches the chance node"):
     // candidateLimit=1 means exactly one path is expanded — whichever the pre-ranker scores highest — independent of
@@ -151,7 +157,7 @@ class ExpectimaxSearchSpec extends FunSuite:
           candidatesCompleted = 1,
           candidatesAbandoned = 0,
           cutoffs = 3,
-          rollsSaved = 160,
+          rollsSaved = 156,
           probeCutoffs = 1
         )
       )
@@ -198,7 +204,7 @@ class ExpectimaxSearchSpec extends FunSuite:
           candidatesCompleted = 1,
           candidatesAbandoned = 0,
           cutoffs = 3,
-          rollsSaved = 160,
+          rollsSaved = 156,
           probeCutoffs = 1
         )
       )
@@ -324,6 +330,7 @@ class ExpectimaxSearchSpec extends FunSuite:
     assert(s.cutoffs >= s.probeCutoffs, s"expected cutoffs >= probeCutoffs, got $s")
 
   test("Star2 probing preserves move decisions across scenarios"):
-    val state = parse("1r4k1/p4ppp/8/8/8/8/5PPP/R5K1 w - - 0 1").withDicePool(List(2, 2, 4))
-    val move  = search().findBestMove(state, Random(42))
-    assert(move.isDefined)
+    val state      = parse("1r4k1/p4ppp/8/8/8/8/5PPP/R5K1 w - - 0 1").withDicePool(List(2, 2, 4))
+    val move       = search().findBestMove(state, Random(42)).map(s => uci(s.moves))
+    val greedyMove = GreedySearch.findBestMove(state, Random(42)).map(s => uci(s.moves))
+    assert(move.isDefined && move != greedyMove, s"expected expectimax decision to decline hanging grab, got $move")
