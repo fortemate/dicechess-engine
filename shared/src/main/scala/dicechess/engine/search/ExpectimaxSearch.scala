@@ -63,10 +63,12 @@ final case class RootSearchStats(
     legalTurns: Int,
     candidatesSelected: Int,
     candidatesCompleted: Int,
-    candidatesAbandoned: Int = 0
+    candidatesAbandoned: Int = 0,
+    cutoffs: Int = 0,
+    rollsSaved: Int = 0
 ):
   /** Whether the deadline cut the loop short of the selected candidate set. */
-  def deadlineTruncated: Boolean = candidatesCompleted < candidatesSelected
+  def deadlineTruncated: Boolean = candidatesCompleted + cutoffs < candidatesSelected
 
   /** The deadline elapsed before a single candidate could be scored, so the turn came from the pre-ranker alone — the
     * search contributed nothing beyond candidate selection.
@@ -172,26 +174,33 @@ final class ExpectimaxSearch(
         // Each candidate's own resulting position (before the opponent's roll) is kept alongside its chance-node
         // value: the chance node needs it, and — when a root rescorer is configured — so does the rescore batch,
         // scored once over exactly these states rather than recomputed.
-        val evaluated = List.newBuilder[(List[Move], GameState, Double, Boolean)]
-        var i         = 0
-        var completed = 0
-        var abandoned = 0
-        var continue  = true
+        val evaluated  = List.newBuilder[(List[Move], GameState, Double, Boolean)]
+        var i          = 0
+        var completed  = 0
+        var abandoned  = 0
+        var cutoffs    = 0
+        var rollsSaved = 0
+        var alpha      = Double.NegativeInfinity
+        var continue   = true
         while i < candidates.length && continue do
-          val (path, resultState)            = candidates(i)
-          val (value, lossTainted, complete) = chanceNodeValue(resultState, myColor, deadlineNanos)
+          val (path, resultState) = candidates(i)
+          val res                 = chanceNodeValue(resultState, myColor, deadlineNanos, alpha)
           // Only a fully expanded candidate is ranked. A truncated one carries the expectation of the rolls it
           // happened to reach, which is not comparable with a complete one — ranking it would let the arbitrary
           // point where the clock landed decide the move.
-          if complete then
-            evaluated += ((path, resultState, value, lossTainted))
+          if res.complete then
+            evaluated += ((path, resultState, res.value, res.lossTainted))
             completed += 1
+            if rootRescore.isEmpty then alpha = math.max(alpha, res.value)
+          else if res.pruned then
+            cutoffs += 1
+            rollsSaved += (DiceRolls.byWeightDescending.length - res.rollsProcessed)
           else
             abandoned += 1
             continue = false // the deadline is already past; starting another candidate cannot finish either
           i += 1
           if continue && timed(deadlineNanos) && System.nanoTime() >= deadlineNanos then continue = false
-        statsSink(RootSearchStats(paths.size, candidates.length, completed, abandoned))
+        statsSink(RootSearchStats(paths.size, candidates.length, completed, abandoned, cutoffs, rollsSaved))
         val results = evaluated.result()
         // The deadline elapsed inside the very first candidate, so nothing has a comparable value yet. The anytime
         // contract still owes a legal turn: play the pre-ranker's own top pick, scored as the pre-ranker scored it.
@@ -226,19 +235,31 @@ final class ExpectimaxSearch(
     * @param deadlineNanos
     *   [[ExpectimaxSearch.NoDeadline]] for the untimed path, which skips the clock entirely
     */
-  private def chanceNodeValue(oppToMove: GameState, myColor: Color, deadlineNanos: Long): (Double, Boolean, Boolean) =
-    val checkClock  = timed(deadlineNanos)
-    var acc         = 0.0
-    var lossTainted = false
-    var i           = 0
-    var cut         = false
-    while i < DiceRolls.weighted.length && !cut do
-      // Between rolls is the finest yield point this search has: one roll is ~1/56 of a candidate, where the
-      // candidate itself routinely outlasts a whole per-move budget (measured 6.5s median against a 1.9s
-      // allocation at K=24 on one core, #496). Checking here is what makes the deadline contract true in practice.
-      if checkClock && System.nanoTime() >= deadlineNanos then cut = true
+  private def chanceNodeValue(
+      oppToMove: GameState,
+      myColor: Color,
+      deadlineNanos: Long,
+      alpha: Double
+  ): ChanceNodeResult =
+    val checkClock      = timed(deadlineNanos)
+    val rolls           = DiceRolls.byWeightDescending
+    val totalRolls      = rolls.length
+    var acc             = 0.0
+    var processedWeight = 0
+    var lossTainted     = false
+    var i               = 0
+    var cutByDeadline   = false
+    var cutByStar1      = false
+
+    while i < totalRolls && !cutByDeadline && !cutByStar1 do
+      val remainingWeight = DiceRolls.totalOrderedRolls - processedWeight
+      val remainingProb   = remainingWeight.toDouble / DiceRolls.totalOrderedRolls
+      val upperBound      = acc + remainingProb * UpperScoreBound
+
+      if alpha > Double.NegativeInfinity && upperBound <= alpha then cutByStar1 = true
+      else if checkClock && System.nanoTime() >= deadlineNanos then cutByDeadline = true
       else
-        val (roll, weight) = DiceRolls.weighted(i)
+        val (roll, weight) = rolls(i)
         val rolled         = oppToMove.withDicePool(roll)
         val replies        = TurnGenerator.generateAllLegalTurnPaths(rolled)
         val rollValue      =
@@ -250,8 +271,36 @@ final class ExpectimaxSearch(
           else opponentMinValue(rolled, replies, myColor)
         if rollValue == LossValue then lossTainted = true
         acc += (weight.toDouble / DiceRolls.totalOrderedRolls) * rollValue
+        processedWeight += weight
         i += 1
-    (acc, lossTainted, !cut)
+
+    if cutByStar1 then
+      val remainingWeight = DiceRolls.totalOrderedRolls - processedWeight
+      val remainingProb   = remainingWeight.toDouble / DiceRolls.totalOrderedRolls
+      val upperBound      = acc + remainingProb * UpperScoreBound
+      ChanceNodeResult(
+        value = upperBound,
+        lossTainted = lossTainted,
+        complete = false,
+        pruned = true,
+        rollsProcessed = i
+      )
+    else if cutByDeadline then
+      ChanceNodeResult(
+        value = acc,
+        lossTainted = lossTainted,
+        complete = false,
+        pruned = false,
+        rollsProcessed = i
+      )
+    else
+      ChanceNodeResult(
+        value = acc,
+        lossTainted = lossTainted,
+        complete = true,
+        pruned = false,
+        rollsProcessed = i
+      )
 
   /** The opponent picks the reply that is worst for us. A reply capturing our king is worst of all ([[LossValue]]);
     * otherwise the resulting leaves are scored in one batch and the minimum is taken.
@@ -381,7 +430,20 @@ final class ExpectimaxSearch(
   private def evalOne(state: GameState, color: Color): Double =
     evalBatch(Array(state), color)(0).toDouble
 
+final private case class ChanceNodeResult(
+    value: Double,
+    lossTainted: Boolean,
+    complete: Boolean,
+    pruned: Boolean,
+    rollsProcessed: Int
+)
+
 object ExpectimaxSearch:
+
+  /** Upper score bound for non-king evaluation values (e.g. ONNX score scale [0, 10000]). Used by Star1 chance-node
+    * pruning to bound the maximum possible expectation of unprocessed dice rolls ($S + R \cdot U$).
+    */
+  private[search] val UpperScoreBound: Double = 10000.0
 
   /** Value of a leaf in which the opponent captures our king. Chosen far below any real evaluation on any scale
     * (material centipawns or a scaled win-probability) so the opponent always prefers it and such a line always ranks
