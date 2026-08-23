@@ -49,7 +49,8 @@ final class OnnxExpectimaxSearch(
     extractFeatures: (GameState, Color) => Array[Float] = OnnxFeatures.extract,
     rootRescore: Option[RootRescoreModel] = None,
     preRankWithModel: Boolean = false,
-    statsSink: RootSearchStats => Unit = ExpectimaxSearch.NoStats
+    statsSink: RootSearchStats => Unit = ExpectimaxSearch.NoStats,
+    tt: Option[TranspositionTable] = None
 ) extends TimeBudgetedSearch
     with AutoCloseable:
 
@@ -59,7 +60,8 @@ final class OnnxExpectimaxSearch(
     extractFeatures,
     rootRescore,
     preRankWithModel,
-    statsSink
+    statsSink,
+    tt
   )
 
   override def findBestMove(state: GameState): Option[ScoredSequence] =
@@ -89,6 +91,7 @@ private[search] object OnnxExpectimaxSearchInitialization:
       rootRescore: Option[RootRescoreModel],
       preRankWithModel: Boolean,
       statsSink: RootSearchStats => Unit,
+      tt: Option[TranspositionTable] = None,
       sessionFactory: SessionFactory = DefaultSessionFactory
   ): (OnnxEvalSearch, Option[OnnxEvalSearch], ExpectimaxSearch) =
     val onnx        = sessionFactory(modelPath, extractFeatures)
@@ -104,7 +107,8 @@ private[search] object OnnxExpectimaxSearchInitialization:
         yield RootRescore((states, color) => session.onnxEvalBatch(states, color), r.weight),
         if preRankWithModel then (states, color) => onnx.onnxEvalBatch(states, color)
         else ExpectimaxSearch.materialBatch,
-        statsSink
+        statsSink,
+        tt
       )
       (onnx, rescoreOnnx, expectimax)
     catch

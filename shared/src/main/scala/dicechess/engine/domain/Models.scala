@@ -331,7 +331,18 @@ case class GameState(
 ) derives CanEqual:
   inline def activeColor: Color = flags.activeColor
 
-  /** Returns the precalculated Zobrist key, or computes it on demand if unpopulated (0L). */
+  /** Returns the precalculated Zobrist key, or computes it on demand if unpopulated (0L).
+    *
+    * ⚠️ Incremental-hash contract: position-relevant fields (boards, mailbox, flags, enPassant) must NEVER be mutated
+    * via a raw `copy(...)` — that silently carries this cached key forward and every later consumer of the hash reads a
+    * stale value. Mutate through the hash-aware paths (`makeMove`, `endTurn`, `withDicePool`, `withDiceSlotsOf`,
+    * `withActiveColor`, `clearEnPassant`) or reset `zobristKey = 0L` in the copy. Known deliberate exception:
+    * [[dicechess.engine.search.KingCaptureProbability]] mutates dice slots via raw copy inside its self-contained DFS,
+    * which never consults the hash.
+    *
+    * The 0L sentinel means a position whose true key is genuinely zero recomputes on every call — a ~2^-64 harmless
+    * performance quirk, accepted to keep the field allocation-free.
+    */
   def zobristHash: Long =
     if zobristKey != 0L then zobristKey
     else Zobrist.computeKey(this)

@@ -75,7 +75,8 @@ class OnnxExpectimaxSearchSpec extends FunSuite:
           Some(RootRescoreModel("unused", OnnxFeatures.extract, weight = 0.5)),
           preRankWithModel = false,
           ExpectimaxSearch.NoStats,
-          sessionFactory
+          tt = None,
+          sessionFactory = sessionFactory
         )
       assert(thrown eq creationFailure)
       assert(mainClosed)
