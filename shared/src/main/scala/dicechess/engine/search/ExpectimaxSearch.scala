@@ -175,8 +175,8 @@ final class ExpectimaxSearch(
         // Each candidate's own resulting position (before the opponent's roll) is kept alongside its chance-node
         // value: the chance node needs it, and — when a root rescorer is configured — so does the rescore batch,
         // scored once over exactly these states rather than recomputed.
-        val evaluated  = List.newBuilder[(List[Move], GameState, Double, Boolean)]
-        var i          = 0
+        val evaluated    = List.newBuilder[(List[Move], GameState, Double, Boolean)]
+        var i            = 0
         var completed    = 0
         var abandoned    = 0
         var cutoffs      = 0
@@ -300,7 +300,7 @@ final class ExpectimaxSearch(
 
           var k = 0
           while k < totalRolls do
-            val idx = probeRollIndices(k)
+            val idx        = probeRollIndices(k)
             val probeValue =
               if idx == -1 then LossValue
               else scoreMap(leafKey(rawProbeStates(idx))).toDouble
@@ -346,7 +346,7 @@ final class ExpectimaxSearch(
 
       while i < totalRolls && !cutByDeadline && !cutByStar1 do
         val remainingProb = (DiceRolls.totalOrderedRolls - processedWeight).toDouble / DiceRolls.totalOrderedRolls
-        val upperBound =
+        val upperBound    =
           if alpha > Double.NegativeInfinity then acc + remainingCeiling(i)
           else acc + remainingProb * UpperScoreBound
 
@@ -354,13 +354,13 @@ final class ExpectimaxSearch(
         else if checkClock && System.nanoTime() >= deadlineNanos then cutByDeadline = true
         else
           val (roll, weight) = rolls(i)
-          val replies =
+          val replies        =
             if allReplies(i) != null then allReplies(i)
             else
               val rolled = oppToMove.withDicePool(roll)
               TurnGenerator.generateAllLegalTurnPaths(rolled)
 
-          val rolled = oppToMove.withDicePool(roll)
+          val rolled    = oppToMove.withDicePool(roll)
           val rollValue =
             if replies.isEmpty then evalOne(oppToMove.endTurn(), myColor)
             else opponentMinValue(rolled, replies, myColor)
@@ -372,7 +372,7 @@ final class ExpectimaxSearch(
 
       if cutByStar1 then
         val remainingProb = (DiceRolls.totalOrderedRolls - processedWeight).toDouble / DiceRolls.totalOrderedRolls
-        val upperBound =
+        val upperBound    =
           if alpha > Double.NegativeInfinity then acc + remainingCeiling(i)
           else acc + remainingProb * UpperScoreBound
 
