@@ -61,41 +61,49 @@ object OnnxTimedArenaRunner:
         @volatile var currentPreset                               = ""
         val sink: dicechess.engine.search.RootSearchStats => Unit =
           s => statsWriter.foreach(w => w.println(s"$currentPreset\t$s"))
-        val bot = OnnxArenaBot.register(
-          botId,
-          modelPath,
-          featureSet,
-          // This runner is the 2-ply counterpart of OnnxExpectimaxArenaRunner by definition; one ply is offered by
-          // OnnxModelDuelRunner, where the choice is part of the question being asked (#610).
-          SearchKind.Expectimax,
-          ExpectimaxConfig(candidateLimit),
-          baselineInfo.difficulty,
-          s"clock-aware timed arena over $modelPath",
-          statsSink = sink
-        )
-        Using.resource(bot) { _ =>
-          println(
-            s"Timed arena: $modelPath (features=$featureSet, K=$candidateLimit) vs $baseline, controls=$presets, seed=$seed"
+        try
+          val bot = OnnxArenaBot.register(
+            botId,
+            modelPath,
+            featureSet,
+            // This runner is the 2-ply counterpart of OnnxExpectimaxArenaRunner by definition; one ply is offered by
+            // OnnxModelDuelRunner, where the choice is part of the question being asked (#610).
+            SearchKind.Expectimax,
+            ExpectimaxConfig(candidateLimit),
+            baselineInfo.difficulty,
+            s"clock-aware timed arena over $modelPath",
+            statsSink = sink
           )
-          val controls = TimedArenaRunner.parsePresets(presets)
-          val results  =
-            controls.map { tc =>
-              currentPreset = tc.toString
-              BotMatchRunner.runTimedMatch(
-                botId,
-                baseline,
-                TimedMatchSetup(
-                  games,
-                  tc,
-                  seed = seed,
-                  botTimeManager = TimeManager(botPolicy),
-                  baselineTimeManager = TimeManager(baselinePolicy)
+          Using.resource(bot) { _ =>
+            println(
+              s"Timed arena: $modelPath (features=$featureSet, K=$candidateLimit) vs $baseline, controls=$presets, seed=$seed"
+            )
+            val controls = TimedArenaRunner.parsePresets(presets)
+            val results  =
+              controls.map { tc =>
+                currentPreset = tc.toString
+                BotMatchRunner.runTimedMatch(
+                  botId,
+                  baseline,
+                  TimedMatchSetup(
+                    games,
+                    tc,
+                    seed = seed,
+                    botTimeManager = TimeManager(botPolicy),
+                    baselineTimeManager = TimeManager(baselinePolicy)
+                  )
                 )
-              )
-            }
-          BotMatchRunner.printTimedSummary(botId, baseline, results)
-          statsWriter.foreach(_.close())
-        }
+              }
+            BotMatchRunner.printTimedSummary(botId, baseline, results)
+          }
+        finally
+          // A measurement file that silently lost lines is worse than no file: PrintWriter swallows I/O failures,
+          // so close in all exit paths and surface any accumulated error explicitly.
+          statsWriter.foreach { w =>
+            w.close()
+            if w.checkError() then
+              System.err.println("STATS_OUT: write errors occurred — the stats file may be incomplete")
+          }
       }
     }
     ArenaOptions.runCommand(command, args)
