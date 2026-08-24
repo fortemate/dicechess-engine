@@ -11,8 +11,15 @@ import scala.util.Random
   *   expanded to full depth. Dice Chess routinely offers hundreds of legal turns per roll, so expanding all of them
   *   through a chance node is infeasible; this bounds the branching at the decision node. Must be positive.
   */
-final case class ExpectimaxConfig(candidateLimit: Int = 8):
+final case class ExpectimaxConfig(
+    candidateLimit: Int = 8,
+    exactOnlyMode: Boolean = false,
+    // Forward-looking for the depth-3 work (#60): today the search is fixed at two plies and this value only stamps
+    // stored transposition-table entries, so deeper results can outrank shallower ones once variable depth lands.
+    depth: Int = 2
+):
   require(candidateLimit > 0, s"candidateLimit must be positive, got $candidateLimit")
+  require(depth >= 1, s"depth must be at least 1, got $depth")
 
 /** Root-level rescoring: after the search's own chance-node expectation is computed for each root candidate, blend it
   * with a second, cheaper-at-the-root evaluator run *once* on the candidates' own resulting positions (before the
@@ -66,15 +73,21 @@ final case class RootSearchStats(
     candidatesAbandoned: Int = 0,
     cutoffs: Int = 0,
     rollsSaved: Int = 0,
-    probeCutoffs: Int = 0
+    probeCutoffs: Int = 0,
+    // Transposition-table telemetry, kept strictly apart from the expansion counters above: a TT-resolved candidate
+    // did zero chance-node work this move, so folding it into candidatesCompleted/cutoffs would corrupt the
+    // effective-width metric this record exists to measure and distort every A/B width comparison built on it.
+    ttProbes: Int = 0, // candidates for which the table was consulted (tt configured)
+    ttHits: Int = 0,   // candidates resolved by an EXACT entry — ranked, but never expanded
+    ttCutoffs: Int = 0 // candidates rejected by a stored UPPER bound before any expansion
 ):
   /** Whether the deadline cut the loop short of the selected candidate set. */
-  def deadlineTruncated: Boolean = candidatesCompleted + cutoffs < candidatesSelected
+  def deadlineTruncated: Boolean = candidatesCompleted + cutoffs + ttHits + ttCutoffs < candidatesSelected
 
   /** The deadline elapsed before a single candidate could be scored, so the turn came from the pre-ranker alone — the
     * search contributed nothing beyond candidate selection.
     */
-  def fellBackToPreRank: Boolean = candidatesCompleted == 0 && candidatesAbandoned > 0
+  def fellBackToPreRank: Boolean = candidatesCompleted == 0 && ttHits == 0 && candidatesAbandoned > 0
 
 /** Two-ply expectimax search for Dice Chess: my turn, then the opponent's dice roll, then the opponent's best reply.
   *
@@ -114,7 +127,8 @@ final class ExpectimaxSearch(
     config: ExpectimaxConfig = ExpectimaxConfig(),
     rootRescore: Option[RootRescore] = None,
     preRank: (Array[GameState], Color) => Array[Int] = ExpectimaxSearch.materialBatch,
-    statsSink: RootSearchStats => Unit = ExpectimaxSearch.NoStats
+    statsSink: RootSearchStats => Unit = ExpectimaxSearch.NoStats,
+    tt: Option[TranspositionTable] = None
 ) extends TimeBudgetedSearch:
 
   import ExpectimaxSearch.*
@@ -184,27 +198,46 @@ final class ExpectimaxSearch(
         var probeCutoffs = 0
         var alpha        = Double.NegativeInfinity
         var continue     = true
+        var ttProbes     = 0
+        var ttHits       = 0
+        var ttCutoffs    = 0
         while i < candidates.length && continue do
           val (path, resultState) = candidates(i)
-          val res                 = chanceNodeValue(resultState, myColor, deadlineNanos, alpha)
+          if tt.isDefined then ttProbes += 1
+          val res = chanceNodeValue(resultState, myColor, deadlineNanos, alpha)
           // Only a fully expanded candidate is ranked. A truncated one carries the expectation of the rolls it
           // happened to reach, which is not comparable with a complete one — ranking it would let the arbitrary
           // point where the clock landed decide the move.
           if res.complete then
             evaluated += ((path, resultState, res.value, res.lossTainted))
-            completed += 1
+            // A TT-exact hit is ranked like a completed candidate (the value IS exact, alpha may advance from it),
+            // but it did no expansion work — counting it as completed would inflate the effective-width metric.
+            if res.fromTT then ttHits += 1 else completed += 1
             if rootRescore.isEmpty then alpha = math.max(alpha, res.value)
           else if res.pruned then
-            cutoffs += 1
-            if res.probePruned then probeCutoffs += 1
-            rollsSaved += (DiceRolls.byWeightDescending.length - res.rollsProcessed)
+            if res.fromTT then ttCutoffs += 1
+            else
+              cutoffs += 1
+              if res.probePruned then probeCutoffs += 1
+              rollsSaved += (DiceRolls.byWeightDescending.length - res.rollsProcessed)
           else
             abandoned += 1
             continue = false // the deadline is already past; starting another candidate cannot finish either
           i += 1
           if continue && timed(deadlineNanos) && System.nanoTime() >= deadlineNanos then continue = false
         statsSink(
-          RootSearchStats(paths.size, candidates.length, completed, abandoned, cutoffs, rollsSaved, probeCutoffs)
+          RootSearchStats(
+            paths.size,
+            candidates.length,
+            completed,
+            abandoned,
+            cutoffs,
+            rollsSaved,
+            probeCutoffs,
+            ttProbes,
+            ttHits,
+            ttCutoffs
+          )
         )
         val results = evaluated.result()
         // The deadline elapsed inside the very first candidate, so nothing has a comparable value yet. The anytime
@@ -245,6 +278,47 @@ final class ExpectimaxSearch(
       myColor: Color,
       deadlineNanos: Long,
       alpha: Double
+  ): ChanceNodeResult =
+    val key    = oppToMove.zobristHash
+    val cached = tt.flatMap(_.probe(key))
+    val ttHit  = cached match
+      case Some(entry) if entry.depth >= config.depth - 1 =>
+        if entry.bound == TTBound.Exact then
+          Some(
+            ChanceNodeResult(
+              value = entry.value,
+              lossTainted = entry.lossTainted,
+              complete = true,
+              pruned = false,
+              rollsProcessed = 0,
+              fromTT = true
+            )
+          )
+        // Strict inequality, matching the Star1/Star2 cutoffs: a candidate whose stored bound exactly ties alpha may
+        // still equal the best and must reach the random tie-break, not vanish into the table (#69).
+        else if !config.exactOnlyMode && entry.bound == TTBound.UpperBound && entry.value < alpha then
+          Some(
+            ChanceNodeResult(
+              value = entry.value,
+              lossTainted = entry.lossTainted,
+              complete = false,
+              pruned = true,
+              rollsProcessed = 0,
+              fromTT = true
+            )
+          )
+        else None
+      case _ => None
+
+    if ttHit.isDefined then ttHit.get
+    else computeChanceNodeValue(oppToMove, myColor, deadlineNanos, alpha, key)
+
+  private def computeChanceNodeValue(
+      oppToMove: GameState,
+      myColor: Color,
+      deadlineNanos: Long,
+      alpha: Double,
+      key: Long
   ): ChanceNodeResult =
     val checkClock    = timed(deadlineNanos)
     val rolls         = DiceRolls.byWeightDescending
@@ -321,82 +395,91 @@ final class ExpectimaxSearch(
 
         if remainingCeiling(0) < alpha then cutByStar2 = true
 
-    if cutByStar2 then
-      ChanceNodeResult(
-        value = remainingCeiling(0),
-        lossTainted = lossTainted,
-        complete = false,
-        pruned = true,
-        rollsProcessed = 0,
-        probePruned = true
-      )
-    else if cutByDeadline then
-      ChanceNodeResult(
-        value = 0.0,
-        lossTainted = lossTainted,
-        complete = false,
-        pruned = false,
-        rollsProcessed = 0
-      )
-    else
-      // Fall through to Star1 roll iteration, using probe values as per-roll ceilings when available
-      var acc             = 0.0
-      var processedWeight = 0
-      var i               = 0
-
-      while i < totalRolls && !cutByDeadline && !cutByStar1 do
-        val remainingProb = (DiceRolls.totalOrderedRolls - processedWeight).toDouble / DiceRolls.totalOrderedRolls
-        val upperBound    =
-          if alpha > Double.NegativeInfinity then acc + remainingCeiling(i)
-          else acc + remainingProb * UpperScoreBound
-
-        if alpha > Double.NegativeInfinity && upperBound < alpha then cutByStar1 = true
-        else if checkClock && System.nanoTime() >= deadlineNanos then cutByDeadline = true
-        else
-          val (roll, weight) = rolls(i)
-          val rolled         = oppToMove.withDicePool(roll)
-          val replies        =
-            if allReplies(i) != null then allReplies(i)
-            else TurnGenerator.generateAllLegalTurnPaths(rolled)
-
-          val rollValue =
-            if replies.isEmpty then evalOne(oppToMove.endTurn(), myColor)
-            else opponentMinValue(rolled, replies, myColor)
-
-          if rollValue == LossValue then lossTainted = true
-          acc += (weight.toDouble / DiceRolls.totalOrderedRolls) * rollValue
-          processedWeight += weight
-          i += 1
-
-      if cutByStar1 then
-        val remainingProb = (DiceRolls.totalOrderedRolls - processedWeight).toDouble / DiceRolls.totalOrderedRolls
-        val upperBound    =
-          if alpha > Double.NegativeInfinity then acc + remainingCeiling(i)
-          else acc + remainingProb * UpperScoreBound
-
+    val res: ChanceNodeResult =
+      if cutByStar2 then
         ChanceNodeResult(
-          value = upperBound,
+          value = remainingCeiling(0),
           lossTainted = lossTainted,
           complete = false,
           pruned = true,
-          rollsProcessed = i
+          rollsProcessed = 0,
+          probePruned = true
         )
       else if cutByDeadline then
         ChanceNodeResult(
-          value = acc,
+          value = 0.0,
           lossTainted = lossTainted,
           complete = false,
           pruned = false,
-          rollsProcessed = i
+          rollsProcessed = 0
         )
       else
-        ChanceNodeResult(
-          value = acc,
-          lossTainted = lossTainted,
-          complete = true,
-          pruned = false,
-          rollsProcessed = i
-        )
+        // Fall through to Star1 roll iteration, using probe values as per-roll ceilings when available
+        var acc             = 0.0
+        var processedWeight = 0
+        var i               = 0
+
+        while i < totalRolls && !cutByDeadline && !cutByStar1 do
+          val remainingProb = (DiceRolls.totalOrderedRolls - processedWeight).toDouble / DiceRolls.totalOrderedRolls
+          val upperBound    =
+            if alpha > Double.NegativeInfinity then acc + remainingCeiling(i)
+            else acc + remainingProb * UpperScoreBound
+
+          if alpha > Double.NegativeInfinity && upperBound < alpha then cutByStar1 = true
+          else if checkClock && System.nanoTime() >= deadlineNanos then cutByDeadline = true
+          else
+            val (roll, weight) = rolls(i)
+            val rolled         = oppToMove.withDicePool(roll)
+            val replies        =
+              if allReplies(i) ne null then allReplies(i) // scalafix:ok(DisableSyntax.null)
+              else TurnGenerator.generateAllLegalTurnPaths(rolled)
+
+            val rollValue =
+              if replies.isEmpty then evalOne(oppToMove.endTurn(), myColor)
+              else opponentMinValue(rolled, replies, myColor)
+
+            if rollValue == LossValue then lossTainted = true
+            acc += (weight.toDouble / DiceRolls.totalOrderedRolls) * rollValue
+            processedWeight += weight
+            i += 1
+
+        if cutByStar1 then
+          val remainingProb = (DiceRolls.totalOrderedRolls - processedWeight).toDouble / DiceRolls.totalOrderedRolls
+          val upperBound    =
+            if alpha > Double.NegativeInfinity then acc + remainingCeiling(i)
+            else acc + remainingProb * UpperScoreBound
+
+          ChanceNodeResult(
+            value = upperBound,
+            lossTainted = lossTainted,
+            complete = false,
+            pruned = true,
+            rollsProcessed = i
+          )
+        else if cutByDeadline then
+          ChanceNodeResult(
+            value = acc,
+            lossTainted = lossTainted,
+            complete = false,
+            pruned = false,
+            rollsProcessed = i
+          )
+        else
+          ChanceNodeResult(
+            value = acc,
+            lossTainted = lossTainted,
+            complete = true,
+            pruned = false,
+            rollsProcessed = i
+          )
+
+    tt.foreach { table =>
+      if res.complete then table.store(key, res.value, TTBound.Exact, config.depth - 1, res.lossTainted)
+      else if res.pruned && !config.exactOnlyMode then
+        table.store(key, res.value, TTBound.UpperBound, config.depth - 1, res.lossTainted)
+    }
+
+    res
 
   /** The opponent picks the reply that is worst for us. A reply capturing our king is worst of all ([[LossValue]]);
     * otherwise the resulting leaves are scored in one batch and the minimum is taken.
@@ -532,7 +615,12 @@ final private case class ChanceNodeResult(
     complete: Boolean,
     pruned: Boolean,
     rollsProcessed: Int,
-    probePruned: Boolean = false
+    probePruned: Boolean = false,
+    // True when the result came from the transposition table rather than an expansion. The caller counts such
+    // candidates in ttHits/ttCutoffs, never in candidatesCompleted/cutoffs: a TT-resolved candidate did zero
+    // chance-node work, and folding it into the expansion counters would corrupt the effective-width telemetry
+    // that RootSearchStats exists to measure (#494).
+    fromTT: Boolean = false
 )
 
 object ExpectimaxSearch:
