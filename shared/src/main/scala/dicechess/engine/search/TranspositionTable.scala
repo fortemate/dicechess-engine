@@ -15,8 +15,20 @@ final case class TTEntry(
 
 /** Fixed-size, thread-safe Transposition Table for expectimax search.
   *
-  * Stored in flat primitive arrays to ensure zero-GC pressure on hot search paths. Uses lockless XOR checksum
-  * verification for thread-safe concurrent reads.
+  * Stored in flat primitive arrays to ensure zero-GC pressure on hot search paths.
+  *
+  * Concurrency contract — racy-reader safe, not general-purpose thread-safe: the classic lockless scheme (Hyatt). A
+  * checksum over ALL entry fields is written alongside each entry; a reader that observes a mixed or torn snapshot
+  * fails the checksum and reports a miss, so concurrent readers can lose entries but never observe a corrupt one
+  * (residual false-accept probability ~2⁻⁶⁴). There is no memory-ordering guarantee, so readers may also see stale —
+  * but internally consistent — entries. Single writer recommended until the parallel-search stage (#61) revisits
+  * publication with JVM fences.
+  *
+  * Lifetime contract: entries encode only (position, evaluator) — for a FIXED evaluator an EXACT value never goes
+  * stale, across moves or games; that is why entries carry no generation field. The table is therefore bound to one
+  * evaluator: it is owned by the search instance that created it and must never be shared between models. Call
+  * [[clear]] when reusing an instance across games only if you want fresh telemetry or replacement pressure — not for
+  * correctness.
   *
   * @param capacityPowerOfTwo
   *   table capacity, must be a power of two (default 2^18 = 262,144 entries)
@@ -114,8 +126,13 @@ class TranspositionTable(capacityPowerOfTwo: Int = 1 << 18):
           _misses.incrementAndGet()
           None
 
-  /** Stores an entry in the transposition table using a depth-preferred replacement policy. */
+  /** Stores an entry in the transposition table using a depth-preferred replacement policy.
+    *
+    * `depth` must fit the byte-wide slot: the depth-3 work (#60) stays far below the 255 cap, and a silent wrap here
+    * would let a shallow entry masquerade as a deep one.
+    */
   def store(key: Long, value: Double, bound: TTBound, depth: Int, lossTainted: Boolean): Unit =
+    require(depth >= 0 && depth <= 255, s"depth must fit the byte-wide slot [0, 255], got $depth")
     _stores.incrementAndGet()
     val idx      = (key & mask).toInt
     val oldKey   = keys(idx)
@@ -129,14 +146,12 @@ class TranspositionTable(capacityPowerOfTwo: Int = 1 << 18):
 
     val shouldReplace =
       if oldBound == 0 then true
-      else if oldKey == key then
-        _overwrites.incrementAndGet()
-        depth >= oldDepth || oldBound != 1
-      else
-        _collisions.incrementAndGet()
-        depth >= oldDepth
+      else if oldKey == key then depth >= oldDepth || oldBound != 1
+      else depth >= oldDepth
 
     if shouldReplace then
+      // Counted as outcomes, not attempts: a rejected shallower store changes nothing and increments nothing.
+      if oldBound != 0 then if oldKey == key then _overwrites.incrementAndGet() else _collisions.incrementAndGet()
       val cs = computeChecksum(key, value, boundByte, depth, lossTainted)
       keys(idx) = key
       values(idx) = value

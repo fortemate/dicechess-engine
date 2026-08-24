@@ -77,6 +77,25 @@ class TranspositionTableSpec extends FunSuite:
     assertEquals(tt.stores, 0L)
     assertEquals(tt.hitRate, 0.0)
 
+  test("index collisions: an evicting deeper entry wins the slot and the evicted key probes as a miss"):
+    // With 256 entries, `key` and `key + 256` share a slot — the branch that could return another position's value.
+    val tt   = new TranspositionTable(256)
+    val key1 = 512L
+    val key2 = key1 + 256L
+
+    tt.store(key1, 10.0, TTBound.Exact, depth = 1, lossTainted = false)
+    tt.store(key2, 20.0, TTBound.Exact, depth = 2, lossTainted = false) // deeper → evicts
+
+    assertEquals(tt.probe(key1), None, "evicted key must probe as a miss, never as the winner's value")
+    val winner = tt.probe(key2).getOrElse(fail("winning key must be present"))
+    assertEquals(winner.key, key2)
+    assertEquals(winner.value, 20.0)
+
+    // A shallower collider must NOT evict a deeper entry.
+    tt.store(key1, 30.0, TTBound.Exact, depth = 1, lossTainted = false)
+    assertEquals(tt.probe(key2).map(_.value), Some(20.0))
+    assertEquals(tt.probe(key1), None)
+
   test("clear wipes table entries"):
     val tt  = new TranspositionTable(128)
     val key = 777L

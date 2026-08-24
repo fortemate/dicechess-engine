@@ -1,6 +1,4 @@
-package dicechess.engine.search
-
-import dicechess.engine.domain.*
+package dicechess.engine.domain
 
 /** Deterministic Zobrist hashing for Dice Chess game states.
   *

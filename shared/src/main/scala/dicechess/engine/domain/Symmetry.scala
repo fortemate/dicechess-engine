@@ -66,7 +66,9 @@ object Symmetry:
       kings = flipVertical(state.kings),
       mailbox = Mailbox.fromBuilder(mailbox),
       flags = flippedFlags,
-      enPassant = flipVertical(state.enPassant)
+      enPassant = flipVertical(state.enPassant),
+      // Every position-relevant field changed; drop the cached key so zobristHash recomputes (see GameState.zobristHash).
+      zobristKey = 0L
     )
 
   /** Horizontally mirrors a [[dicechess.engine.domain.Bitboard]] (file `f` <-> file `7 - f`).
@@ -112,7 +114,9 @@ object Symmetry:
       kings = flipHorizontal(state.kings),
       mailbox = Mailbox.fromBuilder(mailbox),
       flags = mirroredFlags,
-      enPassant = flipHorizontal(state.enPassant)
+      enPassant = flipHorizontal(state.enPassant),
+      // Every position-relevant field changed; drop the cached key so zobristHash recomputes (see GameState.zobristHash).
+      zobristKey = 0L
     )
 
   /** Canonical representative of a position's symmetry class.

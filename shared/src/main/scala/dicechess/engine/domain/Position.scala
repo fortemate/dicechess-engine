@@ -266,8 +266,6 @@ extension (state: GameState)
       ep &= ep - 1
     }
 
-    import dicechess.engine.search.Zobrist
-
     var key = state.zobristHash
     key ^= Zobrist.pieceKey(movingPiece.color, movingPiece.pieceType, from)
 
@@ -419,8 +417,6 @@ extension (state: GameState)
       epFiles |= (1 << fileIdx)
       epV &= epV - 1L
     }
-
-    import dicechess.engine.search.Zobrist
 
     var key = state.zobristHash
     key ^= Zobrist.pieceKey(color, mover.pieceType, from)

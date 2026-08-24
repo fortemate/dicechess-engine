@@ -312,7 +312,6 @@ case class Turn(diceRoll: Int, microMoves: List[MicroMove]) derives CanEqual:
   * @param fullMoveNumber
   *   Full-move counter; incremented after each Black move (starts at 1 per FEN convention).
   */
-import dicechess.engine.search.Zobrist
 
 case class GameState(
     whitePieces: Bitboard,

@@ -36,11 +36,11 @@ class ExpectimaxTTSpec extends FunSuite:
 
       (resOff, resOn) match
         case (Some(off), Some(on)) =>
-          assertEquals(
-            java.lang.Double.doubleToRawLongBits(off.score.toDouble),
-            java.lang.Double.doubleToRawLongBits(on.score.toDouble),
-            s"Bit-exact score mismatch for scenario '${scenario.id}'"
-          )
+          // ScoredSequence exposes the truncated Int score — the strongest observable equality at this seam. The
+          // Double-level bit-exactness lives one layer down: TT entries store raw Double bits
+          // (TranspositionTableSpec round-trip test), and any Double divergence that changed a ranking would
+          // surface here as a move-sequence mismatch.
+          assertEquals(off.score, on.score, s"Score mismatch for scenario '${scenario.id}'")
           assertEquals(off.moves, on.moves, s"Move sequence mismatch for scenario '${scenario.id}'")
         case (None, None) => ()
         case _            => fail(s"Result mismatch (one None, one Some) for scenario '${scenario.id}'")
@@ -64,17 +64,18 @@ class ExpectimaxTTSpec extends FunSuite:
     assert(ttTable.hits > 0L, "TT should register hits on transposed positions")
     assert(ttTable.hitRate > 0.0, s"TT hit rate should be positive, got ${ttTable.hitRate}")
 
-  test("TT with Star1/Star2 upper bounds provides correct decisions and records hits"):
+  test("TT with Star1/Star2 upper bounds preserves the decision of a TT-less search and records stores"):
     val fen   = "r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1 PNB"
     val state = FenParser.parse(fen).fold(fail(_), identity)
 
-    val ttTable = new TranspositionTable(1024)
-    val search  = new ExpectimaxSearch(
-      evalBatch = evalMaterialBatch,
-      config = ExpectimaxConfig(candidateLimit = 12, exactOnlyMode = false),
-      tt = Some(ttTable)
-    )
+    val config = ExpectimaxConfig(candidateLimit = 12, exactOnlyMode = false)
+    val ttOff  = new ExpectimaxSearch(evalBatch = evalMaterialBatch, config = config, tt = None)
 
-    val res = search.findBestMove(state, new Random(123L))
-    assert(res.isDefined)
+    val ttTable = new TranspositionTable(1024)
+    val ttOn    = new ExpectimaxSearch(evalBatch = evalMaterialBatch, config = config, tt = Some(ttTable))
+
+    val resOff = ttOff.findBestMove(state, new Random(123L))
+    val resOn  = ttOn.findBestMove(state, new Random(123L))
+    assertEquals(resOn.map(_.moves), resOff.map(_.moves), "TT with upper-bound cutoffs must not change the decision")
+    assertEquals(resOn.map(_.score), resOff.map(_.score))
     assert(ttTable.stores > 0L, "TT should record stores")

@@ -55,6 +55,14 @@ class ZobristSpec extends FunSuite:
     assertEquals(Zobrist.computeKey(holey), Zobrist.computeKey(compact))
     assertEquals(holey.zobristHash, compact.zobristHash, "incremental update must canonicalize hole-y packings too")
 
+  test("withActiveColor toggles the color key exactly when the color changes"):
+    val base  = parse(FenParser.InitialPosition)
+    val same  = base.withActiveColor(base.activeColor)
+    val other = base.withActiveColor(base.activeColor.opponent)
+    assertEquals(same.zobristHash, base.zobristHash, "setting the same color must not change the key")
+    assertIncrementalMatches(other, "after withActiveColor(opponent)")
+    assertEquals(other.withActiveColor(base.activeColor).zobristHash, base.zobristHash, "toggling back must round-trip")
+
   // --- Gate: incremental == recomputed on the rare mutations (deterministic fixtures) ----------------------------
 
   test("castling keeps the incremental key in sync (king and rook both move)"):
