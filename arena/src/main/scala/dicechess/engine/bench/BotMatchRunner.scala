@@ -377,6 +377,38 @@ object BotMatchRunner:
   ): TimedMatchResult =
     runTimedMatch(resolveOpponent(botUnderTestId), resolveOpponent(baselineId), setup)
 
+  private def validateTimedMatchResume(resume: TimedMatchResume, gamesPerColor: Int): Unit =
+    val invalidResumeIndex = resume.observations.zipWithIndex.collectFirst {
+      case (observation, expected) if observation.index != expected => (expected, observation.index)
+    }
+    invalidResumeIndex.foreach { case (expected, actual) =>
+      sys.error(s"Resume observations must be contiguous from index 0: expected $expected, found $actual")
+    }
+    if resume.durationMs < 0 then sys.error("Resume durationMs must be non-negative")
+    if resume.observations.size > gamesPerColor then
+      sys.error(s"Resume has ${resume.observations.size} pairs, above the configured cap of $gamesPerColor")
+
+  private def timedBotScore(res: TimedGameResult, botColor: Color): Double = res.outcome match
+    case GameOutcome.Draw                    => 0.5
+    case GameOutcome.Win(c) if c == botColor => 1.0
+    case GameOutcome.Win(_)                  => 0.0
+
+  private def validatePairObservation(observation: PairObservation): Unit =
+    val expectedWhite = timedBotScore(observation.whiteGame, Color.White)
+    val expectedBlack = timedBotScore(observation.blackGame, Color.Black)
+    val expectedBin   = math.round((expectedWhite + expectedBlack) * 2).toInt
+    if observation.whiteScore != expectedWhite || observation.blackScore != expectedBlack || observation.bin != expectedBin
+    then sys.error(s"Resume observation ${observation.index} scores/bin do not match its game outcomes")
+
+  private def addPentanomialBin(pentanomial: Sprt.Pentanomial, observation: PairObservation): Sprt.Pentanomial =
+    observation.bin match
+      case 0     => pentanomial.copy(n0 = pentanomial.n0 + 1)
+      case 1     => pentanomial.copy(n1 = pentanomial.n1 + 1)
+      case 2     => pentanomial.copy(n2 = pentanomial.n2 + 1)
+      case 3     => pentanomial.copy(n3 = pentanomial.n3 + 1)
+      case 4     => pentanomial.copy(n4 = pentanomial.n4 + 1)
+      case other => sys.error(s"Resume observation ${observation.index} has invalid pair bin $other")
+
   /** Algorithm-level overload of [[runTimedMatch]] — lets a test field an opponent (e.g. a [[WebhookBot]] pointed at a
     * mock endpoint) without registering it in the process-wide [[BotRegistry]] singleton, whose contents other suites
     * assert exactly. Both overloads take the same [[TimedMatchSetup]], so neither carries defaults of its own — which
@@ -387,7 +419,17 @@ object BotMatchRunner:
       baseAlgo: SearchAlgorithm,
       setup: TimedMatchSetup
   ): TimedMatchResult =
-    import setup.{baselineTimeManager, botTimeManager, gameSink, gamesPerColor, seed, sprtConfig, startState, tc}
+    import setup.{
+      baselineTimeManager,
+      botTimeManager,
+      gameSink,
+      gamesPerColor,
+      resume,
+      seed,
+      sprtConfig,
+      startState,
+      tc
+    }
     var wins             = 0
     var losses           = 0
     var draws            = 0
@@ -398,6 +440,9 @@ object BotMatchRunner:
     var sprtResult       = Option.empty[Sprt.Result]
     val latencies        = scala.collection.mutable.ListBuffer.empty[Long]
     val startTime        = System.currentTimeMillis()
+    val resumedPairs     = resume.observations.size
+
+    validateTimedMatchResume(resume, gamesPerColor)
 
     def record(res: TimedGameResult, botColor: Color): Unit =
       latencies ++= res.latenciesByColorMs.collect { case (color, ms) if color == botColor => ms }
@@ -409,13 +454,24 @@ object BotMatchRunner:
         if flagged == botColor then botTimeouts += 1 else baselineTimeouts += 1
       }
 
-    def botScore(res: TimedGameResult, botColor: Color): Double = res.outcome match
-      case GameOutcome.Draw                    => 0.5
-      case GameOutcome.Win(c) if c == botColor => 1.0
-      case GameOutcome.Win(_)                  => 0.0
+    def recordPair(observation: PairObservation): Unit =
+      validatePairObservation(observation)
+      record(observation.whiteGame, Color.White)
+      record(observation.blackGame, Color.Black)
+      pairsPlayed += 1
+      pentanomial = addPentanomialBin(pentanomial, observation)
 
-    var i        = 0
-    var continue = true
+    resume.observations.foreach(recordPair)
+
+    def updateSprt(): Unit =
+      sprtResult = sprtConfig.map { cfg =>
+        Sprt.test(pentanomial, Sprt.Trinomial.Empty, cfg.elo0, cfg.elo1, cfg.alpha, cfg.beta)
+      }
+
+    if pairsPlayed > 0 then updateSprt()
+
+    var i        = pairsPlayed
+    var continue = sprtResult.forall(_.verdict == Sprt.Verdict.Continue)
     while i < gamesPerColor && continue do
       val whiteRes =
         simulateTimedGame(
@@ -441,32 +497,25 @@ object BotMatchRunner:
           baselineTimeManager,
           botTimeManager
         )
-      record(whiteRes, Color.White)
-      record(blackRes, Color.Black)
-      pairsPlayed += 1
-
       // The pair's two 0/½/1 scores sum and double to an exact integer 0..4 — one of Pentanomial's five bins.
       // Unconditional: [[PairVariance]] needs this histogram to state what the run could resolve, whether or not
       // SPRT stopping was requested.
-      val bin = math.round((botScore(whiteRes, Color.White) + botScore(blackRes, Color.Black)) * 2).toInt
-      pentanomial = bin match
-        case 0 => pentanomial.copy(n0 = pentanomial.n0 + 1)
-        case 1 => pentanomial.copy(n1 = pentanomial.n1 + 1)
-        case 2 => pentanomial.copy(n2 = pentanomial.n2 + 1)
-        case 3 => pentanomial.copy(n3 = pentanomial.n3 + 1)
-        case _ => pentanomial.copy(n4 = pentanomial.n4 + 1)
-
-      gameSink.foreach { sink =>
-        sink(
-          PairObservation(i, bin, botScore(whiteRes, Color.White), botScore(blackRes, Color.Black), whiteRes, blackRes)
+      val bin =
+        math.round((timedBotScore(whiteRes, Color.White) + timedBotScore(blackRes, Color.Black)) * 2).toInt
+      val observation =
+        PairObservation(
+          i,
+          bin,
+          timedBotScore(whiteRes, Color.White),
+          timedBotScore(blackRes, Color.Black),
+          whiteRes,
+          blackRes
         )
-      }
+      recordPair(observation)
+      gameSink.foreach(_(observation))
 
-      sprtConfig.foreach { cfg =>
-        val result = Sprt.test(pentanomial, Sprt.Trinomial.Empty, cfg.elo0, cfg.elo1, cfg.alpha, cfg.beta)
-        sprtResult = Some(result)
-        if result.verdict != Sprt.Verdict.Continue then continue = false
-      }
+      updateSprt()
+      if sprtResult.exists(_.verdict != Sprt.Verdict.Continue) then continue = false
       i += 1
 
     def reportedPolicyId(algorithm: SearchAlgorithm, manager: TimeManager): String = algorithm match
@@ -482,7 +531,9 @@ object BotMatchRunner:
       botTimeouts = botTimeouts,
       baselineTimeouts = baselineTimeouts,
       latency = LatencyStats.from(latencies.toList),
-      durationMs = System.currentTimeMillis() - startTime,
+      durationMs = resume.durationMs + Option
+        .when(pairsPlayed > resumedPairs)(System.currentTimeMillis() - startTime)
+        .getOrElse(0L),
       botTimePolicyId = reportedPolicyId(botAlgo, botTimeManager),
       baselineTimePolicyId = reportedPolicyId(baseAlgo, baselineTimeManager),
       sprt = sprtResult,
@@ -1072,6 +1123,9 @@ final case class SprtConfig(elo0: Double, elo1: Double, alpha: Double, beta: Dou
   *   manager used for the bot under test in both colour phases
   * @param baselineTimeManager
   *   manager used for the baseline in both colour phases
+  * @param resume
+  *   durable observations from pair indices `[0, n)` and their prior wall time; the next pair remains `n`, preserving
+  *   the uninterrupted run's dice and tie-breaking random streams
   */
 final case class TimedMatchSetup(
     gamesPerColor: Int,
@@ -1081,8 +1135,18 @@ final case class TimedMatchSetup(
     sprtConfig: Option[SprtConfig] = None,
     gameSink: Option[PairObservation => Unit] = None,
     botTimeManager: TimeManager = TimeManager.default,
-    baselineTimeManager: TimeManager = TimeManager.default
+    baselineTimeManager: TimeManager = TimeManager.default,
+    resume: TimedMatchResume = TimedMatchResume.empty
 )
+
+/** Completed mirrored-pair observations restored before [[BotMatchRunner.runTimedMatch]] continues a durable run. The
+  * observations retain the original pair indices, outcomes, flag falls, and raw latency samples; `durationMs` carries
+  * wall time already spent by earlier processes.
+  */
+final case class TimedMatchResume(observations: Vector[PairObservation], durationMs: Long)
+
+object TimedMatchResume:
+  val empty: TimedMatchResume = TimedMatchResume(Vector.empty, 0L)
 
 final case class TimedMatchResult(
     timeControl: TimeControl,

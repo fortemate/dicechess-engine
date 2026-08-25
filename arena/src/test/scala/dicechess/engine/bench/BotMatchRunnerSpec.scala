@@ -302,6 +302,65 @@ class BotMatchRunnerSpec extends FunSuite:
     assertEquals(sprtResult.verdict, Sprt.Verdict.Continue)
   }
 
+  test("runTimedMatch: resumed observations preserve pair indices, random streams, and aggregate results") {
+    final class TimedFirstLegalBot extends TimeBudgetedSearch:
+      override def findBestMove(state: GameState): Option[ScoredSequence] =
+        TurnGenerator.generateAllLegalTurnPaths(state).headOption.map(ScoredSequence(_, 0))
+
+      override def findBestMove(
+          state: GameState,
+          _deadlineNanos: Long,
+          _random: Random
+      ): Option[ScoredSequence] = findBestMove(state)
+
+    val tc    = TimeControl.ofSeconds(6, 0)
+    val saved = scala.collection.mutable.ListBuffer.empty[PairObservation]
+    val first = BotMatchRunner.runTimedMatch(
+      new TimedFirstLegalBot,
+      AggressiveSearch,
+      TimedMatchSetup(2, tc, seed = 17, gameSink = Some(saved += _))
+    )
+    val resumedNew = scala.collection.mutable.ListBuffer.empty[PairObservation]
+    val resumed    = BotMatchRunner.runTimedMatch(
+      new TimedFirstLegalBot,
+      AggressiveSearch,
+      TimedMatchSetup(
+        4,
+        tc,
+        seed = 17,
+        gameSink = Some(resumedNew += _),
+        resume = TimedMatchResume(saved.toVector, first.durationMs)
+      )
+    )
+    val uninterrupted =
+      BotMatchRunner.runTimedMatch(new TimedFirstLegalBot, AggressiveSearch, TimedMatchSetup(4, tc, seed = 17))
+
+    def botLatencies(observation: PairObservation): List[Long] =
+      observation.whiteGame.latenciesByColorMs.collect { case (Color.White, milliseconds) => milliseconds } ++
+        observation.blackGame.latenciesByColorMs.collect { case (Color.Black, milliseconds) => milliseconds }
+
+    val savedLatencies    = saved.toList.flatMap(botLatencies)
+    val expectedLatencies = LatencyStats.from(savedLatencies ++ resumedNew.toList.flatMap(botLatencies))
+
+    assertEquals(saved.map(_.index).toList, List(0, 1))
+    assertEquals(resumedNew.map(_.index).toList, List(2, 3))
+    assert(savedLatencies.nonEmpty)
+    assertEquals(
+      (resumed.wins, resumed.losses, resumed.draws, resumed.botTimeouts, resumed.baselineTimeouts),
+      (
+        uninterrupted.wins,
+        uninterrupted.losses,
+        uninterrupted.draws,
+        uninterrupted.botTimeouts,
+        uninterrupted.baselineTimeouts
+      )
+    )
+    assertEquals(resumed.pentanomial, uninterrupted.pentanomial)
+    assertEquals(resumed.latency, expectedLatencies)
+    assertEquals(resumed.totalGames, uninterrupted.totalGames)
+    assert(resumed.durationMs >= first.durationMs)
+  }
+
   /** Synthetic [[TimedMatchResult]] fixture for the reporting tests below — they assert only serialization/printing of
     * the `sprt` field, so a fabricated result avoids paying for (and depending on the probabilistic verdict of) another
     * live match; [[BotMatchRunner.runTimedMatch]]'s actual SPRT-triggered early stop is covered above.
