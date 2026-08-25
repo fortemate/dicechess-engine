@@ -142,6 +142,9 @@ class SearchEvaluationSpec extends FunSuite:
     assertEquals(improved.results.head.comparison, SearchComparison.CandidateImproved)
     assertEquals(improved.summary.candidateImprovements, 1)
     assertEquals(improved.summary.baselineIllegal, 1)
+    assertEquals(improved.categorySummaries.map(_.category), List(SearchScenarioCategory.Tactical))
+    assertEquals(improved.categorySummaries.head.candidateImprovements, 1)
+    assertEquals(improved.categorySummaries.head.candidateRegressions, 0)
 
     val regressed = evaluate(oracle, passing)
     assertEquals(regressed.results.head.comparison, SearchComparison.CandidateRegressed)
@@ -176,6 +179,10 @@ class SearchEvaluationSpec extends FunSuite:
     assertEquals(parsed.field("fixtureSet").flatMap(_.field("id")).flatMap(_.asStr), Some("core-search-v1"))
     assertEquals(parsed.field("fixtureSet").flatMap(_.field("schemaVersion")).flatMap(_.asNum), Some(1.0))
     assertEquals(parsed.field("seedSet").flatMap(_.field("id")).flatMap(_.asStr), Some("stable-0-7-42-v1"))
+    assertEquals(
+      parsed.field("categorySummaries").flatMap(_.asArr).map(_.size),
+      Some(SearchScenarioCategory.values.size)
+    )
     assertEquals(parsed.field("results").flatMap(_.asArr).map(_.size), Some(report.summary.runs))
 
   test("the CLI prints a human report and optionally writes the machine-readable report"):
