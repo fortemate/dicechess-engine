@@ -79,6 +79,26 @@ class ExpectimaxSearchSpec extends FunSuite:
   test("candidateLimit must be positive"):
     intercept[IllegalArgumentException](ExpectimaxConfig(candidateLimit = 0))
 
+  test("searchDepth accepts the implemented depths and defaults to two"):
+    assertEquals(ExpectimaxConfig().searchDepth, 2)
+    ExpectimaxConfig(searchDepth = 2)
+    ExpectimaxConfig(searchDepth = 3)
+    intercept[IllegalArgumentException](ExpectimaxConfig(searchDepth = 1))
+    intercept[IllegalArgumentException](ExpectimaxConfig(searchDepth = 4))
+
+  test("depth 3 abandons the whole root candidate when an inner deadline has elapsed"):
+    val state = parse("4k3/8/8/8/8/8/8/R3K3 w - - 0 1").withDicePool(List(1, 4, 6))
+    var stats = Option.empty[RootSearchStats]
+    val bot   = ExpectimaxSearch(
+      materialBatch,
+      ExpectimaxConfig(candidateLimit = 1, searchDepth = 3),
+      statsSink = value => stats = Some(value)
+    )
+    assert(bot.findBestMove(state, System.nanoTime(), Random(0)).isDefined)
+    assertEquals(stats.map(_.candidatesCompleted), Some(0))
+    assertEquals(stats.map(_.candidatesAbandoned), Some(1))
+    assert(stats.exists(_.fellBackToPreRank))
+
   test("RootRescore.weight must be in (0, 1]"):
     intercept[IllegalArgumentException](RootRescore((_, _) => Array.empty, 0.0))
     intercept[IllegalArgumentException](RootRescore((_, _) => Array.empty, 1.5))

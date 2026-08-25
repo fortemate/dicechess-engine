@@ -21,12 +21,12 @@ final case class RootRescoreModel(
     weight: Double
 )
 
-/** A 2-ply expectimax bot whose leaf evaluator is an externally-trained model (LightGBM, via ONNX).
+/** A configurable two- or three-ply expectimax bot whose leaf evaluator is an externally-trained model (LightGBM, via
+  * ONNX).
   *
-  * This is the payoff of the search work: [[ExpectimaxSearch]] supplies the lookahead (my turn, the opponent's roll,
-  * the opponent's best reply) and [[OnnxEvalSearch]] supplies the value function, evaluated in batches so all the
-  * leaves under one chance node cost a single inference call. It fixes the one-ply model bot's recapture blindness —
-  * the same model, but now it sees the reply.
+  * [[ExpectimaxSearch]] supplies the lookahead and [[OnnxEvalSearch]] supplies the value function, evaluated in batches
+  * at leaf decision nodes. The default two-ply tree sees the opponent's reply; `searchDepth = 3` also sees our next
+  * rolled reply and therefore resolves exchanges that otherwise end on the opponent's capture.
   *
   * `rootRescore`, when given, wires a *second* ONNX session as [[ExpectimaxSearch]]'s root rescorer — see
   * [[RootRescoreModel]].

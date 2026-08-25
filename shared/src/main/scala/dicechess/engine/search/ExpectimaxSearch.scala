@@ -10,16 +10,20 @@ import scala.util.Random
   *   how many of the mover's own turns (pre-ranked by [[ExpectimaxSearch]]'s `preRank`, material by default) are
   *   expanded to full depth. Dice Chess routinely offers hundreds of legal turns per roll, so expanding all of them
   *   through a chance node is infeasible; this bounds the branching at the decision node. Must be positive.
+  * @param exactOnlyMode
+  *   when true, the transposition table stores and reuses exact entries only. This is primarily a validation mode for
+  *   comparing cached and uncached trees without fail-soft bound reuse.
+  * @param searchDepth
+  *   number of full-turn plies in the expectimax tree. Depth 2 preserves the historical `MAX → CHANCE → MIN → leaf`
+  *   search; depth 3 adds `CHANCE → MAX → leaf` after every opponent reply so exchanges include our recapture.
   */
 final case class ExpectimaxConfig(
     candidateLimit: Int = 8,
     exactOnlyMode: Boolean = false,
-    // Forward-looking for the depth-3 work (#60): today the search is fixed at two plies and this value only stamps
-    // stored transposition-table entries, so deeper results can outrank shallower ones once variable depth lands.
-    depth: Int = 2
+    searchDepth: Int = 2
 ):
   require(candidateLimit > 0, s"candidateLimit must be positive, got $candidateLimit")
-  require(depth >= 1, s"depth must be at least 1, got $depth")
+  require(searchDepth == 2 || searchDepth == 3, s"searchDepth must be 2 or 3, got $searchDepth")
 
 /** Root-level rescoring: after the search's own chance-node expectation is computed for each root candidate, blend it
   * with a second, cheaper-at-the-root evaluator run *once* on the candidates' own resulting positions (before the
@@ -89,7 +93,7 @@ final case class RootSearchStats(
     */
   def fellBackToPreRank: Boolean = candidatesCompleted == 0 && ttHits == 0 && candidatesAbandoned > 0
 
-/** Two-ply expectimax search for Dice Chess: my turn, then the opponent's dice roll, then the opponent's best reply.
+/** Configurable two- or three-ply expectimax search for Dice Chess.
   *
   * Unlike a one-ply evaluator ([[GreedySearch]], [[OnnxEvalSearch]]), this looks one full turn ahead and so sees
   * tactical punishments — a capture that hangs a bigger piece to the recapture — that a static evaluation cannot. The
@@ -98,8 +102,9 @@ final case class RootSearchStats(
   *
   * The evaluation function is injected as a batch (`evalBatch(states, color)` scores every state from `color`'s
   * perspective) so the same search works with any leaf evaluator — the engine's material score, or an externally
-  * trained model — and so the many leaves under one chance node can be scored in a single call. Leaf scores are only
-  * ever compared, minimised, and averaged, so the search is agnostic to the evaluator's absolute scale.
+  * trained model — and so the many leaves under one chance node can be scored in a single call. Non-terminal leaf
+  * scores must not exceed [[ExpectimaxSearch.UpperScoreBound]] because Star pruning uses that ceiling; values below
+  * zero are supported down to the terminal-loss sentinel.
   *
   * Two terminal cases sit outside the evaluator, because a king capture ends the game and material scores never see the
   * king:
@@ -107,8 +112,9 @@ final case class RootSearchStats(
   *   - a leaf where the opponent captures our king is worth [[ExpectimaxSearch.LossValue]] — below any real score on
   *     any scale — so the opponent always takes it and we always rank that line last.
   *
-  * Depth is fixed at two plies. As a [[TimeBudgetedSearch]] it also honours a wall-clock deadline, expanding pre-ranked
-  * candidates until time runs out.
+  * At depth 3, every opponent reply is followed by a chance node over our next roll and a MAX node over our legal
+  * replies before leaf evaluation. As a [[TimeBudgetedSearch]] the implementation honours a wall-clock deadline at
+  * every chance-node roll boundary, expanding pre-ranked root candidates until time runs out.
   *
   * @param preRank
   *   batched evaluator used to rank the mover's own legal turns before the (expensive) chance-node expansion — only the
@@ -204,7 +210,9 @@ final class ExpectimaxSearch(
         while i < candidates.length && continue do
           val (path, resultState) = candidates(i)
           if tt.isDefined then ttProbes += 1
-          val res = chanceNodeValue(resultState, myColor, deadlineNanos, alpha)
+          val res =
+            if config.searchDepth == 2 then chanceNodeValue(resultState, myColor, deadlineNanos, alpha)
+            else depthThreeChanceNodeValue(resultState, myColor, deadlineNanos, alpha)
           // Only a fully expanded candidate is ranked. A truncated one carries the expectation of the rolls it
           // happened to reach, which is not comparable with a complete one — ranking it would let the arbitrary
           // point where the clock landed decide the move.
@@ -282,7 +290,7 @@ final class ExpectimaxSearch(
     val key    = oppToMove.zobristHash
     val cached = tt.flatMap(_.probe(key))
     val ttHit  = cached match
-      case Some(entry) if entry.depth >= config.depth - 1 =>
+      case Some(entry) if entry.depth >= config.searchDepth - 1 =>
         if entry.bound == TTBound.Exact then
           Some(
             ChanceNodeResult(
@@ -474,12 +482,495 @@ final class ExpectimaxSearch(
           )
 
     tt.foreach { table =>
-      if res.complete then table.store(key, res.value, TTBound.Exact, config.depth - 1, res.lossTainted)
+      if res.complete then table.store(key, res.value, TTBound.Exact, config.searchDepth - 1, res.lossTainted)
       else if res.pruned && !config.exactOnlyMode then
-        table.store(key, res.value, TTBound.UpperBound, config.depth - 1, res.lossTainted)
+        table.store(key, res.value, TTBound.UpperBound, config.searchDepth - 1, res.lossTainted)
     }
 
     res
+
+  /** Depth-3 continuation after one root candidate: opponent chance/MIN, then our chance/MAX, then the leaf model. */
+  private def depthThreeChanceNodeValue(
+      oppToMove: GameState,
+      myColor: Color,
+      deadlineNanos: Long,
+      alpha: Double
+  ): ChanceNodeResult =
+    val result = recursiveChanceNode(
+      oppToMove,
+      myColor,
+      pliesRemaining = config.searchDepth - 1,
+      maximizing = false,
+      deadlineNanos,
+      alpha,
+      beta = Double.PositiveInfinity
+    )
+    ChanceNodeResult(
+      value = result.value,
+      lossTainted = result.lossTainted,
+      complete = !result.aborted && result.bound == TTBound.Exact,
+      pruned = !result.aborted && result.bound != TTBound.Exact,
+      rollsProcessed = result.rollsProcessed,
+      probePruned = result.probePruned,
+      fromTT = result.fromTT
+    )
+
+  /** Recursive chance node used by depth 3.
+    *
+    * `pliesRemaining` counts decision plies below this chance node. The outer invocation has two (opponent MIN, our
+    * MAX); recursive invocations have one. A role salt separates MAX continuations from MIN continuations in the TT:
+    * the same board at the same nominal depth has the opposite value perspective in those two roles.
+    */
+  private def recursiveChanceNode(
+      toMove: GameState,
+      myColor: Color,
+      pliesRemaining: Int,
+      maximizing: Boolean,
+      deadlineNanos: Long,
+      alpha: Double,
+      beta: Double
+  ): RecursiveNodeResult =
+    val key    = transpositionKey(toMove, maximizing)
+    val cached = tt.flatMap(_.probe(key))
+    val hit    = cached.flatMap: entry =>
+      if entry.depth < pliesRemaining then None
+      else if entry.bound == TTBound.Exact then
+        Some(
+          RecursiveNodeResult(
+            entry.value,
+            TTBound.Exact,
+            entry.lossTainted,
+            fromTT = true
+          )
+        )
+      else if !config.exactOnlyMode && entry.bound == TTBound.UpperBound && entry.value < alpha then
+        Some(
+          RecursiveNodeResult(
+            entry.value,
+            TTBound.UpperBound,
+            entry.lossTainted,
+            fromTT = true
+          )
+        )
+      else if !config.exactOnlyMode && entry.bound == TTBound.LowerBound && entry.value > beta then
+        Some(
+          RecursiveNodeResult(
+            entry.value,
+            TTBound.LowerBound,
+            entry.lossTainted,
+            fromTT = true
+          )
+        )
+      else None
+
+    hit.getOrElse:
+      val result = computeRecursiveChanceNode(
+        toMove,
+        myColor,
+        pliesRemaining,
+        maximizing,
+        deadlineNanos,
+        alpha,
+        beta
+      )
+      if !result.aborted then
+        tt.foreach: table =>
+          if result.bound == TTBound.Exact || !config.exactOnlyMode then
+            table.store(key, result.value, result.bound, pliesRemaining, result.lossTainted)
+      result
+
+  private def computeRecursiveChanceNode(
+      toMove: GameState,
+      myColor: Color,
+      pliesRemaining: Int,
+      maximizing: Boolean,
+      deadlineNanos: Long,
+      alpha: Double,
+      beta: Double
+  ): RecursiveNodeResult =
+    val checkClock = timed(deadlineNanos)
+    val rolls      = DiceRolls.byWeightDescending
+    val totalRolls = rolls.length
+    val allReplies = new Array[List[List[Move]]](totalRolls)
+    val probePaths = Array.fill[Option[List[Move]]](totalRolls)(None)
+    val probeNodes = Array.fill[Option[RecursiveNodeResult]](totalRolls)(None)
+    val useStar2   = if maximizing then beta < Double.PositiveInfinity else alpha > Double.NegativeInfinity
+    var aborted    = false
+
+    if useStar2 then
+      if pliesRemaining == 1 then
+        val probeStates       = List.newBuilder[GameState]
+        val probeStateIndices = Array.fill(totalRolls)(-1)
+        var probeStateCount   = 0
+        var i                 = 0
+        while i < totalRolls && !aborted do
+          if checkClock && System.nanoTime() >= deadlineNanos then aborted = true
+          else
+            val (roll, _) = rolls(i)
+            val rolled    = toMove.withDicePool(roll)
+            val replies   = TurnGenerator.generateAllLegalTurnPaths(rolled)
+            allReplies(i) = replies
+            terminalDecisionValue(rolled, replies, maximizing) match
+              case Some(value) =>
+                probeNodes(i) = Some(
+                  RecursiveNodeResult.exact(value, lossTainted = !maximizing)
+                )
+              case None =>
+                val afterTurn =
+                  if replies.isEmpty then toMove.endTurn()
+                  else
+                    val path = selectProbePath(rolled, replies, myColor, maximizing)
+                    probePaths(i) = Some(path)
+                    applyTurn(rolled, path)
+                probeStates += afterTurn
+                probeStateIndices(i) = probeStateCount
+                probeStateCount += 1
+            i += 1
+
+        if !aborted then
+          val rawProbeStates = probeStates.result().toArray
+          if rawProbeStates.nonEmpty then
+            val distinctProbeStates = distinctLeaves(rawProbeStates.clone())
+            val probeScores         = evalBatch(distinctProbeStates, myColor)
+            val scoreMap = new scala.collection.mutable.HashMap[LeafKey, Int](distinctProbeStates.length * 2, 0.75)
+            var j        = 0
+            while j < distinctProbeStates.length do
+              scoreMap.put(leafKey(distinctProbeStates(j)), probeScores(j))
+              j += 1
+            var k = 0
+            while k < totalRolls do
+              val idx = probeStateIndices(k)
+              if idx >= 0 then
+                probeNodes(k) = Some(
+                  RecursiveNodeResult.exact(scoreMap(leafKey(rawProbeStates(idx))).toDouble)
+                )
+              k += 1
+      else
+        var i = 0
+        while i < totalRolls && !aborted do
+          if checkClock && System.nanoTime() >= deadlineNanos then aborted = true
+          else
+            val (roll, _) = rolls(i)
+            val rolled    = toMove.withDicePool(roll)
+            val replies   = TurnGenerator.generateAllLegalTurnPaths(rolled)
+            allReplies(i) = replies
+            terminalDecisionValue(rolled, replies, maximizing) match
+              case Some(value) =>
+                probeNodes(i) = Some(
+                  RecursiveNodeResult.exact(value, lossTainted = !maximizing)
+                )
+              case None =>
+                val (afterTurn, path) =
+                  if replies.isEmpty then toMove.endTurn() -> None
+                  else
+                    val selected = selectProbePath(rolled, replies, myColor, maximizing)
+                    applyTurn(rolled, selected) -> Some(selected)
+                probePaths(i) = path
+                val probed = recursiveChanceNode(
+                  afterTurn,
+                  myColor,
+                  pliesRemaining - 1,
+                  !maximizing,
+                  deadlineNanos,
+                  Double.NegativeInfinity,
+                  Double.PositiveInfinity
+                )
+                if probed.aborted then aborted = true
+                else if probeBoundIsSound(probed.bound, maximizing) then probeNodes(i) = Some(probed)
+                else
+                  val fallback = if maximizing then LossValue else WinValue
+                  val bound    = if maximizing then TTBound.LowerBound else TTBound.UpperBound
+                  probeNodes(i) = Some(RecursiveNodeResult(fallback, bound, lossTainted = false))
+            i += 1
+
+    if aborted then RecursiveNodeResult.aborted
+    else
+      val remainingStar2Bound = new Array[Double](totalRolls + 1)
+      if useStar2 then
+        var i = totalRolls - 1
+        while i >= 0 do
+          val probability = rolls(i)._2.toDouble / DiceRolls.totalOrderedRolls
+          remainingStar2Bound(i) = remainingStar2Bound(i + 1) + probability * probeNodes(i).get.value
+          i -= 1
+
+      val star2Value = remainingStar2Bound(0)
+      if useStar2 && !maximizing && star2Value < alpha then
+        RecursiveNodeResult(
+          star2Value,
+          TTBound.UpperBound,
+          probeNodes.iterator.flatten.exists(_.lossTainted),
+          rollsProcessed = 0,
+          probePruned = true
+        )
+      else if useStar2 && maximizing && star2Value > beta then
+        RecursiveNodeResult(
+          star2Value,
+          TTBound.LowerBound,
+          probeNodes.iterator.flatten.exists(_.lossTainted),
+          rollsProcessed = 0,
+          probePruned = true
+        )
+      else
+        var acc            = 0.0
+        var rollsProcessed = 0
+        var lossTainted    = false
+        var result         = Option.empty[RecursiveNodeResult]
+
+        def remainingProbability(from: Int): Double =
+          var weight = 0
+          var idx    = from
+          while idx < totalRolls do
+            weight += rolls(idx)._2
+            idx += 1
+          weight.toDouble / DiceRolls.totalOrderedRolls
+
+        def remainingUpper(from: Int): Double =
+          if useStar2 && !maximizing then remainingStar2Bound(from)
+          else remainingProbability(from) * WinValue
+
+        def remainingLower(from: Int): Double =
+          if useStar2 && maximizing then remainingStar2Bound(from)
+          else remainingProbability(from) * LossValue
+
+        var i = 0
+        while i < totalRolls && result.isEmpty do
+          val upperBound = acc + remainingUpper(i)
+          val lowerBound = acc + remainingLower(i)
+          if upperBound < alpha then
+            result = Some(
+              RecursiveNodeResult(
+                upperBound,
+                TTBound.UpperBound,
+                lossTainted,
+                rollsProcessed = rollsProcessed
+              )
+            )
+          else if lowerBound > beta then
+            result = Some(
+              RecursiveNodeResult(
+                lowerBound,
+                TTBound.LowerBound,
+                lossTainted,
+                rollsProcessed = rollsProcessed
+              )
+            )
+          else if checkClock && System.nanoTime() >= deadlineNanos then result = Some(RecursiveNodeResult.aborted)
+          else
+            val (roll, weight) = rolls(i)
+            val probability    = weight.toDouble / DiceRolls.totalOrderedRolls
+            val rolled         = toMove.withDicePool(roll)
+            val replies        =
+              if allReplies(i) ne null then allReplies(i) // scalafix:ok(DisableSyntax.null)
+              else TurnGenerator.generateAllLegalTurnPaths(rolled)
+            val childAlpha =
+              if alpha == Double.NegativeInfinity then alpha
+              else clampScore((alpha - acc - remainingUpper(i + 1)) / probability)
+            val childBeta =
+              if beta == Double.PositiveInfinity then beta
+              else clampScore((beta - acc - remainingLower(i + 1)) / probability)
+            val child = recursiveDecisionNode(
+              rolled,
+              replies,
+              myColor,
+              pliesRemaining,
+              maximizing,
+              deadlineNanos,
+              childAlpha,
+              childBeta,
+              probePaths(i),
+              probeNodes(i)
+            )
+            if child.aborted then result = Some(child)
+            else
+              lossTainted ||= child.lossTainted
+              val combinedUpper = acc + probability * child.value + remainingUpper(i + 1)
+              val combinedLower = acc + probability * child.value + remainingLower(i + 1)
+              if child.bound == TTBound.UpperBound && combinedUpper < alpha then
+                result = Some(
+                  RecursiveNodeResult(
+                    combinedUpper,
+                    TTBound.UpperBound,
+                    lossTainted,
+                    rollsProcessed = rollsProcessed
+                  )
+                )
+              else if child.bound == TTBound.LowerBound && combinedLower > beta then
+                result = Some(
+                  RecursiveNodeResult(
+                    combinedLower,
+                    TTBound.LowerBound,
+                    lossTainted,
+                    rollsProcessed = rollsProcessed
+                  )
+                )
+              else
+                val exactChild =
+                  if child.bound == TTBound.Exact then child
+                  else
+                    recursiveDecisionNode(
+                      rolled,
+                      replies,
+                      myColor,
+                      pliesRemaining,
+                      maximizing,
+                      deadlineNanos,
+                      Double.NegativeInfinity,
+                      Double.PositiveInfinity,
+                      probePaths(i),
+                      probeNodes(i)
+                    )
+                if exactChild.aborted then result = Some(exactChild)
+                else
+                  acc += probability * exactChild.value
+                  lossTainted ||= exactChild.lossTainted
+                  rollsProcessed += 1
+                  i += 1
+
+        result.getOrElse(
+          RecursiveNodeResult(
+            acc,
+            TTBound.Exact,
+            lossTainted,
+            rollsProcessed = rollsProcessed
+          )
+        )
+
+  private def recursiveDecisionNode(
+      rolled: GameState,
+      replies: List[List[Move]],
+      myColor: Color,
+      pliesRemaining: Int,
+      maximizing: Boolean,
+      deadlineNanos: Long,
+      alpha: Double,
+      beta: Double,
+      probePath: Option[List[Move]],
+      probeNode: Option[RecursiveNodeResult]
+  ): RecursiveNodeResult =
+    terminalDecisionValue(rolled, replies, maximizing) match
+      case Some(value) => RecursiveNodeResult.exact(value, lossTainted = !maximizing)
+      case None        =>
+        if replies.isEmpty then
+          if pliesRemaining == 1 then RecursiveNodeResult.exact(evalOne(rolled.endTurn(), myColor))
+          else
+            recursiveChanceNode(
+              rolled.endTurn(),
+              myColor,
+              pliesRemaining - 1,
+              !maximizing,
+              deadlineNanos,
+              alpha,
+              beta
+            )
+        else if pliesRemaining == 1 then leafDecisionValue(rolled, replies, myColor, maximizing)
+        else
+          val ordered = replies
+            .map: path =>
+              val state = applyTurn(rolled, path)
+              val score = Evaluator.evaluateMaterial(state, myColor)
+              (path, state, if maximizing then -score else score)
+            .sortBy(_._3)
+          var localAlpha  = alpha
+          var localBeta   = beta
+          var exactBest   = if maximizing then LossValue else WinValue
+          var boundBest   = if maximizing then LossValue else WinValue
+          var hasExact    = false
+          var lossTainted = false
+          var result      = Option.empty[RecursiveNodeResult]
+          var i           = 0
+          while i < ordered.length && result.isEmpty do
+            val (path, afterTurn, _) = ordered(i)
+            val child                =
+              if probePath.contains(path) && probeNode.exists(node => !node.aborted && node.bound == TTBound.Exact) then
+                probeNode.get
+              else
+                recursiveChanceNode(
+                  afterTurn,
+                  myColor,
+                  pliesRemaining - 1,
+                  !maximizing,
+                  deadlineNanos,
+                  localAlpha,
+                  localBeta
+                )
+            if child.aborted then result = Some(child)
+            else
+              lossTainted ||= child.lossTainted
+              child.bound match
+                case TTBound.Exact =>
+                  hasExact = true
+                  if maximizing then
+                    exactBest = math.max(exactBest, child.value)
+                    localAlpha = math.max(localAlpha, exactBest)
+                    if exactBest > beta then
+                      result = Some(
+                        RecursiveNodeResult(exactBest, TTBound.LowerBound, lossTainted)
+                      )
+                  else
+                    exactBest = math.min(exactBest, child.value)
+                    localBeta = math.min(localBeta, exactBest)
+                    if exactBest < alpha then
+                      result = Some(
+                        RecursiveNodeResult(exactBest, TTBound.UpperBound, lossTainted)
+                      )
+                case TTBound.UpperBound =>
+                  if maximizing then boundBest = math.max(boundBest, child.value)
+                  else
+                    result = Some(
+                      RecursiveNodeResult(child.value, TTBound.UpperBound, lossTainted)
+                    )
+                case TTBound.LowerBound =>
+                  if maximizing then
+                    result = Some(
+                      RecursiveNodeResult(child.value, TTBound.LowerBound, lossTainted)
+                    )
+                  else boundBest = math.min(boundBest, child.value)
+              i += 1
+
+          result.getOrElse:
+            if hasExact then RecursiveNodeResult.exact(exactBest, lossTainted)
+            else if maximizing then RecursiveNodeResult(boundBest, TTBound.UpperBound, lossTainted)
+            else RecursiveNodeResult(boundBest, TTBound.LowerBound, lossTainted)
+
+  private def leafDecisionValue(
+      rolled: GameState,
+      replies: List[List[Move]],
+      myColor: Color,
+      maximizing: Boolean
+  ): RecursiveNodeResult =
+    val leaves = distinctLeaves(replies.iterator.map(reply => applyTurn(rolled, reply)).toArray)
+    val scores = evalBatch(leaves, myColor)
+    var value  = if maximizing then Int.MinValue else Int.MaxValue
+    var i      = 0
+    while i < scores.length do
+      if maximizing then value = math.max(value, scores(i)) else value = math.min(value, scores(i))
+      i += 1
+    RecursiveNodeResult.exact(value.toDouble)
+
+  private def terminalDecisionValue(
+      rolled: GameState,
+      replies: List[List[Move]],
+      maximizing: Boolean
+  ): Option[Double] =
+    if replies.exists(reply => capturesEnemyKing(rolled, reply)) then Some(if maximizing then WinValue else LossValue)
+    else None
+
+  private def selectProbePath(
+      rolled: GameState,
+      replies: List[List[Move]],
+      myColor: Color,
+      maximizing: Boolean
+  ): List[Move] =
+    if maximizing then replies.maxBy(path => Evaluator.evaluateMaterial(applyTurn(rolled, path), myColor))
+    else replies.minBy(path => Evaluator.evaluateMaterial(applyTurn(rolled, path), myColor))
+
+  private def probeBoundIsSound(bound: TTBound, maximizing: Boolean): Boolean =
+    bound == TTBound.Exact || (if maximizing then bound == TTBound.LowerBound else bound == TTBound.UpperBound)
+
+  private def clampScore(value: Double): Double = math.max(LossValue, math.min(WinValue, value))
+
+  private def transpositionKey(state: GameState, maximizing: Boolean): Long =
+    if maximizing then state.zobristHash ^ MaxChanceKeySalt else state.zobristHash
 
   /** The opponent picks the reply that is worst for us. A reply capturing our king is worst of all ([[LossValue]]);
     * otherwise the resulting leaves are scored in one batch and the minimum is taken.
@@ -623,6 +1114,23 @@ final private case class ChanceNodeResult(
     fromTT: Boolean = false
 )
 
+final private case class RecursiveNodeResult(
+    value: Double,
+    bound: TTBound,
+    lossTainted: Boolean,
+    aborted: Boolean = false,
+    rollsProcessed: Int = 0,
+    probePruned: Boolean = false,
+    fromTT: Boolean = false
+)
+
+private object RecursiveNodeResult:
+  def exact(value: Double, lossTainted: Boolean = false): RecursiveNodeResult =
+    RecursiveNodeResult(value, TTBound.Exact, lossTainted)
+
+  val aborted: RecursiveNodeResult =
+    RecursiveNodeResult(0.0, TTBound.Exact, lossTainted = false, aborted = true)
+
 object ExpectimaxSearch:
 
   /** Upper score bound for non-king evaluation values (e.g. ONNX score scale [0, 10000]). Used by Star1 chance-node
@@ -630,11 +1138,21 @@ object ExpectimaxSearch:
     */
   private[search] val UpperScoreBound: Double = 10000.0
 
+  /** Terminal win inside a deeper tree. One point above the leaf-model ceiling is sufficient to dominate every
+    * non-terminal reply while keeping Star bounds tight; using `Int.MaxValue` here would make chance pruning inert.
+    */
+  private val WinValue: Double = UpperScoreBound + 1.0
+
   /** Value of a leaf in which the opponent captures our king. Chosen far below any real evaluation on any scale
     * (material centipawns or a scaled win-probability) so the opponent always prefers it and such a line always ranks
     * last — without tying the search to a particular evaluator's range.
     */
   private val LossValue: Double = -1e9
+
+  /** Separates MAX-role chance nodes from MIN-role nodes in the TT. `activeColor` alone is insufficient at depth 3: an
+    * inner node is evaluated for the active player, while the same position at depth 2 is evaluated for its opponent.
+    */
+  private val MaxChanceKeySalt: Long = 0x9e3779b97f4a7c15L
 
   /** Sentinel deadline for the un-timed entry points: `System.nanoTime()` never reaches it in practice. */
   private val NoDeadline: Long = Long.MaxValue

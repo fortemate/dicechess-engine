@@ -101,12 +101,12 @@ val bot = OnnxEvalSearch(OnnxEvalConfig("/path/to/model.onnx"))
 
 ### OnnxExpectimaxSearch
 
-A **two-ply search bot** (Level 9) that combines ONNX evaluation with Expectimax lookahead:
+A **configurable two- or three-ply search bot** (Level 9) that combines ONNX evaluation with Expectimax lookahead:
 
 ```scala
 val bot = OnnxExpectimaxSearch(
   modelPath = "/path/to/model.onnx",
-  config = ExpectimaxConfig(candidateLimit = 8),
+  config = ExpectimaxConfig(candidateLimit = 8, searchDepth = 2),
   extractFeatures = RichFeatures.extract,
   preRankWithModel = true
 )
@@ -115,10 +115,11 @@ val bot = OnnxExpectimaxSearch(
 **Algorithm**:
 1. Pre-rank legal root turns (with material balance, or with the ONNX model when `preRankWithModel = true`)
 2. Expand top `candidateLimit` candidates through 56 unique dice rolls
-3. At leaf nodes under each chance node, evaluate positions in batches using the ONNX model
-4. Return best move from Expectimax search
+3. With `searchDepth = 3`, recursively expand our next roll and best legal reply after each opponent turn
+4. At leaf decision nodes, evaluate positions in batches using the ONNX model
+5. Return the best move from Expectimax search
 
-**Performance**: ~100-500ms per move (depending on model complexity, `candidateLimit`, and CPU)
+**Performance**: the default depth 2 typically takes ~100-500ms per move (depending on model complexity, `candidateLimit`, and CPU). Exact depth 3 is orders of magnitude more expensive and is intended for generous time controls with Star pruning and a transposition table.
 
 ---
 

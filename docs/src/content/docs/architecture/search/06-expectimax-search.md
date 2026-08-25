@@ -1,11 +1,11 @@
 ---
 title: Expectimax Search Engine
-description: Two-ply probabilistic search with chance nodes, candidate pre-ranking, leaf deduplication, and time-budgeted evaluation.
+description: Configurable two- or three-ply probabilistic search with Star pruning, transposition caching, leaf batching, and time-budgeted evaluation.
 sidebar:
   order: 6
 ---
 
-The **`ExpectimaxSearch`** algorithm (`dicechess.engine.search.ExpectimaxSearch`) provides two-ply lookahead search capability in the Dice Chess engine, moving beyond single-turn heuristic bots (Levels 1–5) to reason about future turns and opponent replies.
+The **`ExpectimaxSearch`** algorithm (`dicechess.engine.search.ExpectimaxSearch`) provides configurable two- or three-ply lookahead in the Dice Chess engine, moving beyond single-turn heuristic bots (Levels 1–5) to reason about future turns, opponent replies, and our recaptures.
 
 Unlike Minimax which assumes deterministic turns, Expectimax is designed for games with **chance nodes** — in Dice Chess, the stochastic dice rolls that determine which moves the opponent can play.
 
@@ -15,10 +15,12 @@ Unlike Minimax which assumes deterministic turns, Expectimax is designed for gam
 
 ### Search Horizon
 
-The search depth is **fixed at two plies**:
+The default search depth is **two plies**:
 1. **Ply 1 (Our Turn)**: The player selects a full-turn path (1–3 micro-moves).
 2. **Chance Node**: The opponent's dice roll (56 unique combinations / 216 ordered outcomes).
 3. **Ply 2 (Opponent Reply)**: The opponent chooses their best legal reply turn to minimize our evaluation.
+
+With `searchDepth = 3`, every opponent reply adds a chance node over our next roll and a MAX node over our legal full-turn replies before leaf evaluation. This resolves the two-ply horizon's exchange blindness: the search sees both the opponent's capture and our recapture.
 
 ### Tree Structure
 
@@ -29,7 +31,12 @@ graph TD
     C --> D["Candidate Turn Path 1..K"]
     D --> E["Chance Node: 56 weighted dice rolls"]
     E --> F["Opponent Best Reply (Minimax over deduplicated leaves)"]
-    F --> G["Expected Value (Weighted Sum)"]
+    F --> G{"searchDepth"}
+    G -->|2| H["Leaf Evaluation"]
+    G -->|3| I["Our Chance Node: 56 weighted rolls"]
+    I --> J["Our Best Reply (MAX)"]
+    J --> H
+    H --> K["Expected Value (Weighted Sum)"]
 ```
 
 ### Mathematical Expectation
@@ -54,12 +61,13 @@ Dice Chess positions often offer hundreds of legal turn paths for a single roll.
 
 Before expanding chance nodes, all legal paths are scored using a fast batched pre-ranker (`preRank`, defaulting to material balance via `ExpectimaxSearch.materialBatch`). Only the top `config.candidateLimit` candidates are expanded through full chance nodes.
 
-### 3. Chance Node & Leaf Deduplication
+### 3. Recursive Chance Nodes & Leaf Deduplication
 
-For each weighted dice roll in the chance node:
+For each weighted dice roll in a chance node:
 1. All legal opponent reply paths are generated under the rolled dice pool.
 2. If any reply captures our king, that roll immediately yields `LossValue` ($-10^9$) — below any evaluator's scale so the opponent always chooses it and we rank that line last.
-3. Otherwise, resulting board positions are generated and **deduplicated in-place** using `LeafKey`.
+3. At depth 2, the resulting positions are leaves. At depth 3, each result recursively enters our next chance/MAX layer.
+4. Leaf positions are **deduplicated in-place** using `LeafKey` before evaluation.
 
 > [!NOTE]
 > **Leaf Deduplication vs Transposition Tables**: Dice Chess turns consist of 1–3 micro-moves. Independent micro-moves played in different orders often reach identical board states (~78% duplicate leaves per chance node). Because the opponent minimizes over leaves ($\min(S) = \min(\text{distinct}(S))$), duplicate boards can be dropped with zero loss of precision.
@@ -72,11 +80,17 @@ The distinct leaf states under a roll are scored in a single call to `evalBatch(
 
 ### 5. Star Pruning (Star1 & Star2 Probing)
 
-To avoid expanding full chance-node subtrees that cannot beat the current best candidate ($\alpha$), `ExpectimaxSearch` uses two levels of star pruning:
-- **Star1 Pruning**: As weighted dice rolls are processed in weight-descending order, an upper bound on remaining expectation is maintained ($acc + P_{\text{rem}} \cdot U$). When $acc + P_{\text{rem}} \cdot U \le \alpha$, the remaining rolls are skipped.
-- **Star2 Probing**: Before expanding a candidate's chance node, each of the 56 rolls is probed with a single top-1 opponent reply (pre-ranked by material). All 56 probed positions are evaluated in a single batched `evalBatch` call. If the probed upper bound sum satisfies $\sum p_i \cdot \text{probe}_i \le \alpha$, the candidate's chance node is pruned immediately without full per-roll expansion. If probing does not prune the node, the probed values serve as tighter per-roll ceilings during Star1 roll iteration.
+To avoid expanding full chance-node subtrees that cannot affect the enclosing decision window, `ExpectimaxSearch` uses two levels of star pruning:
+- **Star1 Pruning**: As weighted dice rolls are processed in weight-descending order, upper and lower bounds on the remaining expectation are maintained. A node fails low when its strict upper bound is below $\alpha$, or fails high when its strict lower bound is above $\beta$.
+- **Star2 Probing**: MIN chance nodes probe one opponent reply per roll for a tighter upper bound; MAX chance nodes probe one of our replies for a tighter lower bound. Leaf probes remain batched. At depth 3, recursive probe results and TT entries are reused when the full node is expanded.
 
-### 6. Root Rescoring (`RootRescore`)
+The recursive bounds use `LossValue` as the safe lower limit and `WinValue = 10001` as the upper limit. `WinValue` is one point above the documented leaf-model ceiling, so a future king capture always dominates a non-terminal evaluation without widening the Star window to `Int.MaxValue`. Strict cutoffs preserve equal-valued candidates for the root's random tie-break.
+
+### 6. Transposition Table
+
+An optional `TranspositionTable` caches exact values and fail-soft upper/lower bounds with their remaining depth. Depth-3 inner MAX chance nodes use a role-salted key so the same board cannot collide with a MIN continuation evaluated from the opposite perspective. Deadline-aborted partial nodes are never stored.
+
+### 7. Root Rescoring (`RootRescore`)
 
 An optional `RootRescore` blends the chance-node search value with a second, tactically sharp but leaf-prohibitive evaluator computed once on the resulting candidate positions (before the opponent's roll):
 
@@ -84,10 +98,10 @@ $$\text{score} = (1 - w) \times V_{\text{search}} + w \times V_{\text{rescore}}$
 
 This allows expensive evaluations (such as 216-outcome King Capture Probability features) to run at the root ($K$ states) without burdening the thousands of leaves under chance nodes. Candidates tainted by an unavoidable king capture on any opponent roll are never rescored and remain ranked last.
 
-### 7. Time Management & Telemetry
+### 8. Time Management & Telemetry
 
 `ExpectimaxSearch` extends `TimeBudgetedSearch` and coordinates with [`TimeManager`](/dicechess-engine/architecture/search/05-time-management/):
-- **Fine-grained clock checks**: The deadline is checked **between dice rolls inside the chance node** (~$1/56$ of a candidate), not merely between candidates.
+- **Fine-grained clock checks**: The deadline is checked **between dice rolls at every recursive chance node**, not merely between root candidates.
 - **Anytime contract**: Truncated candidates (cut mid-expansion) are abandoned and discarded rather than compared against completed candidates. If the deadline expires before even one candidate completes, the search falls back to the pre-ranker's top pick.
 - **Telemetry sink (`RootSearchStats`)**: An optional `statsSink` receives search diagnostics per move (`legalTurns`, `candidatesSelected`, `candidatesCompleted`, `candidatesAbandoned`, `cutoffs`, `rollsSaved`, `probeCutoffs`), reporting cutoff telemetry and deadline truncation.
 
@@ -97,11 +111,15 @@ This allows expensive evaluations (such as 216-outcome King Capture Probability 
 
 ```scala
 final case class ExpectimaxConfig(
-    candidateLimit: Int = 8 // Number of pre-ranked turn paths expanded through chance nodes
+    candidateLimit: Int = 8,
+    exactOnlyMode: Boolean = false,
+    searchDepth: Int = 2
 )
 ```
 
 - `candidateLimit`: Bounds the branching factor at the root decision node. Must be positive. Widening `candidateLimit` grows search cost linearly.
+- `exactOnlyMode`: Restricts TT reuse/stores to exact entries; useful for correctness comparisons.
+- `searchDepth`: Selects the implemented two- or three-ply tree. Depth 2 is the compatibility default; other values are rejected.
 
 ---
 
@@ -118,11 +136,11 @@ val evalBatch = (states: Array[GameState], color: Color) =>
 
 val search = ExpectimaxSearch(
   evalBatch = evalBatch,
-  config = ExpectimaxConfig(candidateLimit = 8)
+  config = ExpectimaxConfig(candidateLimit = 8, searchDepth = 3)
 )
 
 val registration = BotRegistry.registerCustomBot(
-  BotInfo("expectimax", "Expectimax", "Two-ply expectimax with chance nodes.", difficulty = 7, isExperimental = true),
+  BotInfo("expectimax", "Expectimax", "Configurable expectimax with chance nodes.", difficulty = 7, isExperimental = true),
   search
 )
 ```
@@ -146,7 +164,7 @@ When finished, call `registration.close()` to unregister the bot and release ass
 
 | Aspect | Primitive Bots (L1–5) | ExpectimaxSearch |
 |---|---|---|
-| **Horizon** | 1 turn (1–3 micro-moves) | 2 plies (our turn + opponent reply) |
+| **Horizon** | 1 turn (1–3 micro-moves) | 2 or 3 plies (optionally including our next reply) |
 | **Opponent Modeling** | None (assumes random play or ignores opponent) | Minimax response (worst-case opponent reply) |
 | **Probability Handling** | None | Exact expectation over 56 dice outcomes (216 rolls) |
 | **Branching Control** | Eager enumeration of all legal paths | Root candidate pre-ranking (`candidateLimit`) |
@@ -157,11 +175,10 @@ When finished, call `registration.close()` to unregister the bot and release ass
 
 ## Roadmap & Future Optimizations
 
-Planned search optimizations not yet implemented in `ExpectimaxSearch` are documented in the [Search Roadmap & Evaluation](/dicechess-engine/architecture/search/03-search-roadmap/):
+Star1/Star2, Zobrist/TT, and the first configurable depth increase are implemented. Remaining stages are documented in the [Search Roadmap & Evaluation](/dicechess-engine/architecture/search/03-search-roadmap/):
 
-1. **Transposition Tables & Zobrist Hashing**: Cross-node and cross-ply caching of search values and bounds.
-3. **Parallel Chance Nodes**: Concurrent branch evaluation across CPU cores.
-4. **Arbitrary Depth ($d > 2$) & Iterative Deepening**: Deep multi-ply tree traversal within time budgets.
+1. **Parallel Chance Nodes**: Concurrent branch evaluation across CPU cores.
+2. **Depths beyond 3 & Iterative Deepening**: Deeper traversal within time budgets, after measurement establishes a viable cost envelope.
 
 ---
 
