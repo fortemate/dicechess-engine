@@ -377,6 +377,38 @@ object BotMatchRunner:
   ): TimedMatchResult =
     runTimedMatch(resolveOpponent(botUnderTestId), resolveOpponent(baselineId), setup)
 
+  private def validateTimedMatchResume(resume: TimedMatchResume, gamesPerColor: Int): Unit =
+    val invalidResumeIndex = resume.observations.zipWithIndex.collectFirst {
+      case (observation, expected) if observation.index != expected => (expected, observation.index)
+    }
+    invalidResumeIndex.foreach { case (expected, actual) =>
+      sys.error(s"Resume observations must be contiguous from index 0: expected $expected, found $actual")
+    }
+    if resume.durationMs < 0 then sys.error("Resume durationMs must be non-negative")
+    if resume.observations.size > gamesPerColor then
+      sys.error(s"Resume has ${resume.observations.size} pairs, above the configured cap of $gamesPerColor")
+
+  private def timedBotScore(res: TimedGameResult, botColor: Color): Double = res.outcome match
+    case GameOutcome.Draw                    => 0.5
+    case GameOutcome.Win(c) if c == botColor => 1.0
+    case GameOutcome.Win(_)                  => 0.0
+
+  private def validatePairObservation(observation: PairObservation): Unit =
+    val expectedWhite = timedBotScore(observation.whiteGame, Color.White)
+    val expectedBlack = timedBotScore(observation.blackGame, Color.Black)
+    val expectedBin   = math.round((expectedWhite + expectedBlack) * 2).toInt
+    if observation.whiteScore != expectedWhite || observation.blackScore != expectedBlack || observation.bin != expectedBin
+    then sys.error(s"Resume observation ${observation.index} scores/bin do not match its game outcomes")
+
+  private def addPentanomialBin(pentanomial: Sprt.Pentanomial, observation: PairObservation): Sprt.Pentanomial =
+    observation.bin match
+      case 0     => pentanomial.copy(n0 = pentanomial.n0 + 1)
+      case 1     => pentanomial.copy(n1 = pentanomial.n1 + 1)
+      case 2     => pentanomial.copy(n2 = pentanomial.n2 + 1)
+      case 3     => pentanomial.copy(n3 = pentanomial.n3 + 1)
+      case 4     => pentanomial.copy(n4 = pentanomial.n4 + 1)
+      case other => sys.error(s"Resume observation ${observation.index} has invalid pair bin $other")
+
   /** Algorithm-level overload of [[runTimedMatch]] — lets a test field an opponent (e.g. a [[WebhookBot]] pointed at a
     * mock endpoint) without registering it in the process-wide [[BotRegistry]] singleton, whose contents other suites
     * assert exactly. Both overloads take the same [[TimedMatchSetup]], so neither carries defaults of its own — which
@@ -410,15 +442,7 @@ object BotMatchRunner:
     val startTime        = System.currentTimeMillis()
     val resumedPairs     = resume.observations.size
 
-    val invalidResumeIndex = resume.observations.zipWithIndex.collectFirst {
-      case (observation, expected) if observation.index != expected => (expected, observation.index)
-    }
-    invalidResumeIndex.foreach { case (expected, actual) =>
-      sys.error(s"Resume observations must be contiguous from index 0: expected $expected, found $actual")
-    }
-    if resume.durationMs < 0 then sys.error("Resume durationMs must be non-negative")
-    if resumedPairs > gamesPerColor then
-      sys.error(s"Resume has $resumedPairs pairs, above the configured cap of $gamesPerColor")
+    validateTimedMatchResume(resume, gamesPerColor)
 
     def record(res: TimedGameResult, botColor: Color): Unit =
       latencies ++= res.latenciesByColorMs.collect { case (color, ms) if color == botColor => ms }
@@ -430,27 +454,12 @@ object BotMatchRunner:
         if flagged == botColor then botTimeouts += 1 else baselineTimeouts += 1
       }
 
-    def botScore(res: TimedGameResult, botColor: Color): Double = res.outcome match
-      case GameOutcome.Draw                    => 0.5
-      case GameOutcome.Win(c) if c == botColor => 1.0
-      case GameOutcome.Win(_)                  => 0.0
-
     def recordPair(observation: PairObservation): Unit =
-      val expectedWhite = botScore(observation.whiteGame, Color.White)
-      val expectedBlack = botScore(observation.blackGame, Color.Black)
-      val expectedBin   = math.round((expectedWhite + expectedBlack) * 2).toInt
-      if observation.whiteScore != expectedWhite || observation.blackScore != expectedBlack || observation.bin != expectedBin
-      then sys.error(s"Resume observation ${observation.index} scores/bin do not match its game outcomes")
+      validatePairObservation(observation)
       record(observation.whiteGame, Color.White)
       record(observation.blackGame, Color.Black)
       pairsPlayed += 1
-      pentanomial = observation.bin match
-        case 0     => pentanomial.copy(n0 = pentanomial.n0 + 1)
-        case 1     => pentanomial.copy(n1 = pentanomial.n1 + 1)
-        case 2     => pentanomial.copy(n2 = pentanomial.n2 + 1)
-        case 3     => pentanomial.copy(n3 = pentanomial.n3 + 1)
-        case 4     => pentanomial.copy(n4 = pentanomial.n4 + 1)
-        case other => sys.error(s"Resume observation ${observation.index} has invalid pair bin $other")
+      pentanomial = addPentanomialBin(pentanomial, observation)
 
     resume.observations.foreach(recordPair)
 
@@ -491,9 +500,17 @@ object BotMatchRunner:
       // The pair's two 0/½/1 scores sum and double to an exact integer 0..4 — one of Pentanomial's five bins.
       // Unconditional: [[PairVariance]] needs this histogram to state what the run could resolve, whether or not
       // SPRT stopping was requested.
-      val bin         = math.round((botScore(whiteRes, Color.White) + botScore(blackRes, Color.Black)) * 2).toInt
+      val bin =
+        math.round((timedBotScore(whiteRes, Color.White) + timedBotScore(blackRes, Color.Black)) * 2).toInt
       val observation =
-        PairObservation(i, bin, botScore(whiteRes, Color.White), botScore(blackRes, Color.Black), whiteRes, blackRes)
+        PairObservation(
+          i,
+          bin,
+          timedBotScore(whiteRes, Color.White),
+          timedBotScore(blackRes, Color.Black),
+          whiteRes,
+          blackRes
+        )
       recordPair(observation)
       gameSink.foreach(_(observation))
 

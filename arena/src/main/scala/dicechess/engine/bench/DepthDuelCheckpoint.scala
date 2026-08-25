@@ -32,6 +32,7 @@ final private[bench] case class DepthDuelCheckpointIdentity(
   */
 private[bench] object DepthDuelCheckpoint:
   private val SchemaVersion = 1
+  private val SprtContext   = "setup.sprt"
 
   def sha256(path: String): Either[String, String] =
     Try {
@@ -218,10 +219,10 @@ private[bench] object DepthDuelCheckpoint:
     case Json.JNull => Right(None)
     case _          =>
       for
-        elo0  <- requiredDouble(json, "elo0", "setup.sprt")
-        elo1  <- requiredDouble(json, "elo1", "setup.sprt")
-        alpha <- requiredDouble(json, "alpha", "setup.sprt")
-        beta  <- requiredDouble(json, "beta", "setup.sprt")
+        elo0  <- requiredDouble(json, "elo0", SprtContext)
+        elo1  <- requiredDouble(json, "elo1", SprtContext)
+        alpha <- requiredDouble(json, "alpha", SprtContext)
+        beta  <- requiredDouble(json, "beta", SprtContext)
       yield Some(SprtConfig(elo0, elo1, alpha, beta))
 
   private def parseObservations(json: Json): Either[String, List[PairObservation]] = json match
