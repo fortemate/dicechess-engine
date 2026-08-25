@@ -179,6 +179,6 @@ Future opening book capabilities are tracked in the [Search Roadmap & Evaluation
 
 ## See Also
 
-- [Expectimax Search Engine](/dicechess-engine/architecture/search/06-expectimax-search/) — Two-ply lookahead search for out-of-book positions
+- [Expectimax Search Engine](/dicechess-engine/architecture/search/06-expectimax-search/) — Configurable two- or three-ply lookahead for out-of-book positions
 - [Time Management](/dicechess-engine/architecture/search/05-time-management/) — Budget allocation and deadline forwarding
 - [Search Roadmap & Evaluation](/dicechess-engine/architecture/search/03-search-roadmap/) — Staged plans for future search and book optimizations
