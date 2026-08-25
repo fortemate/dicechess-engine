@@ -270,6 +270,15 @@ final private[bench] case class SearchEvaluationSummary(
     candidateIllegal: Int
 )
 
+final private[bench] case class SearchEvaluationCategorySummary(
+    category: SearchScenarioCategory,
+    runs: Int,
+    baselineExpectationHits: Int,
+    candidateExpectationHits: Int,
+    candidateImprovements: Int,
+    candidateRegressions: Int
+)
+
 final private[bench] case class SearchEvaluationReport(
     fixtures: SearchFixtureSet,
     baseline: SearchBotIdentity,
@@ -290,6 +299,21 @@ final private[bench] case class SearchEvaluationReport(
       baselineIllegal = results.count(!_.baseline.legal),
       candidateIllegal = results.count(!_.candidate.legal)
     )
+
+  lazy val categorySummaries: List[SearchEvaluationCategorySummary] =
+    SearchScenarioCategory.values.toList.flatMap { category =>
+      val categoryResults = results.filter(_.scenario.category == category)
+      Option.when(categoryResults.nonEmpty)(
+        SearchEvaluationCategorySummary(
+          category = category,
+          runs = categoryResults.size,
+          baselineExpectationHits = categoryResults.count(_.baselineMatched),
+          candidateExpectationHits = categoryResults.count(_.candidateMatched),
+          candidateImprovements = categoryResults.count(_.comparison == SearchComparison.CandidateImproved),
+          candidateRegressions = categoryResults.count(_.comparison == SearchComparison.CandidateRegressed)
+        )
+      )
+    }
 
 private[bench] object SearchEvaluation:
   val ReportSchemaVersion = 1
@@ -377,7 +401,8 @@ private[bench] object SearchEvaluation:
         "baselineIllegal"          -> Json.int(summary.baselineIllegal),
         "candidateIllegal"         -> Json.int(summary.candidateIllegal)
       ),
-      "results" -> Json.arr(report.results.map(resultJson)*)
+      "categorySummaries" -> Json.arr(report.categorySummaries.map(categorySummaryJson)*),
+      "results"           -> Json.arr(report.results.map(resultJson)*)
     )
 
   def printHuman(report: SearchEvaluationReport): Unit =
@@ -407,8 +432,28 @@ private[bench] object SearchEvaluation:
       s"Candidate improvements: ${summary.candidateImprovements}, regressions: ${summary.candidateRegressions}, " +
         s"same decisions: ${summary.sameDecisions}, different decisions: ${summary.differentDecisions}"
     )
+    println("Category summary:")
+    println("Category    | Runs | Baseline hits | Candidate hits | Improvements | Regressions")
+    println("------------+------+---------------+----------------+--------------+------------")
+    report.categorySummaries.foreach { category =>
+      println(
+        f"${category.category.id}%-11s | ${category.runs}%4d | ${category.baselineExpectationHits}%13d | " +
+          f"${category.candidateExpectationHits}%14d | ${category.candidateImprovements}%12d | " +
+          f"${category.candidateRegressions}%10d"
+      )
+    }
     if summary.baselineIllegal > 0 || summary.candidateIllegal > 0 then
       println(s"Illegal decisions: candidate ${summary.candidateIllegal}, baseline ${summary.baselineIllegal}")
+
+  private def categorySummaryJson(summary: SearchEvaluationCategorySummary): Json =
+    Json.obj(
+      "category"                 -> Json.str(summary.category.id),
+      "runs"                     -> Json.int(summary.runs),
+      "baselineExpectationHits"  -> Json.int(summary.baselineExpectationHits),
+      "candidateExpectationHits" -> Json.int(summary.candidateExpectationHits),
+      "candidateImprovements"    -> Json.int(summary.candidateImprovements),
+      "candidateRegressions"     -> Json.int(summary.candidateRegressions)
+    )
 
   private def resolveBot(id: String, role: String): Either[String, (BotInfo, SearchAlgorithm)] =
     val normalized = id.toLowerCase(Locale.ROOT)
