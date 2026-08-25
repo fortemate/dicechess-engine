@@ -40,11 +40,11 @@ final case class ExpectimaxConfig(
   * @param evalBatch
   *   the rescoring evaluator, same batching contract as the search's own `evalBatch`
   * @param weight
-  *   blend weight; must be in `(0, 1]` (0 would be indistinguishable from omitting rescoring entirely, so `None` is the
-  *   only way to express "disabled")
+  *   blend weight; must be in `[0, 1]`. Zero is deliberately accepted as an operationally safe way to disable a
+  *   configured rescorer: it is exactly equivalent to `None` and does not invoke `evalBatch`.
   */
 final case class RootRescore(evalBatch: (Array[GameState], Color) => Array[Int], weight: Double):
-  require(weight > 0.0 && weight <= 1.0, s"weight must be in (0, 1], got $weight")
+  require(weight >= 0.0 && weight <= 1.0, s"weight must be in [0, 1], got $weight")
 
 /** One move's root telemetry from [[ExpectimaxSearch]]: how wide the decision node really was.
   *
@@ -192,36 +192,56 @@ final class ExpectimaxSearch(
         // Kept for the anytime fallback below: if the deadline elapses before any candidate finishes, this is both
         // the turn we play and the only score we can honestly attach to it.
         val topPreRankScore = ranked(0)._2
-        // Each candidate's own resulting position (before the opponent's roll) is kept alongside its chance-node
-        // value: the chance node needs it, and — when a root rescorer is configured — so does the rescore batch,
-        // scored once over exactly these states rather than recomputed.
-        val evaluated    = List.newBuilder[(List[Move], GameState, Double, Boolean)]
-        var i            = 0
-        var completed    = 0
-        var abandoned    = 0
+        // Root rescores must be known before chance-node expansion: each candidate has a different affine transform
+        // from the best blended score back into the leaf-search score domain used by Star1, Star2, and TT bounds.
+        // Keep the batch bounded by candidateLimit. Weight zero is exactly the unrescored path and deliberately does
+        // not invoke an otherwise configured evaluator. An already-expired deadline skips this indivisible batch;
+        // if the batch starts in time but itself exhausts the budget, the post-batch check prevents chance-node work.
+        val expiredBeforeRescore = timed(deadlineNanos) && System.nanoTime() >= deadlineNanos
+        val activeRootRescore    = rootRescore match
+          case Some(RootRescore(rescoreEval, weight)) if weight > 0.0 && !expiredBeforeRescore =>
+            Some(weight -> rescoreEval(candidates.map(_._2), myColor))
+          case _ => None
+        val expiredBeforeChance =
+          expiredBeforeRescore || (timed(deadlineNanos) && System.nanoTime() >= deadlineNanos)
+
+        val evaluated = List.newBuilder[(List[Move], Double)]
+        var i         = 0
+        var completed = 0
+        // Preserve the established anytime telemetry: if no search can start, the first selected candidate is the
+        // one the deadline abandoned and the move falls back to the pre-ranker's top pick.
+        var abandoned    = if expiredBeforeChance then 1 else 0
         var cutoffs      = 0
         var rollsSaved   = 0
         var probeCutoffs = 0
-        var alpha        = Double.NegativeInfinity
-        var continue     = true
+        var bestFinal    = Double.NegativeInfinity
+        var continue     = !expiredBeforeChance
         var ttProbes     = 0
         var ttHits       = 0
         var ttCutoffs    = 0
         while i < candidates.length && continue do
           val (path, resultState) = candidates(i)
+          val searchAlpha         = activeRootRescore match
+            case Some((weight, values)) =>
+              transformedRootAlpha(bestFinal, values(i).toDouble, weight)
+            case _ => bestFinal
           if tt.isDefined then ttProbes += 1
           val res =
-            if config.searchDepth == 2 then chanceNodeValue(resultState, myColor, deadlineNanos, alpha)
-            else depthThreeChanceNodeValue(resultState, myColor, deadlineNanos, alpha)
+            if config.searchDepth == 2 then chanceNodeValue(resultState, myColor, deadlineNanos, searchAlpha)
+            else depthThreeChanceNodeValue(resultState, myColor, deadlineNanos, searchAlpha)
           // Only a fully expanded candidate is ranked. A truncated one carries the expectation of the rolls it
           // happened to reach, which is not comparable with a complete one — ranking it would let the arbitrary
           // point where the clock landed decide the move.
           if res.complete then
-            evaluated += ((path, resultState, res.value, res.lossTainted))
+            val finalValue = activeRootRescore match
+              case Some((weight, values)) if !res.lossTainted =>
+                blendRootScore(res.value, values(i).toDouble, weight)
+              case _ => res.value
+            evaluated += (path -> finalValue)
             // A TT-exact hit is ranked like a completed candidate (the value IS exact, alpha may advance from it),
             // but it did no expansion work — counting it as completed would inflate the effective-width metric.
             if res.fromTT then ttHits += 1 else completed += 1
-            if rootRescore.isEmpty then alpha = math.max(alpha, res.value)
+            bestFinal = math.max(bestFinal, finalValue)
           else if res.pruned then
             if res.fromTT then ttCutoffs += 1
             else
@@ -252,19 +272,8 @@ final class ExpectimaxSearch(
         // contract still owes a legal turn: play the pre-ranker's own top pick, scored as the pre-ranker scored it.
         if results.isEmpty then Some(ScoredSequence(candidates(0)._1, topPreRankScore))
         else
-          val scores = rootRescore match
-            case None                                   => results.map { case (path, _, value, _) => path -> value }
-            case Some(RootRescore(rescoreEval, weight)) =>
-              val states   = results.map(_._2).toArray
-              val rescored = rescoreEval(states, myColor)
-              results.zip(rescored).map { case ((path, _, value, lossTainted), rescoreValue) =>
-                // A line where every roll loses our king outright must never be masked by a favorable rescore —
-                // LossValue sits below any real evaluator scale precisely so it always ranks last (see RootRescore).
-                val blended = if lossTainted then value else (1 - weight) * value + weight * rescoreValue
-                path -> blended
-              }
-          val bestQ = scores.map(_._2).max
-          val best  = scores.collect { case (path, q) if q == bestQ => path }
+          val bestQ = results.map(_._2).max
+          val best  = results.collect { case (path, q) if q == bestQ => path }
           Some(ScoredSequence(best(random.nextInt(best.length)), bestQ.toInt))
 
   /** The expectation, over the 56 weighted dice outcomes, of the opponent's best reply value (from `myColor`'s view),
@@ -1124,6 +1133,34 @@ private object RecursiveNodeResult:
     RecursiveNodeResult(0.0, TTBound.Exact, lossTainted = false, aborted = true)
 
 object ExpectimaxSearch:
+
+  /** Blends a completed root candidate in the same domain used for final ranking. Kept as one function so ranking and
+    * the inverse Star bound cannot silently drift to different arithmetic.
+    */
+  private[search] def blendRootScore(searchValue: Double, rescoreValue: Double, weight: Double): Double =
+    (1.0 - weight) * searchValue + weight * rescoreValue
+
+  /** Converts the best completed root score back into the current candidate's search-score domain.
+    *
+    * For `final = (1 - w) * search + w * rescore`, a non-loss-tainted candidate can only beat `bestFinal` when its
+    * search value reaches `(bestFinal - w * rescore) / (1 - w)`. The returned value is made conservatively smaller by
+    * one representable final-score step and one transformed-score step: Star cutoffs use strict `<`, so a candidate
+    * which would round to an exact final tie must still survive for the seeded random tie-break.
+    *
+    * `min(bestFinal, transformed)` also protects [[RootRescore]]'s loss-taint rule. Until the chance node completes we
+    * do not know whether rescoring will be suppressed; if it is, the candidate's final score is its raw search value,
+    * so pruning above the unblended best score would be unsound. At weight one no finite inverse exists and pruning is
+    * explicitly disabled. NaN input likewise fails open to full search rather than leaking into bound comparisons.
+    */
+  private[search] def transformedRootAlpha(bestFinal: Double, rescoreValue: Double, weight: Double): Double =
+    if bestFinal.isNaN || bestFinal == Double.NegativeInfinity || weight.isNaN || weight >= 1.0 then
+      Double.NegativeInfinity
+    else if weight <= 0.0 then bestFinal
+    else
+      val strictFinal = java.lang.Math.nextDown(bestFinal)
+      val transformed = (strictFinal - weight * rescoreValue) / (1.0 - weight)
+      if transformed.isNaN then Double.NegativeInfinity
+      else math.min(bestFinal, java.lang.Math.nextDown(transformed))
 
   /** Upper score bound for non-king evaluation values (e.g. ONNX score scale [0, 10000]). Used by Star1 chance-node
     * pruning to bound the maximum possible expectation of unprocessed dice rolls ($S + R \cdot U$).

@@ -99,9 +99,11 @@ class ExpectimaxSearchSpec extends FunSuite:
     assertEquals(stats.map(_.candidatesAbandoned), Some(1))
     assert(stats.exists(_.fellBackToPreRank))
 
-  test("RootRescore.weight must be in (0, 1]"):
-    intercept[IllegalArgumentException](RootRescore((_, _) => Array.empty, 0.0))
+  test("RootRescore.weight must be in [0, 1]"):
+    intercept[IllegalArgumentException](RootRescore((_, _) => Array.empty, -0.1))
     intercept[IllegalArgumentException](RootRescore((_, _) => Array.empty, 1.5))
+    intercept[IllegalArgumentException](RootRescore((_, _) => Array.empty, Double.NaN))
+    RootRescore((_, _) => Array.empty, 0.0)
     RootRescore((_, _) => Array.empty, 1.0) // no throw at either boundary that should succeed
     RootRescore((_, _) => Array.empty, 0.5)
 
@@ -120,6 +122,20 @@ class ExpectimaxSearchSpec extends FunSuite:
         if s.mailbox.get(Square(square._1, square._2)).exists(_.pieceType == PieceType.King) then 1 else 0
       )
 
+  private def scoresKingSquares(
+      d1: Int,
+      d2: Int,
+      e2: Int,
+      f1: Int
+  ): (Array[GameState], Color) => Array[Int] =
+    (states, _) =>
+      states.map: s =>
+        if s.mailbox.get(Square('d', 1)).exists(_.pieceType == PieceType.King) then d1
+        else if s.mailbox.get(Square('d', 2)).exists(_.pieceType == PieceType.King) then d2
+        else if s.mailbox.get(Square('e', 2)).exists(_.pieceType == PieceType.King) then e2
+        else if s.mailbox.get(Square('f', 1)).exists(_.pieceType == PieceType.King) then f1
+        else 0
+
   test("rootRescore deterministically breaks a tie among otherwise-equal candidates"):
     val rescore = Some(RootRescore(prefers('d', 1), weight = 0.5))
     for seed <- 0 to 9 do
@@ -134,6 +150,88 @@ class ExpectimaxSearchSpec extends FunSuite:
         .findBestMove(rootRescorePosition, Random(seed))
         .map(s => uci(s.moves))
       assert(move.exists(_ != "e1d2"), s"seed $seed: must never expose the king to the bishop, got $move")
+
+  test("a transformed root alpha preserves exact blended ties for the random tie-break"):
+    val equalBatch: (Array[GameState], Color) => Array[Int] = (states, _) => states.map(_ => 0)
+    val tieRescore = RootRescore(scoresKingSquares(d1 = 10, d2 = 0, e2 = 10, f1 = 0), weight = 0.5)
+    val bot        = ExpectimaxSearch(equalBatch, rootRescore = Some(tieRescore))
+    val outcomes   =
+      List(0, 4096).map(seed => bot.findBestMove(rootRescorePosition, Random(seed)).map(s => uci(s.moves))).toSet
+    assertEquals(outcomes, Set(Option("e1d1"), Option("e1e2")))
+
+  test("rescore-aware Star pruning matches exhaustive per-candidate search across edge-adjacent weights"):
+    val targets     = List(('d', 1), ('d', 2), ('e', 2), ('f', 1))
+    val rescoreEval = scoresKingSquares(d1 = 300, d2 = 10000, e2 = 100, f1 = 0)
+    val weights     = List(0.25, 0.5, java.lang.Math.nextDown(1.0))
+
+    weights.foreach: weight =>
+      val rescore    = Some(RootRescore(rescoreEval, weight))
+      val exhaustive = targets.map: target =>
+        ExpectimaxSearch(
+          materialBatch,
+          ExpectimaxConfig(candidateLimit = 1),
+          rootRescore = rescore,
+          preRank = prefers(target)
+        ).findBestMove(rootRescorePosition, Random(0)).get
+      val expected = exhaustive.maxBy(_.score)
+
+      var stats  = Option.empty[RootSearchStats]
+      val pruned = ExpectimaxSearch(materialBatch, rootRescore = rescore, statsSink = s => stats = Some(s))
+        .findBestMove(rootRescorePosition, Random(0))
+        .get
+
+      assertEquals(uci(pruned.moves), uci(expected.moves), s"weight=$weight")
+      assertEquals(pruned.score, expected.score, s"weight=$weight")
+      assert(stats.exists(_.cutoffs > 0), s"weight=$weight should keep Star pruning operational, got $stats")
+
+  test("weight zero is exactly unrescored search and never invokes the configured evaluator"):
+    var calls                                                 = 0
+    val disabledEval: (Array[GameState], Color) => Array[Int] = (states, _) =>
+      calls += 1
+      states.map(_ => Int.MaxValue)
+    val disabledRescore = RootRescore(disabledEval, weight = 0.0)
+    for seed <- 0 to 5 do
+      val actual = ExpectimaxSearch(materialBatch, rootRescore = Some(disabledRescore))
+        .findBestMove(rootRescorePosition, Random(seed))
+      val expected = ExpectimaxSearch(materialBatch).findBestMove(rootRescorePosition, Random(seed))
+      assertEquals(actual, expected, s"seed=$seed")
+    assertEquals(calls, 0)
+
+  test("weight one explicitly disables transformed pruning while preserving root rescoring"):
+    val rescore = Some(RootRescore(prefers('d', 1), weight = 1.0))
+    var stats   = Option.empty[RootSearchStats]
+    val result  = ExpectimaxSearch(materialBatch, rootRescore = rescore, statsSink = s => stats = Some(s))
+      .findBestMove(rootRescorePosition, Random(0))
+    assertEquals(result.map(s => uci(s.moves)), Some("e1d1"))
+    val s = stats.getOrElse(fail("expected stats"))
+    assertEquals(s.cutoffs, 0)
+    assertEquals(s.candidatesCompleted, 4)
+
+  test("transformed root bounds fail open without NaN leakage at numeric extremes"):
+    val edgeCases = List(
+      (Double.NegativeInfinity, 0.0, 0.5),
+      (Double.PositiveInfinity, Int.MaxValue.toDouble, 0.5),
+      (0.0, Int.MaxValue.toDouble, java.lang.Math.nextDown(1.0)),
+      (0.0, Int.MinValue.toDouble, Double.MinPositiveValue),
+      (Double.MaxValue, Double.PositiveInfinity, 0.5),
+      (Double.NaN, 0.0, 0.5)
+    )
+    edgeCases.foreach: (best, rescore, weight) =>
+      val alpha = ExpectimaxSearch.transformedRootAlpha(best, rescore, weight)
+      assert(!alpha.isNaN, s"best=$best rescore=$rescore weight=$weight produced NaN")
+
+    assertEquals(ExpectimaxSearch.transformedRootAlpha(42.0, 7.0, 0.0), 42.0)
+    assertEquals(
+      ExpectimaxSearch.transformedRootAlpha(42.0, 7.0, 1.0),
+      Double.NegativeInfinity
+    )
+
+    val tiedSearch = 1234.5
+    val rescore    = -987.0
+    val weight     = java.lang.Math.nextDown(1.0)
+    val tiedFinal  = ExpectimaxSearch.blendRootScore(tiedSearch, rescore, weight)
+    val alpha      = ExpectimaxSearch.transformedRootAlpha(tiedFinal, rescore, weight)
+    assert(alpha <= tiedSearch, s"a mathematically tied candidate must survive strict pruning: alpha=$alpha")
 
   test("without rootRescore inferior candidates are pruned by Star pruning"):
     val outcomes: Set[Option[String]] =
@@ -197,6 +295,47 @@ class ExpectimaxSearchSpec extends FunSuite:
     )
     assert(stats.get.deadlineTruncated)
     assert(stats.get.fellBackToPreRank)
+
+  test("an already-elapsed deadline skips root rescoring and preserves the pre-rank fallback"):
+    var rescoreCalls                                             = 0
+    val deadlineRescore: (Array[GameState], Color) => Array[Int] = (states, color) =>
+      rescoreCalls += 1
+      materialBatch(states, color)
+    val rescore  = RootRescore(deadlineRescore, weight = 0.5)
+    var stats    = Option.empty[RootSearchStats]
+    val deadline = System.nanoTime()
+    val actual   = ExpectimaxSearch(materialBatch, rootRescore = Some(rescore), statsSink = s => stats = Some(s))
+      .findBestMove(rootRescorePosition, deadline, Random(0))
+    val expected = ExpectimaxSearch(materialBatch).findBestMove(rootRescorePosition, deadline, Random(0))
+
+    assertEquals(actual, expected)
+    assertEquals(rescoreCalls, 0)
+    assert(stats.exists(_.fellBackToPreRank), s"expected the existing anytime fallback, got $stats")
+
+  test("a root-rescore batch that exhausts the deadline prevents subsequent chance-node work"):
+    val budgetMs                                                = 1000L
+    val deadline                                                = System.nanoTime() + budgetMs * 1_000_000L
+    var leafCalls                                               = 0
+    val recordingBatch: (Array[GameState], Color) => Array[Int] = (states, _) =>
+      leafCalls += 1
+      states.map(_ => 0)
+    var rescoreCalls                                                       = 0
+    val deadlineExhaustingRescore: (Array[GameState], Color) => Array[Int] = (states, _) =>
+      rescoreCalls += 1
+      while System.nanoTime() < deadline do ()
+      states.map(_ => 0)
+
+    var stats  = Option.empty[RootSearchStats]
+    val result = ExpectimaxSearch(
+      recordingBatch,
+      rootRescore = Some(RootRescore(deadlineExhaustingRescore, weight = 0.5)),
+      statsSink = s => stats = Some(s)
+    ).findBestMove(rootRescorePosition, deadline, Random(0))
+
+    assert(result.isDefined, "the anytime contract still owes the pre-ranker's legal turn")
+    assertEquals(rescoreCalls, 1)
+    assertEquals(leafCalls, 0, "the indivisible root batch consumed the budget, so chance search must not start")
+    assert(stats.exists(_.fellBackToPreRank), s"expected pre-rank fallback after the root batch, got $stats")
 
   test("the pre-rank fallback returns the pre-ranker's own top pick, not an arbitrary turn (#496)"):
     // With candidateLimit = 1 the pre-ranker's choice is unambiguous, so the fallback is verifiable: whatever
@@ -286,14 +425,33 @@ class ExpectimaxSearchSpec extends FunSuite:
     assert(s.cutoffs > 0, s"expected cutoffs > 0, got $s")
     assert(s.rollsSaved > 0, s"expected rollsSaved > 0, got $s")
 
-  test("Star1 pruning is disabled when rootRescore is configured"):
+  test("Star1 and Star2 remain operational when rootRescore is configured"):
     val rescore = Some(RootRescore(prefers('d', 1), weight = 0.5))
     var stats   = Option.empty[RootSearchStats]
     val bot     = ExpectimaxSearch(materialBatch, rootRescore = rescore, statsSink = s => stats = Some(s))
     assert(bot.findBestMove(rootRescorePosition, Random(0)).isDefined)
     val s = stats.getOrElse(fail("expected stats"))
-    assertEquals(s.cutoffs, 0, s"rootRescore must disable Star1 pruning, got $s")
-    assertEquals(s.candidatesCompleted, 4)
+    assert(s.cutoffs > 0, s"rootRescore must propagate a search-space alpha, got $s")
+    assert(s.probeCutoffs > 0, s"rootRescore must keep Star2 probing effective, got $s")
+    assert(s.rollsSaved > 0, s"rootRescore must save roll expansions, got $s")
+
+  test("TT upper bounds use the same transformed root alpha as Star pruning"):
+    val table   = new TranspositionTable(256)
+    val rescore = Some(RootRescore(prefers('d', 1), weight = 0.5))
+    var stats   = Option.empty[RootSearchStats]
+    val bot     = ExpectimaxSearch(
+      materialBatch,
+      rootRescore = rescore,
+      statsSink = s => stats = Some(s),
+      tt = Some(table)
+    )
+
+    val first  = bot.findBestMove(rootRescorePosition, Random(0))
+    val second = bot.findBestMove(rootRescorePosition, Random(0))
+    assertEquals(second, first)
+    val s = stats.getOrElse(fail("expected second-search stats"))
+    assert(s.ttHits > 0, s"expected the completed candidate to reuse an exact TT value, got $s")
+    assert(s.ttCutoffs > 0, s"expected root-rescored candidates to reuse TT upper bounds, got $s")
 
   test("statsSink reports 0/0 on an immediate king capture — no candidate was ever expanded"):
     val state = parse("k7/8/8/8/8/8/8/R3K3 w - - 0 1").withDicePool(List(1, 1, 4))

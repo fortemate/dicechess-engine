@@ -51,6 +51,36 @@ class OnnxExpectimaxSearchSpec extends FunSuite:
     try assert(bot.findBestMove(state).isDefined)
     finally bot.close() // must not throw closing two sessions
 
+  test("zero-weight root rescoring is disabled before a second ONNX session is created"):
+    var sessionsCreated                                                   = 0
+    val sessionFactory: OnnxExpectimaxSearchInitialization.SessionFactory = (_, features) =>
+      sessionsCreated += 1
+      new OnnxEvalSearch(modelPath, features)
+    val (mainSession, rescoreSession, expectimax) = OnnxExpectimaxSearchInitialization.initialize(
+      modelPath,
+      ExpectimaxConfig(),
+      OnnxFeatures.extract,
+      Some(RootRescoreModel("unused", OnnxFeatures.extract, weight = 0.0)),
+      preRankWithModel = false,
+      ExpectimaxSearch.NoStats,
+      tt = None,
+      sessionFactory = sessionFactory
+    )
+    try
+      assertEquals(sessionsCreated, 1)
+      assert(rescoreSession.isEmpty)
+      assert(expectimax.findBestMove(state).isDefined)
+    finally
+      rescoreSession.foreach(_.close())
+      mainSession.close()
+
+  test("RootRescoreModel validates the closed weight interval before session initialization"):
+    intercept[IllegalArgumentException](RootRescoreModel("unused", OnnxFeatures.extract, weight = -0.1))
+    intercept[IllegalArgumentException](RootRescoreModel("unused", OnnxFeatures.extract, weight = 1.1))
+    intercept[IllegalArgumentException](RootRescoreModel("unused", OnnxFeatures.extract, weight = Double.NaN))
+    RootRescoreModel("unused", OnnxFeatures.extract, weight = 0.0)
+    RootRescoreModel("unused", OnnxFeatures.extract, weight = 1.0)
+
   test("closes the main session when root-rescore session creation fails"):
     val creationFailure = new IllegalStateException("root-rescore session creation failed")
     var mainSession     = Option.empty[OnnxEvalSearch]
