@@ -136,6 +136,7 @@ Common failure signatures:
 
 ## Git & PR workflow
 <!-- dc-shared:git-pr v3 — keep identical across dicechess repos -->
+
 - Follow the branch-name and Issue-link contract in `dc-shared:issue-management v6`. Agents that
   choose a branch name follow its canonical grammar; integration-owned branch names are accepted
   only when the target repository's live PR policy allows them.
