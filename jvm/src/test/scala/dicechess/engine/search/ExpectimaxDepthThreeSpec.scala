@@ -31,7 +31,7 @@ class ExpectimaxDepthThreeSpec extends FunSuite:
     val table                                              = new TranspositionTable(4096)
     val result                                             = ExpectimaxSearch(
       zeroBatch,
-      ExpectimaxConfig(candidateLimit = 1, searchDepth = 3),
+      ExpectimaxConfig(candidateLimit = 2, searchDepth = 3),
       tt = Some(table)
     ).findBestMove(state, Random(0))
     assert(result.exists(_.score > 0), s"future king captures must dominate zero-valued leaves, got $result")
