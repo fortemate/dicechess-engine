@@ -15,7 +15,7 @@ class ExpectimaxDepthThreeSpec extends FunSuite:
 
   // These fixtures intentionally expand exact depth-3 trees. They finish in ~11s together on an uninstrumented JVM,
   // but scoverage instruments the move-generation hot path; keep a bounded ceiling above munit's unit-sized default.
-  override def munitTimeout: Duration = 2.minutes
+  override def munitTimeout: Duration = 3.minutes
 
   private def parse(fen: String): GameState = FenParser.parse(fen).toOption.get
 
@@ -63,7 +63,8 @@ class ExpectimaxDepthThreeSpec extends FunSuite:
     ).findBestMove(state, Random(0))
     val depth3 = ExpectimaxSearch(
       rewardsCastling,
-      ExpectimaxConfig(candidateLimit = 1, searchDepth = 3)
+      ExpectimaxConfig(candidateLimit = 1, searchDepth = 3),
+      tt = Some(new TranspositionTable(4096))
     ).findBestMove(state, Random(0))
     assertEquals(depth2.map(_.score), Some(0))
     assert(depth3.exists(_.score > 0), s"depth 3 must reach castled leaves, got $depth3")
