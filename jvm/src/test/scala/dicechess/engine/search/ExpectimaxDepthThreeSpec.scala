@@ -28,11 +28,19 @@ class ExpectimaxDepthThreeSpec extends FunSuite:
     // the only possible source of a positive score.
     val state = parse("k7/8/8/8/8/8/8/R3K3 w - - 0 1").withDicePool(List(2, 3, 6))
     val zeroBatch: (Array[GameState], Color) => Array[Int] = (states, _) => Array.fill(states.length)(0)
+    val table                                              = new TranspositionTable(4096)
     val result                                             = ExpectimaxSearch(
       zeroBatch,
-      ExpectimaxConfig(candidateLimit = 1, searchDepth = 3)
+      ExpectimaxConfig(candidateLimit = 1, searchDepth = 3),
+      tt = Some(table)
     ).findBestMove(state, Random(0))
     assert(result.exists(_.score > 0), s"future king captures must dominate zero-valued leaves, got $result")
+    val shallower = ExpectimaxSearch(
+      zeroBatch,
+      ExpectimaxConfig(candidateLimit = 1, searchDepth = 2),
+      tt = Some(table)
+    ).findBestMove(state, Random(0))
+    assertEquals(shallower.map(_.score), Some(0), "depth 2 must not reuse a depth-3 TT value")
 
   test("depth 3 inner chance nodes use exact TT entries without changing the result"):
     val state        = parse("k7/8/8/8/8/8/8/R3K3 w - - 0 1").withDicePool(List(2, 3, 6))

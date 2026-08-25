@@ -290,7 +290,7 @@ final class ExpectimaxSearch(
     val key    = oppToMove.zobristHash
     val cached = tt.flatMap(_.probe(key))
     val ttHit  = cached match
-      case Some(entry) if entry.depth >= config.searchDepth - 1 =>
+      case Some(entry) if entry.depth == config.searchDepth - 1 =>
         if entry.bound == TTBound.Exact then
           Some(
             ChanceNodeResult(
@@ -533,7 +533,7 @@ final class ExpectimaxSearch(
     val key    = transpositionKey(toMove, maximizing)
     val cached = tt.flatMap(_.probe(key))
     val hit    = cached.flatMap: entry =>
-      if entry.depth < pliesRemaining then None
+      if entry.depth != pliesRemaining then None
       else if entry.bound == TTBound.Exact then
         Some(
           RecursiveNodeResult(
@@ -592,9 +592,9 @@ final class ExpectimaxSearch(
     val rolls      = DiceRolls.byWeightDescending
     val totalRolls = rolls.length
     val allReplies = new Array[List[List[Move]]](totalRolls)
-    val probePaths = Array.fill[Option[List[Move]]](totalRolls)(None)
-    val probeNodes = Array.fill[Option[RecursiveNodeResult]](totalRolls)(None)
     val useStar2   = if maximizing then beta < Double.PositiveInfinity else alpha > Double.NegativeInfinity
+    val probePaths = if useStar2 then Array.fill[Option[List[Move]]](totalRolls)(None) else EmptyProbePaths
+    val probeNodes = if useStar2 then Array.fill[Option[RecursiveNodeResult]](totalRolls)(None) else EmptyProbeNodes
     var aborted    = false
 
     if useStar2 then
@@ -685,7 +685,7 @@ final class ExpectimaxSearch(
 
     if aborted then RecursiveNodeResult.aborted
     else
-      val remainingStar2Bound = new Array[Double](totalRolls + 1)
+      val remainingStar2Bound = if useStar2 then new Array[Double](totalRolls + 1) else EmptyStar2Bounds
       if useStar2 then
         var i = totalRolls - 1
         while i >= 0 do
@@ -693,7 +693,7 @@ final class ExpectimaxSearch(
           remainingStar2Bound(i) = remainingStar2Bound(i + 1) + probability * probeNodes(i).get.value
           i -= 1
 
-      val star2Value = remainingStar2Bound(0)
+      val star2Value = if useStar2 then remainingStar2Bound(0) else 0.0
       if useStar2 && !maximizing && star2Value < alpha then
         RecursiveNodeResult(
           star2Value,
@@ -716,21 +716,13 @@ final class ExpectimaxSearch(
         var lossTainted    = false
         var result         = Option.empty[RecursiveNodeResult]
 
-        def remainingProbability(from: Int): Double =
-          var weight = 0
-          var idx    = from
-          while idx < totalRolls do
-            weight += rolls(idx)._2
-            idx += 1
-          weight.toDouble / DiceRolls.totalOrderedRolls
-
         def remainingUpper(from: Int): Double =
           if useStar2 && !maximizing then remainingStar2Bound(from)
-          else remainingProbability(from) * WinValue
+          else RemainingProbabilityByRollIndex(from) * WinValue
 
         def remainingLower(from: Int): Double =
           if useStar2 && maximizing then remainingStar2Bound(from)
-          else remainingProbability(from) * LossValue
+          else RemainingProbabilityByRollIndex(from) * LossValue
 
         var i = 0
         while i < totalRolls && result.isEmpty do
@@ -777,8 +769,8 @@ final class ExpectimaxSearch(
               deadlineNanos,
               childAlpha,
               childBeta,
-              probePaths(i),
-              probeNodes(i)
+              if useStar2 then probePaths(i) else None,
+              if useStar2 then probeNodes(i) else None
             )
             if child.aborted then result = Some(child)
             else
@@ -1153,6 +1145,21 @@ object ExpectimaxSearch:
     * inner node is evaluated for the active player, while the same position at depth 2 is evaluated for its opponent.
     */
   private val MaxChanceKeySalt: Long = 0x9e3779b97f4a7c15L
+
+  /** Suffix probability mass for [[DiceRolls.byWeightDescending]], indexed by the first unprocessed roll. */
+  private val RemainingProbabilityByRollIndex: Array[Double] =
+    val rolls  = DiceRolls.byWeightDescending
+    val suffix = new Array[Double](rolls.length + 1)
+    var i      = rolls.length - 1
+    while i >= 0 do
+      suffix(i) = suffix(i + 1) + rolls(i)._2.toDouble / DiceRolls.totalOrderedRolls
+      i -= 1
+    suffix
+
+  /** Shared empty probe storage keeps chance nodes with an infinite window allocation-free for Star2 metadata. */
+  private val EmptyProbePaths: Array[Option[List[Move]]]          = Array.empty
+  private val EmptyProbeNodes: Array[Option[RecursiveNodeResult]] = Array.empty
+  private val EmptyStar2Bounds: Array[Double]                     = Array.empty
 
   /** Sentinel deadline for the un-timed entry points: `System.nanoTime()` never reaches it in practice. */
   private val NoDeadline: Long = Long.MaxValue

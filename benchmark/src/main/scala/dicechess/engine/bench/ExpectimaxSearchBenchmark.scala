@@ -13,8 +13,8 @@ import scala.util.Random
 /** Cold-tree latency benchmark for configurable expectimax depth (#60).
   *
   * The sparse tactical position keeps depth 3 practical in a local JMH run while still exercising both recursive chance
-  * layers, terminal-win handling, and inner TT traffic. The table is cleared outside the timed region before every
-  * invocation so the benchmark cannot collapse into a root exact-hit lookup after its first iteration.
+  * layers, terminal-win handling, and inner TT traffic. The invocation-level setup clears the table before every
+  * benchmark invocation.
   */
 @BenchmarkMode(Array(Mode.AverageTime))
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
