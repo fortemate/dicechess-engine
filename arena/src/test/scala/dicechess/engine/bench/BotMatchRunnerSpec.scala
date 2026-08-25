@@ -302,6 +302,46 @@ class BotMatchRunnerSpec extends FunSuite:
     assertEquals(sprtResult.verdict, Sprt.Verdict.Continue)
   }
 
+  test("runTimedMatch: resumed observations preserve pair indices, random streams, and aggregate results") {
+    val tc    = TimeControl.ofSeconds(6, 0)
+    val saved = scala.collection.mutable.ListBuffer.empty[PairObservation]
+    val first = BotMatchRunner.runTimedMatch(
+      "greedy",
+      "aggressive",
+      TimedMatchSetup(2, tc, seed = 17, gameSink = Some(saved += _))
+    )
+    val resumedNew = scala.collection.mutable.ListBuffer.empty[PairObservation]
+    val resumed    = BotMatchRunner.runTimedMatch(
+      "greedy",
+      "aggressive",
+      TimedMatchSetup(
+        4,
+        tc,
+        seed = 17,
+        gameSink = Some(resumedNew += _),
+        resume = TimedMatchResume(saved.toVector, first.durationMs)
+      )
+    )
+    val uninterrupted = BotMatchRunner.runTimedMatch("greedy", "aggressive", TimedMatchSetup(4, tc, seed = 17))
+
+    assertEquals(saved.map(_.index).toList, List(0, 1))
+    assertEquals(resumedNew.map(_.index).toList, List(2, 3))
+    assertEquals(
+      (resumed.wins, resumed.losses, resumed.draws, resumed.botTimeouts, resumed.baselineTimeouts),
+      (
+        uninterrupted.wins,
+        uninterrupted.losses,
+        uninterrupted.draws,
+        uninterrupted.botTimeouts,
+        uninterrupted.baselineTimeouts
+      )
+    )
+    assertEquals(resumed.pentanomial, uninterrupted.pentanomial)
+    assertEquals(resumed.latency, uninterrupted.latency)
+    assertEquals(resumed.totalGames, uninterrupted.totalGames)
+    assert(resumed.durationMs >= first.durationMs)
+  }
+
   /** Synthetic [[TimedMatchResult]] fixture for the reporting tests below — they assert only serialization/printing of
     * the `sprt` field, so a fabricated result avoids paying for (and depending on the probabilistic verdict of) another
     * live match; [[BotMatchRunner.runTimedMatch]]'s actual SPRT-triggered early stop is covered above.
