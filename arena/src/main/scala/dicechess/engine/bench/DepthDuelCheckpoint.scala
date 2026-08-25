@@ -1,6 +1,10 @@
 package dicechess.engine.bench
 
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
+import java.nio.charset.StandardCharsets
 import java.nio.file.{AtomicMoveNotSupportedException, Files, Path, StandardCopyOption}
+import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
 import scala.util.Try
 import scala.util.Using
@@ -67,7 +71,11 @@ private[bench] object DepthDuelCheckpoint:
     Files.createDirectories(parent)
     val temp = Files.createTempFile(parent, s".${target.getFileName.toString}.", ".tmp")
     try
-      Files.writeString(temp, contents)
+      val bytes = ByteBuffer.wrap(contents.getBytes(StandardCharsets.UTF_8))
+      Using.resource(FileChannel.open(temp, StandardOpenOption.WRITE)) { channel =>
+        while bytes.hasRemaining do channel.write(bytes)
+        channel.force(true)
+      }
       try Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
       catch
         case _: AtomicMoveNotSupportedException =>

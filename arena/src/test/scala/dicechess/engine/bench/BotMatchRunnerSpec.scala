@@ -303,17 +303,27 @@ class BotMatchRunnerSpec extends FunSuite:
   }
 
   test("runTimedMatch: resumed observations preserve pair indices, random streams, and aggregate results") {
+    final class TimedFirstLegalBot extends TimeBudgetedSearch:
+      override def findBestMove(state: GameState): Option[ScoredSequence] =
+        TurnGenerator.generateAllLegalTurnPaths(state).headOption.map(ScoredSequence(_, 0))
+
+      override def findBestMove(
+          state: GameState,
+          _deadlineNanos: Long,
+          _random: Random
+      ): Option[ScoredSequence] = findBestMove(state)
+
     val tc    = TimeControl.ofSeconds(6, 0)
     val saved = scala.collection.mutable.ListBuffer.empty[PairObservation]
     val first = BotMatchRunner.runTimedMatch(
-      "greedy",
-      "aggressive",
+      new TimedFirstLegalBot,
+      AggressiveSearch,
       TimedMatchSetup(2, tc, seed = 17, gameSink = Some(saved += _))
     )
     val resumedNew = scala.collection.mutable.ListBuffer.empty[PairObservation]
     val resumed    = BotMatchRunner.runTimedMatch(
-      "greedy",
-      "aggressive",
+      new TimedFirstLegalBot,
+      AggressiveSearch,
       TimedMatchSetup(
         4,
         tc,
@@ -322,10 +332,19 @@ class BotMatchRunnerSpec extends FunSuite:
         resume = TimedMatchResume(saved.toVector, first.durationMs)
       )
     )
-    val uninterrupted = BotMatchRunner.runTimedMatch("greedy", "aggressive", TimedMatchSetup(4, tc, seed = 17))
+    val uninterrupted =
+      BotMatchRunner.runTimedMatch(new TimedFirstLegalBot, AggressiveSearch, TimedMatchSetup(4, tc, seed = 17))
+
+    def botLatencies(observation: PairObservation): List[Long] =
+      observation.whiteGame.latenciesByColorMs.collect { case (Color.White, milliseconds) => milliseconds } ++
+        observation.blackGame.latenciesByColorMs.collect { case (Color.Black, milliseconds) => milliseconds }
+
+    val savedLatencies    = saved.toList.flatMap(botLatencies)
+    val expectedLatencies = LatencyStats.from(savedLatencies ++ resumedNew.toList.flatMap(botLatencies))
 
     assertEquals(saved.map(_.index).toList, List(0, 1))
     assertEquals(resumedNew.map(_.index).toList, List(2, 3))
+    assert(savedLatencies.nonEmpty)
     assertEquals(
       (resumed.wins, resumed.losses, resumed.draws, resumed.botTimeouts, resumed.baselineTimeouts),
       (
@@ -337,7 +356,7 @@ class BotMatchRunnerSpec extends FunSuite:
       )
     )
     assertEquals(resumed.pentanomial, uninterrupted.pentanomial)
-    assertEquals(resumed.latency, uninterrupted.latency)
+    assertEquals(resumed.latency, expectedLatencies)
     assertEquals(resumed.totalGames, uninterrupted.totalGames)
     assert(resumed.durationMs >= first.durationMs)
   }

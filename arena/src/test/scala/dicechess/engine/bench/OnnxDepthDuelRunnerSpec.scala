@@ -104,8 +104,18 @@ class OnnxDepthDuelRunnerSpec extends FunSuite:
       // The cap is already complete: a second invocation restores the result without replaying pair zero.
       val resumed = run(args*)
       assert(resumed.isRight, resumed)
-      val restored = Json.parse(java.nio.file.Files.readString(checkpoint)).fold(error => fail(error), identity)
-      assertEquals(restored.field("completedPairs").flatMap(_.asNum), Some(1.0))
+      val restoredCheckpoint =
+        Json.parse(java.nio.file.Files.readString(checkpoint)).fold(error => fail(error), identity)
+      val restoredReport      = Json.parse(java.nio.file.Files.readString(out)).fold(error => fail(error), identity)
+      val restoredTimedResult = restoredReport
+        .field("results")
+        .flatMap(_.asArr)
+        .flatMap(_.headOption)
+        .getOrElse(fail("missing restored timed result"))
+      assertEquals(restoredCheckpoint.field("completedPairs").flatMap(_.asNum), Some(1.0))
+      for field <- List("totalGames", "wins", "losses", "draws", "durationMs") do
+        assertEquals(restoredTimedResult.field(field), timedResult.field(field))
+      assertEquals(restoredTimedResult.field("latencyMs"), timedResult.field("latencyMs"))
     finally
       java.nio.file.Files.deleteIfExists(out)
       java.nio.file.Files.deleteIfExists(checkpoint)
