@@ -4,15 +4,26 @@ on:
   push:
     tags:
       - "v*"
-  # Manual re-run for an existing tag. A release can leave the tag pushed and some artifacts
-  # published but not others — v1.11.4 published nothing, v1.11.5 published the Maven jar and
-  # then lost both npm packages — and there was no way to retry. Tags created by release.yaml
-  # via GITHUB_TOKEN never fire the push event above either (GitHub anti-recursion).
-  # Caveat: a dispatch runs the workflow file as it exists *at that ref*, so this only helps
-  # for tags cut after this change landed.
+  # Manual recovery runs the current workflow from main but checks out an exact existing tag.
+  # A release can leave the tag pushed and only some registries populated, while tags created by
+  # release.yaml via GITHUB_TOKEN never fire the push event above (GitHub anti-recursion).
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing release tag to publish (exact vX.Y.Z)"
+        required: true
+        type: string
+      release_sha:
+        description: "Expected 40-character commit SHA for release_tag"
+        required: true
+        type: string
 
 permissions: {}
+
+# A release and its recovery must never publish the same coordinates concurrently.
+concurrency:
+  group: dicechess-engine-release
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -23,21 +34,63 @@ jobs:
       packages: write
 
     steps:
-      - name: Verify the ref is a release tag
-        # The publish steps derive the version from `${GITHUB_REF_NAME#v}`. On a tag push that
-        # is always vX.Y.Z, but a dispatch can target any ref — a branch name would silently
-        # publish a garbage version, so refuse anything that is not a release tag.
+      - name: Resolve release tag
+        id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_REF_NAME: ${{ github.ref_name }}
+          EVENT_SHA: ${{ github.sha }}
+          REQUESTED_SHA: ${{ inputs.release_sha }}
+          REQUESTED_TAG: ${{ inputs.release_tag }}
         run: |
-          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Refusing to publish from '$GITHUB_REF_NAME' — expected an exact vX.Y.Z tag"
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            if [[ "$EVENT_REF" != "refs/heads/main" ]]; then
+              echo "::error::Manual recovery must run the current workflow from main, not '$EVENT_REF'"
+              exit 1
+            fi
+            RELEASE_TAG="$REQUESTED_TAG"
+            RELEASE_SHA="$REQUESTED_SHA"
+          else
+            RELEASE_TAG="$EVENT_REF_NAME"
+            RELEASE_SHA="$EVENT_SHA"
+          fi
+
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Refusing to publish '$RELEASE_TAG' — expected an exact vX.Y.Z tag"
             exit 1
           fi
-          echo "Publishing $GITHUB_REF_NAME"
+          if [[ ! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Refusing expected SHA '$RELEASE_SHA' — expected 40 lowercase hex characters"
+            exit 1
+          fi
+
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "Publishing $RELEASE_TAG at $RELEASE_SHA"
 
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: refs/tags/${{ steps.release.outputs.tag }}
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Verify release source
+        id: source
+        env:
+          EXPECTED_SHA: ${{ steps.release.outputs.sha }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          TAG_SHA=$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")
+          HEAD_SHA=$(git rev-parse HEAD)
+          if [[ "$HEAD_SHA" != "$EXPECTED_SHA" || "$TAG_SHA" != "$EXPECTED_SHA" ]]; then
+            echo "::error::Expected $RELEASE_TAG at $EXPECTED_SHA, but checkout is $HEAD_SHA and tag resolves to $TAG_SHA"
+            exit 1
+          fi
+          echo "sha=$EXPECTED_SHA" >> "$GITHUB_OUTPUT"
+          echo "Verified $RELEASE_TAG at $EXPECTED_SHA"
 
       - name: Setup Java
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
@@ -65,19 +118,76 @@ jobs:
         # `rootJVM/coverageDataCheck` fails the build loudly if metadata is missing anyway.
         run: bash .mise/lib/sbt-cold-cache.sh 'scalafmtCheckAll; scalafixAll --check; clean; coverage; testOnly *; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport'
 
+      - name: Check GitHub Packages for this version
+        id: github_maven
+        env:
+          GITHUB_PACKAGE_USER: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          ARTIFACT_BASE="https://maven.pkg.github.com/fortemate/dicechess-engine/com/fortemate/dicechess-engine_3/$RELEASE_VERSION/dicechess-engine_3-$RELEASE_VERSION"
+          EXPECTED_SUFFIXES=(.pom .jar -sources.jar -javadoc.jar)
+          PRESENT_COUNT=0
+          MISSING_COUNT=0
+          for SUFFIX in "${EXPECTED_SUFFIXES[@]}"; do
+            ARTIFACT_URL="$ARTIFACT_BASE$SUFFIX"
+            HTTP_STATUS=$(curl --silent --show-error --location --user "$GITHUB_PACKAGE_USER:$GITHUB_TOKEN" --output /dev/null --write-out '%{http_code}' --retry 3 "$ARTIFACT_URL")
+            case "$HTTP_STATUS" in
+              200) PRESENT_COUNT=$((PRESENT_COUNT + 1)) ;;
+              404) MISSING_COUNT=$((MISSING_COUNT + 1)) ;;
+              *) echo "::error::GitHub Packages returned HTTP $HTTP_STATUS for $ARTIFACT_URL"; exit 1 ;;
+            esac
+          done
+
+          if [[ "$PRESENT_COUNT" -eq "${#EXPECTED_SUFFIXES[@]}" ]]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "Complete GitHub Maven artifact $RELEASE_VERSION already exists; skipping"
+          elif [[ "$MISSING_COUNT" -eq "${#EXPECTED_SUFFIXES[@]}" ]]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "GitHub Maven artifact $RELEASE_VERSION is absent; publishing"
+          else
+            echo "::error::GitHub Maven artifact $RELEASE_VERSION is partial ($PRESENT_COUNT present, $MISSING_COUNT missing); refusing to overwrite an immutable version"
+            exit 1
+          fi
+
+      - name: Publish JVM artifact to GitHub Packages
+        if: steps.github_maven.outputs.publish == 'true'
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          sbt --server "set ThisBuild / version := \"$RELEASE_VERSION\"; set rootJVM / publishTo := Some(\"GitHub Packages\" at \"https://maven.pkg.github.com/fortemate/dicechess-engine\"); set ThisBuild / credentials += Credentials(\"GitHub Package Registry\", \"maven.pkg.github.com\", sys.env(\"GITHUB_ACTOR\"), sys.env(\"GITHUB_TOKEN\")); clean; rootJVM/assertNoCoverageInstrumentation; rootJVM/assertNoBenchClasses; rootJVM/publish"
+
       - name: Check Maven Central for this version
         id: maven
         env:
-          RELEASE_VERSION: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
         run: |
-          RELEASE_VERSION=${RELEASE_VERSION#v}
-          POM_URL="https://repo1.maven.org/maven2/com/fortemate/dicechess-engine_3/$RELEASE_VERSION/dicechess-engine_3-$RELEASE_VERSION.pom"
-          HTTP_STATUS=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --retry 3 "$POM_URL")
-          case "$HTTP_STATUS" in
-            200) echo "publish=false" >> "$GITHUB_OUTPUT"; echo "Maven artifact $RELEASE_VERSION already exists; skipping" ;;
-            404) echo "publish=true" >> "$GITHUB_OUTPUT"; echo "Maven artifact $RELEASE_VERSION is absent; publishing" ;;
-            *) echo "::error::Maven Central returned HTTP $HTTP_STATUS for $POM_URL"; exit 1 ;;
-          esac
+          ARTIFACT_BASE="https://repo1.maven.org/maven2/com/fortemate/dicechess-engine_3/$RELEASE_VERSION/dicechess-engine_3-$RELEASE_VERSION"
+          EXPECTED_SUFFIXES=(.pom .jar -sources.jar -javadoc.jar)
+          PRESENT_COUNT=0
+          MISSING_COUNT=0
+          for SUFFIX in "${EXPECTED_SUFFIXES[@]}"; do
+            ARTIFACT_URL="$ARTIFACT_BASE$SUFFIX"
+            HTTP_STATUS=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --retry 3 "$ARTIFACT_URL")
+            case "$HTTP_STATUS" in
+              200) PRESENT_COUNT=$((PRESENT_COUNT + 1)) ;;
+              404) MISSING_COUNT=$((MISSING_COUNT + 1)) ;;
+              *) echo "::error::Maven Central returned HTTP $HTTP_STATUS for $ARTIFACT_URL"; exit 1 ;;
+            esac
+          done
+
+          if [[ "$PRESENT_COUNT" -eq "${#EXPECTED_SUFFIXES[@]}" ]]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "Complete Maven Central artifact $RELEASE_VERSION already exists; skipping"
+          elif [[ "$MISSING_COUNT" -eq "${#EXPECTED_SUFFIXES[@]}" ]]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "Maven Central artifact $RELEASE_VERSION is absent; publishing"
+          else
+            echo "::error::Maven Central artifact $RELEASE_VERSION is partial ($PRESENT_COUNT present, $MISSING_COUNT missing); refusing to republish an immutable version"
+            exit 1
+          fi
 
       - name: Import GPG signing key
         if: steps.maven.outputs.publish == 'true'
@@ -93,13 +203,12 @@ jobs:
 
       - name: Publish JVM artifact to Maven Central
         if: steps.maven.outputs.publish == 'true'
-        # `sbt shutdown` first — see the comment in the coverage step above.
+        # --server runs a foreground process instead of the persistent native thin client.
         # publishSigned signs every artifact with the imported GPG key and stages it in Sonatype.
         # sonaRelease uploads the staged bundle to Maven Central and releases it automatically.
-        run: |
-          sbt shutdown >/dev/null 2>&1 || true
-          sbt "set ThisBuild / version := \"${GITHUB_REF_NAME#v}\"; clean; rootJVM/assertNoCoverageInstrumentation; rootJVM/assertNoBenchClasses; rootJVM/publishSigned; sonaRelease"
+        run: sbt --server "set ThisBuild / version := \"$RELEASE_VERSION\"; clean; rootJVM/assertNoCoverageInstrumentation; rootJVM/assertNoBenchClasses; rootJVM/publishSigned; sonaRelease"
         env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
           SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
@@ -108,19 +217,19 @@ jobs:
       # js:build dependency first, then the script directly — no mise needed.
       - name: Build JavaScript package
         run: |
-          sbt rootJS/fullOptJS
+          sbt --server rootJS/fullOptJS
           bash .mise/tasks/package/prepare
         env:
           # Pass the version explicitly — the tag already carries it. Letting the script
           # scrape it back out of sbt cost two releases (#544 and the run after it).
-          PACKAGE_VERSION: ${{ github.ref_name }}
+          PACKAGE_VERSION: ${{ steps.release.outputs.tag }}
 
       - name: Build WebAssembly package
         run: |
-          sbt rootWasm/fullLinkJS
+          sbt --server rootWasm/fullLinkJS
           bash .mise/tasks/package/prepare-wasm
         env:
-          PACKAGE_VERSION: ${{ github.ref_name }}
+          PACKAGE_VERSION: ${{ steps.release.outputs.tag }}
 
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -144,8 +253,8 @@ jobs:
       - name: Publish both packages to npmjs.org through the canonical workflow
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_SHA: ${{ github.sha }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_SHA: ${{ steps.source.outputs.sha }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
           REPOSITORY: ${{ github.repository }}
         run: |
           bash .mise/lib/dispatch-npm-publish.sh \
@@ -157,20 +266,20 @@ jobs:
         run: |
           # Try to upload to the existing release first (created by Ops: Release)
           # If the release does not exist yet, fallback to creating it
-          gh release upload "${{ github.ref_name }}" \
+          gh release upload "${{ steps.release.outputs.tag }}" \
             dist/dicechess-engine.js \
             dist/dicechess-engine.d.ts \
             dist-wasm/main.js \
             dist-wasm/main.wasm \
             dist-wasm/__loader.js \
             --clobber || \
-          gh release create "${{ github.ref_name }}" \
+          gh release create "${{ steps.release.outputs.tag }}" \
             dist/dicechess-engine.js \
             dist/dicechess-engine.d.ts \
             dist-wasm/main.js \
             dist-wasm/main.wasm \
             dist-wasm/__loader.js \
-            --title "Release ${{ github.ref_name }}" \
+            --title "Release ${{ steps.release.outputs.tag }}" \
             --notes "Automated release created by CI"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

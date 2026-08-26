@@ -17,7 +17,8 @@ Every release publishes the JVM artifact alongside the NPM package:
 | :--- | :--- |
 | Group ID | `com.fortemate` |
 | Artifact ID | `dicechess-engine_3` |
-| Registry | [Maven Central](https://central.sonatype.com/artifact/com.fortemate/dicechess-engine_3) |
+| Canonical registry | [Maven Central](https://central.sonatype.com/artifact/com.fortemate/dicechess-engine_3) |
+| Authenticated mirror | [GitHub Packages](https://github.com/fortemate/dicechess-engine/packages/3201398) |
 
 ---
 
@@ -96,20 +97,27 @@ unzip -l scala3-library_3-*.jar
 
 ---
 
-## Migrating from GitHub Packages
+## GitHub Packages mirror
 
-Before `v0.3.0`, the artifact was published to GitHub Packages under the same coordinates but
-required a `read:packages` GitHub token. If your project still has the old resolver, remove it:
+Maven Central is the recommended resolver because it is public and requires no configuration. Every
+new release is also mirrored to GitHub Packages under the same coordinates for authenticated GitHub
+consumers. The mirror requires a GitHub token with `read:packages`:
 
 ```scala
-// Remove these lines — no longer needed:
-// resolvers += "GitHub Packages (dicechess-engine)" at
-//   "https://maven.pkg.github.com/fortemate/dicechess-engine"
-// credentials ++= ...
+resolvers += "GitHub Packages (dicechess-engine)" at
+  "https://maven.pkg.github.com/fortemate/dicechess-engine"
+credentials += Credentials(
+  "GitHub Package Registry",
+  "maven.pkg.github.com",
+  sys.env("GITHUB_ACTOR"),
+  sys.env("GITHUB_TOKEN")
+)
 
-// Keep only:
 libraryDependencies += "com.fortemate" %% "dicechess-engine" % "<latest release>"
 ```
+
+Use the mirror only when GitHub-authenticated dependency resolution is intentional. Do not commit a
+token to the build; inject `GITHUB_ACTOR` and `GITHUB_TOKEN` from the consumer's secret store.
 
 ---
 
@@ -142,14 +150,20 @@ to a real release before opening a PR — CI has no access to your local reposit
 ## How Publishing Works
 
 - `build.sbt` sets `sonatypeCredentialHost := "central.sonatype.com"`, selecting the new Sonatype
-  Central Portal. `sbt-ci-release` (via `project/plugins.sbt`) manages `publishTo` automatically:
-  a release version goes to Sonatype staging, a `-SNAPSHOT` goes to the snapshot repository.
-- Every artifact is **GPG-signed** by `sbt-pgp` using the org key stored in the `PGP_SECRET`
+  Central Portal. `sbt-ci-release` (via `project/plugins.sbt`) manages the canonical `publishTo`
+  automatically: a release version goes to Sonatype staging, a `-SNAPSHOT` goes to the snapshot
+  repository.
+- The Maven Central copy is **GPG-signed** by `sbt-pgp` using the org key stored in the `PGP_SECRET`
   org secret; the passphrase is in `PGP_PASSPHRASE`. Maven Central verifies the signature against
   the public key published at `keyserver.ubuntu.com`.
-- Both CD workflows (`release.yaml` and `publish.yaml`) import the GPG key, then run
-  `sbt "... rootJVM/publishSigned; sonatypeReleaseAll"` — `publishSigned` uploads the signed
-  bundle to Sonatype staging, `sonatypeReleaseAll` promotes it to Maven Central.
+- Both CD workflows (`release.yaml` and `publish.yaml`) first check the authenticated GitHub
+  Packages POM plus main, sources, and javadoc jars. They publish only when the complete version is
+  absent and fail closed on a partial immutable version. They apply the same completeness check to
+  Maven Central, upload the signed bundle with `rootJVM/publishSigned`, and promote it with
+  `sonaRelease`.
+- Publish commands run with `sbt --server`, which executes a foreground process instead of the
+  persistent native thin client. This prevents credentials or coverage settings from a previous
+  session leaking into publication and avoids thin-client startup deadlocks.
 - The `benchmark`, `arena`, and `cli` modules are excluded via `publish / skip := true`.
 - The steps are intentionally duplicated in both workflows: tags pushed by `release.yaml`
   via `GITHUB_TOKEN` do not trigger `publish.yaml` (GitHub's recursion guard).
