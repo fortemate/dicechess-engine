@@ -133,7 +133,7 @@ class OnnxModelDuelRunnerSpec extends FunSuite:
   test("registers both sides under distinct ids"):
     assertNotEquals(OnnxModelDuelRunner.ChallengerId, OnnxModelDuelRunner.DefenderId)
 
-  test("OnnxModelDuelConfig: holds configuration fields correctly"):
+  test("holds all OnnxModelDuelConfig fields correctly"):
     val config = OnnxModelDuelConfig(
       challengerModel = "c.onnx",
       defenderModel = "d.onnx",

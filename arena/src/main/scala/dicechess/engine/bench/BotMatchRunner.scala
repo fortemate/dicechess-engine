@@ -634,17 +634,16 @@ object BotMatchRunner:
     for (_, name, getter) <- PieceTypeDescriptors if getter(state).contains(sq) do
       sys.error(s"Desync: mailbox empty but $name set at $not (after $lastMove) in FEN: $fen")
 
-  private def verifyOccupiedSquareSync(
+  private def verifyOccupiedColorSync(
       state: GameState,
       sq: Square,
       piece: Piece,
       lastMove: String,
       fen: String
   ): Unit =
-    val not   = sq.toNotation
-    val color = piece.color
-    val pt    = piece.pieceType
-    if color.isWhite then
+    val not = sq.toNotation
+    val pt  = piece.pieceType
+    if piece.color.isWhite then
       if !state.whitePieces.contains(sq) then
         sys.error(s"Desync: mailbox has white $pt but whitePieces not set at $not (after $lastMove) in FEN: $fen")
       if state.blackPieces.contains(sq) then
@@ -655,11 +654,30 @@ object BotMatchRunner:
       if state.whitePieces.contains(sq) then
         sys.error(s"Desync: mailbox has black $pt but whitePieces set at $not (after $lastMove) in FEN: $fen")
 
+  private def verifyOccupiedPieceTypeSync(
+      state: GameState,
+      sq: Square,
+      piece: Piece,
+      lastMove: String,
+      fen: String
+  ): Unit =
+    val not = sq.toNotation
+    val pt  = piece.pieceType
     for (descPt, name, getter) <- PieceTypeDescriptors do
       if descPt == pt && !getter(state).contains(sq) then
         sys.error(s"Desync: mailbox has $pt but $name not set at $not (after $lastMove) in FEN: $fen")
       if descPt != pt && getter(state).contains(sq) then
         sys.error(s"Desync: mailbox has $pt but $name set at $not (after $lastMove) in FEN: $fen")
+
+  private def verifyOccupiedSquareSync(
+      state: GameState,
+      sq: Square,
+      piece: Piece,
+      lastMove: String,
+      fen: String
+  ): Unit =
+    verifyOccupiedColorSync(state, sq, piece, lastMove, fen)
+    verifyOccupiedPieceTypeSync(state, sq, piece, lastMove, fen)
 
   private[bench] def verifySyncInternal(state: GameState, lastMove: String): Unit =
     val fen = FenParser.serialize(state)
