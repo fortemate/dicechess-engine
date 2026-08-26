@@ -13,13 +13,15 @@ import scala.util.Random
   * @param extractFeatures
   *   the rescoring model's own feature extractor — need not match the main model's
   * @param weight
-  *   blend weight, forwarded to [[RootRescore]] (`(0, 1]`)
+  *   blend weight, forwarded to [[RootRescore]] (`[0, 1]`). Zero disables rescoring before a second ONNX session is
+  *   created.
   */
 final case class RootRescoreModel(
     modelPath: String,
     extractFeatures: (GameState, Color) => Array[Float],
     weight: Double
-)
+):
+  require(weight >= 0.0 && weight <= 1.0, s"weight must be in [0, 1], got $weight")
 
 /** A configurable two- or three-ply expectimax bot whose leaf evaluator is an externally-trained model (LightGBM, via
   * ONNX).
@@ -28,8 +30,8 @@ final case class RootRescoreModel(
   * at leaf decision nodes. The default two-ply tree sees the opponent's reply; `searchDepth = 3` also sees our next
   * rolled reply and therefore resolves exchanges that otherwise end on the opponent's capture.
   *
-  * `rootRescore`, when given, wires a *second* ONNX session as [[ExpectimaxSearch]]'s root rescorer — see
-  * [[RootRescoreModel]].
+  * A positive-weight `rootRescore` wires a *second* ONNX session as [[ExpectimaxSearch]]'s root rescorer — see
+  * [[RootRescoreModel]]. A zero-weight configuration is treated exactly like `None`, including session ownership.
   *
   * `preRankWithModel`, when `true`, uses this bot's *own already-loaded* model (batched) to pre-rank root candidates
   * instead of material — no second session, since the model already scoring the chance-node leaves is exactly the
@@ -40,8 +42,8 @@ final case class RootRescoreModel(
   * host can log how many candidates its deadline really allowed (the difference between the configured limit and the
   * width actually searched on slow hardware).
   *
-  * Owns the ONNX session(s) — the main model's, and the rescorer's when configured; call [[close]] when done. Not safe
-  * for concurrent calls, matching every other bot here.
+  * Owns the ONNX session(s) — the main model's, and the rescorer's when configured with positive weight; call [[close]]
+  * when done. Not safe for concurrent calls, matching every other bot here.
   */
 final class OnnxExpectimaxSearch(
     modelPath: String,
@@ -94,16 +96,17 @@ private[search] object OnnxExpectimaxSearchInitialization:
       tt: Option[TranspositionTable] = None,
       sessionFactory: SessionFactory = DefaultSessionFactory
   ): (OnnxEvalSearch, Option[OnnxEvalSearch], ExpectimaxSearch) =
-    val onnx        = sessionFactory(modelPath, extractFeatures)
-    var rescoreOnnx = Option.empty[OnnxEvalSearch]
+    val onnx              = sessionFactory(modelPath, extractFeatures)
+    val activeRootRescore = rootRescore.filter(_.weight > 0.0)
+    var rescoreOnnx       = Option.empty[OnnxEvalSearch]
     try
-      rescoreOnnx = rootRescore.map(r => sessionFactory(r.modelPath, r.extractFeatures))
+      rescoreOnnx = activeRootRescore.map(r => sessionFactory(r.modelPath, r.extractFeatures))
       val expectimax = new ExpectimaxSearch(
         (states, color) => onnx.onnxEvalBatch(states, color),
         config,
         for
           session <- rescoreOnnx
-          r       <- rootRescore
+          r       <- activeRootRescore
         yield RootRescore((states, color) => session.onnxEvalBatch(states, color), r.weight),
         if preRankWithModel then (states, color) => onnx.onnxEvalBatch(states, color)
         else ExpectimaxSearch.materialBatch,

@@ -98,6 +98,16 @@ $$\text{score} = (1 - w) \times V_{\text{search}} + w \times V_{\text{rescore}}$
 
 This allows expensive evaluations (such as 216-outcome King Capture Probability features) to run at the root ($K$ states) without burdening the thousands of leaves under chance nodes. Candidates tainted by an unavoidable king capture on any opponent roll are never rescored and remain ranked last.
 
+The bounded root-rescore batch runs before chance-node expansion, but only while the wall-clock budget still has time remaining. The evaluator's batch API is indivisible: a batch that starts before the deadline cannot be interrupted safely, so the search checks the clock both before and immediately after it. An already-expired deadline skips rescoring entirely; a batch that consumes the remaining budget prevents chance-node work, and both cases preserve the pre-rank fallback and deadline-truncation telemetry.
+
+After a candidate completes, its blended score becomes the root's best score. For each later candidate with `0 < w < 1`, the search converts that blended value back into the candidate's search-score domain:
+
+$$\alpha_{\text{search}} = \frac{\alpha_{\text{final}} - w V_{\text{rescore}}}{1 - w}$$
+
+Star1, Star2, and TT upper-bound checks all use this candidate-specific bound rather than comparing scores from different domains. The implementation rounds the transformed bound conservatively and retains strict `<` cutoffs so exact blended ties still reach the seeded random tie-break. It also caps the bound at the unblended best score until loss-taint status is known, because a loss-tainted candidate bypasses the blend.
+
+`RootRescore.weight` accepts the closed interval `[0, 1]`. Weight `0` is exactly equivalent to omitting `RootRescore` and does not invoke its evaluator. At weight `1`, the final score of a non-loss-tainted candidate no longer depends on the search value, so no finite inverse exists; transformed root pruning is explicitly disabled while exact search still determines loss taint.
+
 ### 8. Time Management & Telemetry
 
 `ExpectimaxSearch` extends `TimeBudgetedSearch` and coordinates with [`TimeManager`](/dicechess-engine/architecture/search/05-time-management/):
