@@ -158,31 +158,16 @@ final private[search] class KcpScratchBoard(
         mailbox(rFromIdx) = Piece.Empty
         mailbox(rToIdx) = Piece(color, PieceType.Rook)
 
-      case _ if mv.isPromotion =>
-        val promType = promotionPieceType(mv.flags)
+      case _ =>
+        val isPromo  = mv.isPromotion
+        val destType = if isPromo then promotionPieceType(mv.flags) else mover.pieceType
         val target   = mailbox(toIdx)
         mailbox(fromIdx) = Piece.Empty
-        mailbox(toIdx) = Piece(color, promType)
-        pawns ^= fromBB
-        togglePiece(promType, toBB)
-        if isWhite then whitePieces ^= (fromBB | toBB) else blackPieces ^= (fromBB | toBB)
-        if mover.pieceType == PieceType.Pawn then
-          val passedIdx = fromIdx + rankOffset
-          if passedIdx >= 0 && passedIdx < 64 then newEnPassant &= ~(1L << passedIdx)
-        if !target.isEmpty then
-          capturedPiece = target
-          val capBB = toBB
-          if isWhite then blackPieces ^= capBB else whitePieces ^= capBB
-          togglePiece(target.pieceType, capBB)
-          if target.pieceType == PieceType.Pawn then
-            val victimPassedIdx = toIdx - rankOffset
-            if victimPassedIdx >= 0 && victimPassedIdx < 64 then newEnPassant &= ~(1L << victimPassedIdx)
-
-      case _ =>
-        val target = mailbox(toIdx)
-        mailbox(fromIdx) = Piece.Empty
-        mailbox(toIdx) = mover
-        togglePiece(mover.pieceType, fromBB | toBB)
+        mailbox(toIdx) = Piece(color, destType)
+        if isPromo then
+          pawns ^= fromBB
+          togglePiece(destType, toBB)
+        else togglePiece(destType, fromBB | toBB)
         if isWhite then whitePieces ^= (fromBB | toBB) else blackPieces ^= (fromBB | toBB)
         if mover.pieceType == PieceType.Pawn then
           val passedIdx = fromIdx + rankOffset
@@ -274,27 +259,23 @@ final private[search] class KcpScratchBoard(
         mailbox(rFromIdx) = Piece(undo.prevFlags.activeColor, PieceType.Rook)
         mailbox(rToIdx) = Piece.Empty
 
-      case _ if mv.isPromotion =>
-        val promType = promotionPieceType(mv.flags)
-        pawns ^= fromBB
-        togglePiece(promType, toBB)
-        if isWhite then whitePieces ^= (fromBB | toBB) else blackPieces ^= (fromBB | toBB)
-        if !undo.capturedPiece.isEmpty then
-          val capBB = toBB
-          if isWhite then blackPieces ^= capBB else whitePieces ^= capBB
-          togglePiece(undo.capturedPiece.pieceType, capBB)
-        mailbox(fromIdx) = Piece(undo.prevFlags.activeColor, PieceType.Pawn)
-        mailbox(toIdx) = undo.capturedPiece
-
       case _ =>
-        val mover = mailbox(toIdx)
-        togglePiece(mover.pieceType, fromBB | toBB)
+        val isPromo = mv.isPromotion
+        if isPromo then
+          val promType = promotionPieceType(mv.flags)
+          pawns ^= fromBB
+          togglePiece(promType, toBB)
+          mailbox(fromIdx) = Piece(undo.prevFlags.activeColor, PieceType.Pawn)
+        else
+          val mover = mailbox(toIdx)
+          togglePiece(mover.pieceType, fromBB | toBB)
+          mailbox(fromIdx) = mover
+
         if isWhite then whitePieces ^= (fromBB | toBB) else blackPieces ^= (fromBB | toBB)
         if !undo.capturedPiece.isEmpty then
           val capBB = toBB
           if isWhite then blackPieces ^= capBB else whitePieces ^= capBB
           togglePiece(undo.capturedPiece.pieceType, capBB)
-        mailbox(fromIdx) = mover
         mailbox(toIdx) = undo.capturedPiece
 
     flags = undo.prevFlags
