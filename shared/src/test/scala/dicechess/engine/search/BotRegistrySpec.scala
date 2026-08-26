@@ -4,6 +4,8 @@ import dicechess.engine.domain.GameState
 import munit.FunSuite
 
 class BotRegistrySpec extends FunSuite:
+  override def beforeEach(context: BeforeEach): Unit =
+    BotRegistry.reset()
 
   test("availableBots returns a list of configured bots sorted by difficulty") {
     val bots = BotRegistry.availableBots

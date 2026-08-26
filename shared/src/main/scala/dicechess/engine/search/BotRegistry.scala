@@ -31,7 +31,7 @@ object BotRegistry:
     */
   final private case class Entry(info: BotInfo, algorithm: SearchAlgorithm, token: AnyRef)
 
-  @volatile private var bots: Map[String, Entry] = Map(
+  private val InitialBots: Map[String, Entry] = Map(
     "random" -> Entry(
       BotInfo(
         id = "random",
@@ -101,6 +101,15 @@ object BotRegistry:
       new Object
     )
   )
+
+  @volatile private var bots: Map[String, Entry] = InitialBots
+
+  /** Resets the registry to its initial built-in bot state. Intended for test isolation across suites sharing the
+    * process-wide singleton.
+    */
+  private[engine] def reset(): Unit = synchronized {
+    bots = InitialBots
+  }
 
   /** Returns all available bots sorted by difficulty, including any registered via [[registerCustomBot]]. */
   def availableBots: List[BotInfo] = bots.values.map(_.info).toList.sortBy(_.difficulty)
