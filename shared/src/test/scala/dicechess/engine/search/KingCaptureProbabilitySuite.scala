@@ -213,6 +213,22 @@ class KingCaptureProbabilitySuite extends FunSuite:
         SingleAttackerProb,
         0.0,
         0.0
+      ),
+      (
+        "castling opens rook ray to king",
+        "r3k2r/8/8/8/8/8/8/5K2 b kq - 0 1",
+        16.0 / 216.0,
+        0.0,
+        0.0,
+        0.0
+      ),
+      (
+        "en-passant blocker removal opens ray to king",
+        "4k3/8/8/3pP3/8/8/8/4R1K1 w - d6 0 1",
+        0.0,
+        0.0,
+        32.0 / 216.0,
+        0.0
       )
     )
     cases.foreach { (name, fen, kW, qW, kB, qB) =>

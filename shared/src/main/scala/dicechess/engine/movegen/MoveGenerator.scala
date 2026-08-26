@@ -46,7 +46,7 @@ object MoveGenerator {
   }
 
   /** Dispatches move generation to the correct subsystem for `pieceType`. */
-  private def generatePieceMoves(state: GameState, pieceType: PieceType): List[Move] = {
+  def generatePieceMoves(state: GameState, pieceType: PieceType): List[Move] = {
     val color        = state.activeColor
     val isWhite      = color.isWhite
     val enemyPieces  = if isWhite then state.blackPieces else state.whitePieces

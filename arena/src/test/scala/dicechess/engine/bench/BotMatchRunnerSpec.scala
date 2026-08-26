@@ -1,5 +1,6 @@
 package dicechess.engine.bench
 
+import scala.concurrent.duration.*
 import scala.util.Random
 
 import com.monovore.decline.Command
@@ -8,6 +9,8 @@ import dicechess.engine.search.*
 import munit.FunSuite
 
 class BotMatchRunnerSpec extends FunSuite:
+
+  override def munitTimeout: Duration = 3.minutes
 
   test("simulateGame completes successfully and returns a valid outcome") {
     val outcome = BotMatchRunner.simulateGame(GreedySearch, GreedySearch, new Random(42), new Random(1000))

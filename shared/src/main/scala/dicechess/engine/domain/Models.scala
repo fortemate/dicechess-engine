@@ -50,6 +50,8 @@ object PieceType:
   /** All six piece types in dice-value order (Pawn → King). Useful for full-move generation. */
   val all: List[PieceType] = List(Pawn, Knight, Bishop, Rook, Queen, King)
 
+  inline def apply(value: Int): PieceType = value
+
   /** Converts a dice roll to the corresponding [[dicechess.engine.domain.PieceType]].
     *
     * @param value
