@@ -5,13 +5,13 @@ description: Release entry points, registry idempotency, npm Trusted Publishing,
 
 Every release uses one `X.Y.Z` version for all public artifacts:
 
-* Maven Central: `com.fortemate:dicechess-engine_3`
+* Maven Central: canonical `com.fortemate:dicechess-engine_3`
 * npmjs.org: `@fortemate/dicechess-engine` and `@fortemate/dicechess-engine-wasm`
-* GitHub Packages: authenticated mirrors of both npm packages
+* GitHub Packages: authenticated mirrors of the JVM artifact and both npm packages
 * GitHub Release: JavaScript, TypeScript, and WebAssembly assets from tag `vX.Y.Z`
 
-npmjs.org is the default JavaScript registry. GitHub Packages remains a mirror for consumers who
-already use GitHub authentication.
+Maven Central and npmjs.org are the public canonical registries. GitHub Packages remains a mirror
+for consumers who already use GitHub authentication.
 
 ## Release workflow architecture
 
@@ -23,14 +23,19 @@ The repository has two supported release entry points:
 * `publish.yaml` runs for a directly pushed tag and can be manually rerun at an existing tag. This is
   the recovery path after a partial release.
 
-Both entry points build and verify the two packages, publish the GitHub Packages mirrors, then
+Both entry points publish the JVM artifact to GitHub Packages and Maven Central from the same tag.
+They also build and verify the two JavaScript packages, publish their GitHub Packages mirrors, then
 dispatch `npm-publish.yaml` with the exact tag and commit SHA. They wait for that child run and fail
 if it fails.
 
 ```mermaid
 flowchart LR
-    Release["release.yaml<br/>owner release"] --> Mirror["GitHub Packages<br/>JS + Wasm"]
-    Tag["publish.yaml<br/>tag or retry"] --> Mirror
+    Release["release.yaml<br/>owner release"] --> JvmMirror["GitHub Packages<br/>JVM mirror"]
+    Tag["publish.yaml<br/>tag or retry"] --> JvmMirror
+    Release --> Central["Maven Central<br/>JVM canonical"]
+    Tag --> Central
+    Release --> Mirror["GitHub Packages<br/>JS + Wasm mirrors"]
+    Tag --> Mirror
     Release --> Dispatch["dispatch exact tag + SHA"]
     Tag --> Dispatch
     Dispatch --> Canonical["npm-publish.yaml<br/>OIDC trusted publisher"]
@@ -54,8 +59,10 @@ credential, and `npm publish --provenance` records build provenance.
 Registry publication is not transactional. A failure can leave one destination complete and
 another incomplete, so every retry checks the exact package and version separately:
 
-* Maven Central checks the release POM at `https://repo1.maven.org/maven2/` before signing or
-  publishing.
+* Maven Central checks the POM plus main, sources, and javadoc jars at
+  `https://repo1.maven.org/maven2/` before signing or publishing.
+* GitHub Packages checks the same authenticated JVM artifact set at
+  `https://maven.pkg.github.com/` before publishing the Maven mirror.
 * Each GitHub Packages package uses an independent `npm view` against
   `https://npm.pkg.github.com`.
 * Each npmjs.org package uses an independent `npm view` against
@@ -197,6 +204,21 @@ record. Never copy the temporary npm configuration into the repository or a pers
 For a new release, run `Ops: Release` from `main` and select `patch`, `minor`, or `major`. The human
 owner reviews and merges the automatically opened next-snapshot pull request.
 
-If a release stops after its tag exists, rerun `CD: Publish Package` at that exact tag. Do not advance
-the version. Completed registry entries are skipped independently, and only missing artifacts are
-published.
+If a release stops after its tag exists, run the current `CD: Publish Package` workflow from `main`
+and pass that exact tag as data:
+
+```bash
+RELEASE_TAG=vX.Y.Z
+EXPECTED_RELEASE_SHA="<40-character commit recorded for that release>"
+gh workflow run publish.yaml --ref main \
+  -f release_tag="$RELEASE_TAG" \
+  -f release_sha="$EXPECTED_RELEASE_SHA"
+```
+
+The workflow checks out the requested tag and requires both `HEAD` and the tag reference to equal the
+independently recorded commit SHA. It derives every registry version from that tag. Do not move the
+tag or advance the version. A complete registry entry is skipped, a completely absent one is
+published, and a partial immutable version fails closed for manual investigation. The release and
+recovery workflows share one non-cancelling concurrency group, so they cannot write the same
+coordinates at the same time. Before recovering a run created before that concurrency guard existed,
+cancel it and confirm that it reached a terminal state.
