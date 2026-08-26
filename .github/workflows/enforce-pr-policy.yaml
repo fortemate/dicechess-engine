@@ -6,11 +6,14 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   check-pr:
     runs-on: ubuntu-latest
+    # write needed for github.rest.pulls.update (auto-linking issues)
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Validate branch name and linked issue
@@ -25,8 +28,8 @@ jobs:
             const headRef = context.payload.pull_request.head.ref;
             const body = context.payload.pull_request.body || "";
             // Allowed branch prefixes: task|feat|feature|bug|refactor|chore|docs|ci|test|perf
-            const pattern = /^(task|feat(ure)?|bug|refactor|chore|docs|ci|test|perf)\/((issue-)?(\d+)-)?[a-z0-9-]+$/;
-            const issuePattern = /(Closes|Resolves|Fixes)\s+#\d+/i;
+            const pattern = /^(task|feat(ure)?|bug|refactor|chore|docs|ci|test|perf)\/((issue-)?([1-9]\d*)-)?[a-z0-9-]+$/;
+            const issuePattern = /(Closes|Resolves|Fixes)\s+#[1-9]\d*/i;
             const templatePlaceholder = /Closes\s+#<issue-number>/;
 
             const isConventional = pattern.test(headRef);
@@ -41,7 +44,7 @@ jobs:
               return;
             }
 
-            const issueIdMatch = headRef.match(/^[a-z]+\/(issue-)?(\d+)-/);
+            const issueIdMatch = headRef.match(/^[a-z]+\/(issue-)?([1-9]\d*)-/);
             const hasIssueId = issueIdMatch !== null;
             if (hasIssueId && !hasIssueLink) {
               const issueNumber = issueIdMatch[2];
@@ -52,12 +55,16 @@ jobs:
               } else {
                 updatedBody = body.trimEnd() + `\n\n${directive}`;
               }
-              await github.rest.pulls.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: context.payload.pull_request.number,
-                body: updatedBody,
-              });
-              core.notice(`Auto-linked issue: added "${directive}" to the PR description.`);
+              try {
+                await github.rest.pulls.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: context.payload.pull_request.number,
+                  body: updatedBody,
+                });
+                core.notice(`Auto-linked issue: added "${directive}" to the PR description.`);
+              } catch (err) {
+                core.warning(`Could not auto-update PR body (${err.status ?? 'unknown'}): ${err.message}. Please add "${directive}" manually.`);
+              }
             }
             console.log('PR policy OK.');
