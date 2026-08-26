@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   check-pr:
@@ -24,8 +25,9 @@ jobs:
             const headRef = context.payload.pull_request.head.ref;
             const body = context.payload.pull_request.body || "";
             // Allowed branch prefixes: task|feat|feature|bug|refactor|chore|docs|ci|test|perf
-            const pattern = /^(task|feat(ure)?|bug|refactor|chore|docs|ci|test|perf)\/((issue-)?\d+-)?[a-z0-9-]+$/;
+            const pattern = /^(task|feat(ure)?|bug|refactor|chore|docs|ci|test|perf)\/((issue-)?(\d+)-)?[a-z0-9-]+$/;
             const issuePattern = /(Closes|Resolves|Fixes)\s+#\d+/i;
+            const templatePlaceholder = /Closes\s+#<issue-number>/;
 
             const isConventional = pattern.test(headRef);
             const hasIssueLink = issuePattern.test(body);
@@ -39,9 +41,23 @@ jobs:
               return;
             }
 
-            const hasIssueId = /^[a-z]+\/(issue-)?\d+-/.test(headRef);
+            const issueIdMatch = headRef.match(/^[a-z]+\/(issue-)?(\d+)-/);
+            const hasIssueId = issueIdMatch !== null;
             if (hasIssueId && !hasIssueLink) {
-              core.setFailed('A branch that references an issue number must link it: add "Closes #<n>" (or Fixes/Resolves) to the PR body.');
-              return;
+              const issueNumber = issueIdMatch[2];
+              const directive = `Closes #${issueNumber}`;
+              let updatedBody;
+              if (templatePlaceholder.test(body)) {
+                updatedBody = body.replace(templatePlaceholder, directive);
+              } else {
+                updatedBody = body.trimEnd() + `\n\n${directive}`;
+              }
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                body: updatedBody,
+              });
+              core.notice(`Auto-linked issue: added "${directive}" to the PR description.`);
             }
             console.log('PR policy OK.');
