@@ -36,12 +36,15 @@ object KingCaptureProbability:
     val captureDieMask = directCaptureDiceMask(state, targets, opponent)
     var count          = 0
     var i              = 0
+    val scratch        = KcpScratchBoard.fromGameState(state)
+    val rootFlags      = state.flags.withActiveColor(opponent)
+
     while i < DiceRolls.weighted.length do
       val (rolls, weight) = DiceRolls.weighted(i)
       if captureDieMask != 0 && (captureDieMask & diceMask(rolls)) != 0 then count += weight
       else
-        val testState = state.withActiveColor(opponent).withDicePool(rolls)
-        if captureDFS(testState, targets, GameFlags.DiceSlots) then count += weight
+        scratch.flags = rootFlags.withDicePool(rolls)
+        if captureDFS(scratch, targets, GameFlags.DiceSlots) then count += weight
       i += 1
     count.toDouble / DiceRolls.totalOrderedRolls
   }
@@ -80,14 +83,14 @@ object KingCaptureProbability:
       remaining = remaining.tail
     mask
 
-  /** Depth‑first search over all micro‑move sequences.
+  /** Depth‑first search over all micro‑move sequences using an in-place mutable [[KcpScratchBoard]].
     *
     * Returns `true` as soon as '''any''' move in any sequence lands on a square in `targets`. Because king‑capture
     * paths are always legal regardless of the Maximum Micro‑moves Rule, an early exit is correct for kings. For queens
     * the result may slightly overestimate the true probability.
     *
     * @param remainingDice
-    *   bounds the recursion structurally instead of relying on `state.flags` to actually empty out. It starts at
+    *   bounds the recursion structurally instead of relying on `scratch.flags` to actually empty out. It starts at
     *   [[GameFlags.DiceSlots]] and drops by the number of dice each move consumes, so the search cannot outlive a
     *   single turn's dice pool no matter what `makeMove` produces. The bound was introduced for #549: back then
     *   `MoveGenerator.tryCastle` checked only the castling-rights flag and transit emptiness, so castling rights that
@@ -98,11 +101,47 @@ object KingCaptureProbability:
     *   home squares, which removes that desync at the source; the bound stays as an independent termination guarantee
     *   should any future generator/applier disagreement reappear.
     */
-  private def captureDFS(state: GameState, targets: Bitboard, remainingDice: Int): Boolean = boundary {
+  private def captureDFS(scratch: KcpScratchBoard, targets: Bitboard, remainingDice: Int): Boolean = boundary {
     if remainingDice <= 0 then break(false)
-    val flags = state.flags
+    val flags = scratch.flags
     if flags.isDicePoolEmpty then break(false)
-    val moves = MoveGenerator.generateMoves(state)
+
+    val d1            = flags.diceSlot1
+    val d2            = flags.diceSlot2
+    val d3            = flags.diceSlot3
+    val readOnlyState = scratch.toGameStateReadOnly
+
+    if d1 != 0 && tryPieceMoves(scratch, targets, remainingDice, flags, readOnlyState, d1) then break(true)
+    if d2 != 0 && d2 != d1 && tryPieceMoves(scratch, targets, remainingDice, flags, readOnlyState, d2) then break(true)
+    if d3 != 0 && d3 != d1 && d3 != d2 && tryPieceMoves(scratch, targets, remainingDice, flags, readOnlyState, d3) then
+      break(true)
+
+    false
+  }
+
+  /** Applies `move`, recurses with the surviving dice, then restores the board. Returns the DFS result. */
+  private inline def recurse(
+      scratch: KcpScratchBoard,
+      targets: Bitboard,
+      move: Move,
+      survived: GameFlags,
+      nextRemaining: Int
+  ): Boolean =
+    val undo = scratch.makeMoveInPlace(move)
+    scratch.flags = scratch.flags.withDiceSlotsOf(survived)
+    val hit = captureDFS(scratch, targets, nextRemaining)
+    scratch.undoMove(move, undo)
+    hit
+
+  private def tryPieceMoves(
+      scratch: KcpScratchBoard,
+      targets: Bitboard,
+      remainingDice: Int,
+      flags: GameFlags,
+      readOnlyState: GameState,
+      die: Int
+  ): Boolean = boundary {
+    val moves = MoveGenerator.generatePieceMoves(readOnlyState, PieceType(die))
     var i     = 0
     while i < moves.length do
       val move = moves(i)
@@ -114,20 +153,16 @@ object KingCaptureProbability:
         if !(targets & Bitboard.fromSquare(move.toSquare)).isEmpty then break(true)
         if flags.containsDie(PieceType.King.diceValue) && flags.containsDie(PieceType.Rook.diceValue) then
           val survived = flags.removeDie(PieceType.King.diceValue).removeDie(PieceType.Rook.diceValue)
-          val moved    = state.makeMove(move)
-          if captureDFS(moved.copy(flags = moved.flags.withDiceSlotsOf(survived)), targets, remainingDice - 2)
-          then break(true)
+          if recurse(scratch, targets, move, survived, remainingDice - 2) then break(true)
       else
         // Validated before the direct-capture check below: a move generated from an empty square (the mailbox/bitboard
         // desync this method guards against) must never be allowed to register as a capture just because its
         // `toSquare` happens to coincide with a target.
-        val dieValue = state.mailbox(move.fromSquare).pieceType.diceValue
+        val dieValue = scratch.mailbox(move.fromSquare.index).pieceType.diceValue
         require(dieValue != 0, s"Move generated from an empty square: $move")
         if !(targets & Bitboard.fromSquare(move.toSquare)).isEmpty then break(true)
         val survived = flags.removeDie(dieValue)
-        val moved    = state.makeMove(move)
-        if captureDFS(moved.copy(flags = moved.flags.withDiceSlotsOf(survived)), targets, remainingDice - 1)
-        then break(true)
+        if recurse(scratch, targets, move, survived, remainingDice - 1) then break(true)
 
       i += 1
     false

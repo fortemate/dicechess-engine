@@ -361,11 +361,14 @@ extension (state: GameState)
     // makeMove only drops a target this move itself invalidates: a pawn leaving its post-double-push
     // square, the just-used ep target (below), or a captured pawn that owned the target.
     if mv.flags != Move.DoublePawnPush && mover.pieceType == PieceType.Pawn then
-      newEnPassant = newEnPassant.remove(Square.fromIndex(from.index + rankOffset))
+      val passedIdx = from.index + rankOffset
+      if passedIdx >= 0 && passedIdx < 64 then newEnPassant = newEnPassant.remove(Square.fromIndex(passedIdx))
     target.foreach { p =>
       b.removeCaptured(isWhite, toBB)
       b.clearPiece(p.pieceType, toBB)
-      if p.pieceType == PieceType.Pawn then newEnPassant = newEnPassant.remove(Square.fromIndex(to.index - rankOffset))
+      if p.pieceType == PieceType.Pawn then
+        val passedIdx = to.index - rankOffset
+        if passedIdx >= 0 && passedIdx < 64 then newEnPassant = newEnPassant.remove(Square.fromIndex(passedIdx))
     }
 
     mv.flags match {
