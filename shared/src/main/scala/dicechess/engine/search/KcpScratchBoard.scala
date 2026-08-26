@@ -21,8 +21,10 @@ final private[search] case class KcpUndoInfo(
 
 /** A search-package-private mutable scratch board used on the [[KingCaptureProbability]] hot path.
   *
-  * Avoids heap allocations across DFS traversals by updating bitboards via bitwise XORs in place and maintaining a
-  * single 64-element mailbox array whose modified slots are restored on `undoMove`.
+  * Eliminates per-move board-copy allocations across DFS traversals by updating bitboards in place and maintaining a
+  * single 64-element mailbox array whose modified slots are restored on `undoMove`. Allocation on this path is confined
+  * to the [[KcpUndoInfo]] record produced by `makeMoveInPlace` and the zero-copy [[GameState]] wrapper returned by
+  * `toGameStateReadOnly`.
   */
 final private[search] class KcpScratchBoard(
     var whitePieces: Long,
@@ -48,6 +50,14 @@ final private[search] class KcpScratchBoard(
     case PieceType.Queen  => queens ^= bb
     case PieceType.King   => kings ^= bb
     case _                => ()
+
+  /** Toggles kings and rooks in both piece-type bitboards and the active side bitboard during castling. */
+  private inline def toggleCastle(rFromIdx: Int, rToIdx: Int, kBB: Long, isWhite: Boolean): Unit =
+    val rBB = (1L << rFromIdx) | (1L << rToIdx)
+    kings ^= kBB
+    rooks ^= rBB
+    val cBB = kBB | rBB
+    if isWhite then whitePieces ^= cBB else blackPieces ^= cBB
 
   private inline def promotionPieceType(flags: Int): PieceType = flags match
     case Move.KnightPromotion | Move.KnightPromoCapture => PieceType.Knight
@@ -131,30 +141,18 @@ final private[search] class KcpScratchBoard(
           whitePieces &= ~victimBB
 
       case Move.KingCastle =>
-        val (rFrom, rTo) = if isWhite then (Square('h', 1), Square('f', 1)) else (Square('h', 8), Square('f', 8))
-        val rFromIdx     = rFrom.index
-        val rToIdx       = rTo.index
-        val rBB          = (1L << rFromIdx) | (1L << rToIdx)
-        val kBB          = fromBB | toBB
-        kings ^= kBB
-        rooks ^= rBB
-        val cBB = kBB | rBB
-        if isWhite then whitePieces ^= cBB else blackPieces ^= cBB
+        val rFromIdx = if isWhite then 7 else 63
+        val rToIdx   = if isWhite then 5 else 61
+        toggleCastle(rFromIdx, rToIdx, fromBB | toBB, isWhite)
         mailbox(fromIdx) = Piece.Empty
         mailbox(toIdx) = Piece(color, PieceType.King)
         mailbox(rFromIdx) = Piece.Empty
         mailbox(rToIdx) = Piece(color, PieceType.Rook)
 
       case Move.QueenCastle =>
-        val (rFrom, rTo) = if isWhite then (Square('a', 1), Square('d', 1)) else (Square('a', 8), Square('d', 8))
-        val rFromIdx     = rFrom.index
-        val rToIdx       = rTo.index
-        val rBB          = (1L << rFromIdx) | (1L << rToIdx)
-        val kBB          = fromBB | toBB
-        kings ^= kBB
-        rooks ^= rBB
-        val cBB = kBB | rBB
-        if isWhite then whitePieces ^= cBB else blackPieces ^= cBB
+        val rFromIdx = if isWhite then 0 else 56
+        val rToIdx   = if isWhite then 3 else 59
+        toggleCastle(rFromIdx, rToIdx, fromBB | toBB, isWhite)
         mailbox(fromIdx) = Piece.Empty
         mailbox(toIdx) = Piece(color, PieceType.King)
         mailbox(rFromIdx) = Piece.Empty
@@ -168,13 +166,17 @@ final private[search] class KcpScratchBoard(
         pawns ^= fromBB
         togglePiece(promType, toBB)
         if isWhite then whitePieces ^= (fromBB | toBB) else blackPieces ^= (fromBB | toBB)
-        if mover.pieceType == PieceType.Pawn then newEnPassant &= ~(1L << (fromIdx + rankOffset))
+        if mover.pieceType == PieceType.Pawn then
+          val passedIdx = fromIdx + rankOffset
+          if passedIdx >= 0 && passedIdx < 64 then newEnPassant &= ~(1L << passedIdx)
         if !target.isEmpty then
           capturedPiece = target
           val capBB = toBB
           if isWhite then blackPieces ^= capBB else whitePieces ^= capBB
           togglePiece(target.pieceType, capBB)
-          if target.pieceType == PieceType.Pawn then newEnPassant &= ~(1L << (toIdx - rankOffset))
+          if target.pieceType == PieceType.Pawn then
+            val victimPassedIdx = toIdx - rankOffset
+            if victimPassedIdx >= 0 && victimPassedIdx < 64 then newEnPassant &= ~(1L << victimPassedIdx)
 
       case _ =>
         val target = mailbox(toIdx)
@@ -182,13 +184,17 @@ final private[search] class KcpScratchBoard(
         mailbox(toIdx) = mover
         togglePiece(mover.pieceType, fromBB | toBB)
         if isWhite then whitePieces ^= (fromBB | toBB) else blackPieces ^= (fromBB | toBB)
-        if mover.pieceType == PieceType.Pawn then newEnPassant &= ~(1L << (fromIdx + rankOffset))
+        if mover.pieceType == PieceType.Pawn then
+          val passedIdx = fromIdx + rankOffset
+          if passedIdx >= 0 && passedIdx < 64 then newEnPassant &= ~(1L << passedIdx)
         if !target.isEmpty then
           capturedPiece = target
           val capBB = toBB
           if isWhite then blackPieces ^= capBB else whitePieces ^= capBB
           togglePiece(target.pieceType, capBB)
-          if target.pieceType == PieceType.Pawn then newEnPassant &= ~(1L << (toIdx - rankOffset))
+          if target.pieceType == PieceType.Pawn then
+            val victimPassedIdx = toIdx - rankOffset
+            if victimPassedIdx >= 0 && victimPassedIdx < 64 then newEnPassant &= ~(1L << victimPassedIdx)
 
     val newCastlingRights = updatedCastlingRights(flags.castlingRights, mover, from, capturedPiece, to, isWhite)
     val isCap             = !capturedPiece.isEmpty || mv.flags == Move.EnPassantCapture
@@ -251,30 +257,18 @@ final private[search] class KcpScratchBoard(
             pawns |= victimBB
 
       case Move.KingCastle =>
-        val (rFrom, rTo) = if isWhite then (Square('h', 1), Square('f', 1)) else (Square('h', 8), Square('f', 8))
-        val rFromIdx     = rFrom.index
-        val rToIdx       = rTo.index
-        val rBB          = (1L << rFromIdx) | (1L << rToIdx)
-        val kBB          = fromBB | toBB
-        kings ^= kBB
-        rooks ^= rBB
-        val cBB = kBB | rBB
-        if isWhite then whitePieces ^= cBB else blackPieces ^= cBB
+        val rFromIdx = if isWhite then 7 else 63
+        val rToIdx   = if isWhite then 5 else 61
+        toggleCastle(rFromIdx, rToIdx, fromBB | toBB, isWhite)
         mailbox(fromIdx) = Piece(undo.prevFlags.activeColor, PieceType.King)
         mailbox(toIdx) = Piece.Empty
         mailbox(rFromIdx) = Piece(undo.prevFlags.activeColor, PieceType.Rook)
         mailbox(rToIdx) = Piece.Empty
 
       case Move.QueenCastle =>
-        val (rFrom, rTo) = if isWhite then (Square('a', 1), Square('d', 1)) else (Square('a', 8), Square('d', 8))
-        val rFromIdx     = rFrom.index
-        val rToIdx       = rTo.index
-        val rBB          = (1L << rFromIdx) | (1L << rToIdx)
-        val kBB          = fromBB | toBB
-        kings ^= kBB
-        rooks ^= rBB
-        val cBB = kBB | rBB
-        if isWhite then whitePieces ^= cBB else blackPieces ^= cBB
+        val rFromIdx = if isWhite then 0 else 56
+        val rToIdx   = if isWhite then 3 else 59
+        toggleCastle(rFromIdx, rToIdx, fromBB | toBB, isWhite)
         mailbox(fromIdx) = Piece(undo.prevFlags.activeColor, PieceType.King)
         mailbox(toIdx) = Piece.Empty
         mailbox(rFromIdx) = Piece(undo.prevFlags.activeColor, PieceType.Rook)

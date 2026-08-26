@@ -45,8 +45,12 @@ object MoveGenerator {
     PieceType.all.flatMap(pt => generatePieceMoves(stateWithCastlingDice, pt))
   }
 
-  /** Dispatches move generation to the correct subsystem for `pieceType`. */
-  def generatePieceMoves(state: GameState, pieceType: PieceType): List[Move] = {
+  /** Dispatches move generation to the correct subsystem for `pieceType`.
+    *
+    * Note: generates pseudo-legal moves without validating dice-pool constraints or castling legality, which callers
+    * (such as search or filtering layers) must enforce.
+    */
+  private[engine] def generatePieceMoves(state: GameState, pieceType: PieceType): List[Move] = {
     val color        = state.activeColor
     val isWhite      = color.isWhite
     val enemyPieces  = if isWhite then state.blackPieces else state.whitePieces

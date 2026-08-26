@@ -119,6 +119,20 @@ object KingCaptureProbability:
     false
   }
 
+  /** Applies `move`, recurses with the surviving dice, then restores the board. Returns the DFS result. */
+  private inline def recurse(
+      scratch: KcpScratchBoard,
+      targets: Bitboard,
+      move: Move,
+      survived: GameFlags,
+      nextRemaining: Int
+  ): Boolean =
+    val undo = scratch.makeMoveInPlace(move)
+    scratch.flags = scratch.flags.withDiceSlotsOf(survived)
+    val hit = captureDFS(scratch, targets, nextRemaining)
+    scratch.undoMove(move, undo)
+    hit
+
   private def tryPieceMoves(
       scratch: KcpScratchBoard,
       targets: Bitboard,
@@ -139,11 +153,7 @@ object KingCaptureProbability:
         if !(targets & Bitboard.fromSquare(move.toSquare)).isEmpty then break(true)
         if flags.containsDie(PieceType.King.diceValue) && flags.containsDie(PieceType.Rook.diceValue) then
           val survived = flags.removeDie(PieceType.King.diceValue).removeDie(PieceType.Rook.diceValue)
-          val undo     = scratch.makeMoveInPlace(move)
-          scratch.flags = scratch.flags.withDiceSlotsOf(survived)
-          val hit = captureDFS(scratch, targets, remainingDice - 2)
-          scratch.undoMove(move, undo)
-          if hit then break(true)
+          if recurse(scratch, targets, move, survived, remainingDice - 2) then break(true)
       else
         // Validated before the direct-capture check below: a move generated from an empty square (the mailbox/bitboard
         // desync this method guards against) must never be allowed to register as a capture just because its
@@ -152,11 +162,7 @@ object KingCaptureProbability:
         require(dieValue != 0, s"Move generated from an empty square: $move")
         if !(targets & Bitboard.fromSquare(move.toSquare)).isEmpty then break(true)
         val survived = flags.removeDie(dieValue)
-        val undo     = scratch.makeMoveInPlace(move)
-        scratch.flags = scratch.flags.withDiceSlotsOf(survived)
-        val hit = captureDFS(scratch, targets, remainingDice - 1)
-        scratch.undoMove(move, undo)
-        if hit then break(true)
+        if recurse(scratch, targets, move, survived, remainingDice - 1) then break(true)
 
       i += 1
     false

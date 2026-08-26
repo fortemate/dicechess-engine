@@ -143,3 +143,8 @@ class KcpScratchBoardRoundTripSpec extends FunSuite:
           scratch.undoMove(mv, undo)
 
         assertStateEquals(scratch.toGameState, root, s"pos $posIdx walk $walk fully unwound")
+
+  test("far-rank pawn capture with en-passant target does not throw or corrupt bitboard"):
+    // Black pawn on a2 capturing White pawn on b1 when EP target is set on d6
+    val fen = "4k3/8/8/8/8/8/p7/1P5K b - d6 0 1"
+    testAllMovesRoundTrip(parse(fen), "far-rank pawn capture with ep target")
