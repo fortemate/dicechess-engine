@@ -579,3 +579,29 @@ class BotMatchRunnerSpec extends FunSuite:
     val text = out.toString("UTF-8")
     assert(!text.contains(","), s"expected no comma-decimal formatting under Locale.GERMANY, got:\n$text")
   }
+
+  test("simulateTimedGame: accepts TimedPlayer instances explicitly") {
+    val whitePlayer = TimedPlayer(GreedySearch, TimeManager.default)
+    val blackPlayer = TimedPlayer(RandomSearch, TimeManager.default)
+    val result      = BotMatchRunner.simulateTimedGame(
+      whitePlayer,
+      blackPlayer,
+      new Random(42),
+      new Random(1000),
+      TimeControl.ofSeconds(6, 0)
+    )
+    assert(result.outcome == GameOutcome.Draw || result.outcome.isInstanceOf[GameOutcome.Win])
+  }
+
+  test("verifySyncInternal: passes on valid state and detects mailbox vs bitboard desync") {
+    val validState = FenParser.parse("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1").toOption.get
+    BotMatchRunner.verifySyncInternal(validState, "init")
+
+    // Empty square desync (bitboard bit set where mailbox is empty)
+    val desyncedEmpty = validState.copy(whitePieces = validState.whitePieces | Bitboard.fromSquare(Square('e', 4)))
+    intercept[RuntimeException](BotMatchRunner.verifySyncInternal(desyncedEmpty, "e2e4"))
+
+    // Occupied square desync (mailbox has piece but piece bitboard missing)
+    val desyncedOccupied = validState.copy(pawns = validState.pawns & ~Bitboard.fromSquare(Square('e', 2)))
+    intercept[RuntimeException](BotMatchRunner.verifySyncInternal(desyncedOccupied, "e2e2"))
+  }

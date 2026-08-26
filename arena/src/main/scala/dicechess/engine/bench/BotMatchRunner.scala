@@ -32,7 +32,9 @@ object BotMatchRunner:
     }
     ArenaOptions.runCommand(command, args)
 
-  private[bench] val StartFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+  private[bench] val StartFen   = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+  private val SectionSeparator  = "=" * 80
+  private val OverviewSeparator = "-" * 92
 
   def runArena(
       baseBotId: String,
@@ -62,12 +64,12 @@ object BotMatchRunner:
         )
       }
 
-    println("================================================================================")
+    println(SectionSeparator)
     println(s"🎲♟️  Dice Chess Bot Arena - JVM Match Runner")
     println(s"Baseline Bot: ${baseBotInfo.name} (${baseBotInfo.id})")
     println(s"Games per Color: $gamesPerColor (Total ${gamesPerColor * 2} games per match)")
     if startFen != StartFen then println(s"Starting FEN: $startFen")
-    println("================================================================================")
+    println(SectionSeparator)
 
     val opponents = opponentBotId match
       case Some(id) =>
@@ -151,6 +153,28 @@ object BotMatchRunner:
       baseHangs = baseTally.snapshot
     )
 
+  final private class HangTracker(whiteTally: HangTally, blackTally: HangTally):
+    private var whiteHanging = Bitboard.empty
+    private var blackHanging = Bitboard.empty
+
+    def onCompletedTurn(state: GameState, next: GameState, mover: Color): Unit =
+      val moverTally    = if mover.isWhite then whiteTally else blackTally
+      val victimTally   = if mover.isWhite then blackTally else whiteTally
+      val victimHanging = if mover.isWhite then blackHanging else whiteHanging
+      val victimBefore  = if mover.isWhite then state.blackPieces else state.whitePieces
+      val victimAfter   = if mover.isWhite then next.blackPieces else next.whitePieces
+      val punished      = victimBefore & ~victimAfter & victimHanging
+      if !punished.isEmpty then
+        victimTally.punishedCaptures += punished.count
+        victimTally.punishedMaterial += PieceSafety.materialOn(state, punished)
+      val moverHanging = PieceSafety.hangingSquares(next, mover)
+      moverTally.turns += 1
+      if !moverHanging.isEmpty then
+        moverTally.hangTurns += 1
+        moverTally.hangingMaterial += PieceSafety.materialOn(next, moverHanging)
+        if !(moverHanging & next.queens).isEmpty then moverTally.queenHangTurns += 1
+      if mover.isWhite then whiteHanging = moverHanging else blackHanging = moverHanging
+
   /** Package-private visibility (`private[bench]`) allows [[BotMatchRunnerSpec]] to verify individual turn executions,
     * random seed reproducibility, and the 50-move rule draw condition.
     */
@@ -164,50 +188,23 @@ object BotMatchRunner:
       blackTally: HangTally = new HangTally
   ): GameOutcome =
     var state                = startState
-    var isGameOver           = false
     var outcome: GameOutcome = GameOutcome.Draw
-    // Each side's hanging squares as of the end of its own last turn — the punished-hang check reads the victim's set
-    // exactly one turn later, which is the only window in which "you left it en prise and I took it" is attributable.
-    var whiteHanging = Bitboard.empty
-    var blackHanging = Bitboard.empty
+    var isGameOver           = false
+    val hangTracker          = new HangTracker(whiteTally, blackTally)
 
-    while !isGameOver do
-      if state.halfMoveClock >= 100 then
-        isGameOver = true
-        outcome = GameOutcome.Draw
-      else
-        // Roll 3 random dice
-        val dice           = List.fill(3)(diceRand.nextInt(6) + 1)
-        val stateWithDice  = state.withDicePool(dice)
-        val mover          = state.activeColor
-        val activeBot      = if mover.isWhite then whiteBot else blackBot
-        val (next, winner) = playTurn(state, activeBot.findBestMove(stateWithDice, botRand))
-        winner match
-          case Some(color) =>
-            outcome = GameOutcome.Win(color)
-            isGameOver = true
-          case None =>
-            // Telemetry runs on completed (non-terminal) turns only: a king-capture turn ends the game above, so the
-            // few pieces grabbed on the way to the king are not worth the extra bookkeeping.
-            val moverTally    = if mover.isWhite then whiteTally else blackTally
-            val victimTally   = if mover.isWhite then blackTally else whiteTally
-            val victimHanging = if mover.isWhite then blackHanging else whiteHanging
-            val victimBefore  = if mover.isWhite then state.blackPieces else state.whitePieces
-            val victimAfter   = if mover.isWhite then next.blackPieces else next.whitePieces
-            // The victim's pieces never move during the mover's turn, so anything of theirs that vanished was
-            // captured — including en passant, whose victim square is exactly the vanished one.
-            val punished = victimBefore & ~victimAfter & victimHanging
-            if !punished.isEmpty then
-              victimTally.punishedCaptures += punished.count
-              victimTally.punishedMaterial += PieceSafety.materialOn(state, punished)
-            val moverHanging = PieceSafety.hangingSquares(next, mover)
-            moverTally.turns += 1
-            if !moverHanging.isEmpty then
-              moverTally.hangTurns += 1
-              moverTally.hangingMaterial += PieceSafety.materialOn(next, moverHanging)
-              if !(moverHanging & next.queens).isEmpty then moverTally.queenHangTurns += 1
-            if mover.isWhite then whiteHanging = moverHanging else blackHanging = moverHanging
-            state = next
+    while !isGameOver && state.halfMoveClock < 100 do
+      val dice           = List.fill(3)(diceRand.nextInt(6) + 1)
+      val stateWithDice  = state.withDicePool(dice)
+      val mover          = state.activeColor
+      val activeBot      = if mover.isWhite then whiteBot else blackBot
+      val (next, winner) = playTurn(state, activeBot.findBestMove(stateWithDice, botRand))
+      winner match
+        case Some(color) =>
+          outcome = GameOutcome.Win(color)
+          isGameOver = true
+        case None =>
+          hangTracker.onCompletedTurn(state, next, mover)
+          state = next
 
     outcome
 
@@ -273,16 +270,44 @@ object BotMatchRunner:
     * @param gameId
     *   identifier carried in webhook delivery envelopes; irrelevant to in-process bots
     */
+  private def isTimedBot(algorithm: SearchAlgorithm): Boolean = algorithm match
+    case _: WebhookBot | _: TimeBudgetedSearch => true
+    case _                                     => false
+
+  private def executeTimedTurn(
+      player: TimedPlayer,
+      stateWithDice: GameState,
+      remainingMs: Long,
+      oppRemainingMs: Long,
+      tc: TimeControl,
+      botRandom: Random,
+      gameId: String
+  ): (Either[String, Option[ScoredSequence]], Long) =
+    val mover                                        = stateWithDice.activeColor
+    val startNanos                                   = System.nanoTime()
+    val turn: Either[String, Option[ScoredSequence]] = player.algorithm match
+      case wb: WebhookBot =>
+        wb.chooseTurn(stateWithDice, gameId, mover, remainingMs, oppRemainingMs, tc)
+      case tb: TimeBudgetedSearch =>
+        val budgetMs =
+          player.timeManager.budgetMs(
+            ClockState(remainingMs, tc.incrementMs, stateWithDice.fullMoveNumber),
+            ArenaOverheadBufferMs
+          )
+        Right(tb.findBestMove(stateWithDice, startNanos + budgetMs * 1_000_000L, botRandom))
+      case other =>
+        Right(other.findBestMove(stateWithDice, botRandom))
+    val elapsedMs = (System.nanoTime() - startNanos) / 1_000_000L
+    (turn, elapsedMs)
+
   private[bench] def simulateTimedGame(
-      whiteBot: SearchAlgorithm,
-      blackBot: SearchAlgorithm,
+      whitePlayer: TimedPlayer,
+      blackPlayer: TimedPlayer,
       diceRandom: Random,
       botRandom: Random,
       tc: TimeControl,
       startState: GameState = FenParser.parse(StartFen).toOption.get,
-      gameId: String = "arena",
-      whiteTimeManager: TimeManager = TimeManager.default,
-      blackTimeManager: TimeManager = TimeManager.default
+      gameId: String = "arena"
   ): TimedGameResult =
     var state                           = startState
     var whiteRemaining                  = tc.initialMs
@@ -290,54 +315,52 @@ object BotMatchRunner:
     val latencies                       = scala.collection.mutable.ListBuffer.empty[(Color, Long)]
     var result: Option[TimedGameResult] = None
 
-    while result.isEmpty do
-      if state.halfMoveClock >= 100 then result = Some(TimedGameResult(GameOutcome.Draw, None, latencies.toList))
-      else
-        val dice          = List.fill(3)(diceRandom.nextInt(6) + 1)
-        val stateWithDice = state.withDicePool(dice)
-        val mover         = state.activeColor
-        val isWhite       = mover.isWhite
-        val activeBot     = if isWhite then whiteBot else blackBot
-        val timeManager   = if isWhite then whiteTimeManager else blackTimeManager
-        val remaining     = if isWhite then whiteRemaining else blackRemaining
+    while result.isEmpty && state.halfMoveClock < 100 do
+      val dice          = List.fill(3)(diceRandom.nextInt(6) + 1)
+      val stateWithDice = state.withDicePool(dice)
+      val mover         = state.activeColor
+      val isWhite       = mover.isWhite
+      val player        = if isWhite then whitePlayer else blackPlayer
+      val remaining     = if isWhite then whiteRemaining else blackRemaining
+      val oppRemaining  = if isWhite then blackRemaining else whiteRemaining
 
-        // Webhook moves are latency samples too: the wire is part of the deployed artifact being measured.
-        val isTimedBot = activeBot match
-          case _: WebhookBot | _: TimeBudgetedSearch => true
-          case _                                     => false
+      val (turn, elapsedMs) =
+        executeTimedTurn(player, stateWithDice, remaining, oppRemaining, tc, botRandom, gameId)
 
-        val startNanos                                   = System.nanoTime()
-        val turn: Either[String, Option[ScoredSequence]] = activeBot match
-          case wb: WebhookBot =>
-            val oppRemaining = if isWhite then blackRemaining else whiteRemaining
-            wb.chooseTurn(stateWithDice, gameId, mover, remaining, oppRemaining, tc)
-          case tb: TimeBudgetedSearch =>
-            val budgetMs =
-              timeManager.budgetMs(ClockState(remaining, tc.incrementMs, state.fullMoveNumber), ArenaOverheadBufferMs)
-            Right(tb.findBestMove(stateWithDice, startNanos + budgetMs * 1_000_000L, botRandom))
-          case other => Right(other.findBestMove(stateWithDice, botRandom))
-        val elapsedMs = (System.nanoTime() - startNanos) / 1_000_000L
+      if isTimedBot(player.algorithm) then latencies += ((mover, elapsedMs))
 
-        if isTimedBot then latencies += ((mover, elapsedMs))
+      turn match
+        case Left(reason) =>
+          val side = if isWhite then "White" else "Black"
+          System.err.println(s"[arena] $gameId: $side webhook delivery failed — forfeits on time ($reason)")
+          result = Some(TimedGameResult(GameOutcome.Win(mover.opponent), Some(mover), latencies.toList))
+        case Right(scored) =>
+          val (newRemaining, flagged) = tickClock(remaining, elapsedMs, tc.incrementMs)
+          if isWhite then whiteRemaining = newRemaining else blackRemaining = newRemaining
 
-        turn match
-          case Left(reason) =>
-            val side = if isWhite then "White" else "Black"
-            System.err.println(s"[arena] $gameId: $side webhook delivery failed — forfeits on time ($reason)")
-            result = Some(TimedGameResult(GameOutcome.Win(mover.opponent), Some(mover), latencies.toList))
-          case Right(scored) =>
-            val (newRemaining, flagged) = tickClock(remaining, elapsedMs, tc.incrementMs)
-            if isWhite then whiteRemaining = newRemaining else blackRemaining = newRemaining
+          if flagged then result = Some(TimedGameResult(GameOutcome.Win(mover.opponent), Some(mover), latencies.toList))
+          else
+            val (next, winner) = playTurn(state, scored)
+            winner match
+              case Some(color) => result = Some(TimedGameResult(GameOutcome.Win(color), None, latencies.toList))
+              case None        => state = next
 
-            if flagged then
-              result = Some(TimedGameResult(GameOutcome.Win(mover.opponent), Some(mover), latencies.toList))
-            else
-              val (next, winner) = playTurn(state, scored)
-              winner match
-                case Some(color) => result = Some(TimedGameResult(GameOutcome.Win(color), None, latencies.toList))
-                case None        => state = next
+    result.getOrElse(TimedGameResult(GameOutcome.Draw, None, latencies.toList))
 
-    result.get
+  private[bench] def simulateTimedGame(
+      whiteBot: SearchAlgorithm,
+      blackBot: SearchAlgorithm,
+      diceRandom: Random,
+      botRandom: Random,
+      tc: TimeControl
+  ): TimedGameResult =
+    simulateTimedGame(
+      TimedPlayer(whiteBot),
+      TimedPlayer(blackBot),
+      diceRandom,
+      botRandom,
+      tc
+    )
 
   /** Resolves an arena bot id: an `http(s)://` id becomes a [[WebhookBot]] (secret from [[WebhookBot.SecretEnvVar]],
     * ownership handshake run immediately so a dead or misconfigured endpoint aborts the run before any game is played);
@@ -470,32 +493,31 @@ object BotMatchRunner:
 
     if pairsPlayed > 0 then updateSprt()
 
+    val botPlayer      = TimedPlayer(botAlgo, botTimeManager)
+    val baselinePlayer = TimedPlayer(baseAlgo, baselineTimeManager)
+
     var i        = pairsPlayed
     var continue = sprtResult.forall(_.verdict == Sprt.Verdict.Continue)
     while i < gamesPerColor && continue do
       val whiteRes =
         simulateTimedGame(
-          botAlgo,
-          baseAlgo,
+          botPlayer,
+          baselinePlayer,
           new Random(seed + i),
           new Random(1000 + i),
           tc,
           startState,
-          s"arena-w-$i",
-          botTimeManager,
-          baselineTimeManager
+          s"arena-w-$i"
         )
       val blackRes =
         simulateTimedGame(
-          baseAlgo,
-          botAlgo,
+          baselinePlayer,
+          botPlayer,
           new Random(seed + i),
           new Random(2000 + i),
           tc,
           startState,
-          s"arena-b-$i",
-          baselineTimeManager,
-          botTimeManager
+          s"arena-b-$i"
         )
       // The pair's two 0/½/1 scores sum and double to an exact integer 0..4 — one of Pentanomial's five bins.
       // Unconditional: [[PairVariance]] needs this histogram to state what the run could resolve, whether or not
@@ -541,12 +563,12 @@ object BotMatchRunner:
     )
 
   private[bench] def printTimedSummary(botId: String, baselineId: String, results: List[TimedMatchResult]): Unit =
-    println("================================================================================")
+    println(SectionSeparator)
     println(s"🎲♟️  Time-Controlled Arena — $botId (bot under test) vs $baselineId")
     results.headOption.foreach(r =>
       println(s"Time policies: ${r.botTimePolicyId} (bot) vs ${r.baselineTimePolicyId} (baseline)")
     )
-    println("================================================================================")
+    println(SectionSeparator)
     println(
       f"${"Control"}%-10s | ${"Games"}%-5s | ${"Score"}%-7s | ${"W/L/D"}%-12s | ${"Timeout b/o"}%-12s | ${"p50/p95/p99/max ms"}%-24s | ${"Wall"}%-8s"
     )
@@ -580,7 +602,7 @@ object BotMatchRunner:
           )
         )
       }
-    println("================================================================================\n")
+    println(s"$SectionSeparator\n")
 
   /** Formats with [[java.util.Locale.ROOT]] instead of the JVM's default locale, so `%f` fields always use a `.`
     * decimal separator — the default locale renders it as `,` on e.g. German/Russian JVMs, breaking naive parsing of
@@ -594,121 +616,65 @@ object BotMatchRunner:
   private def verifySync(state: GameState, lastMove: String): Unit =
     if enableVerifySync then verifySyncInternal(state, lastMove)
 
-  private def verifySyncInternal(state: GameState, lastMove: String): Unit =
+  private val PieceTypeDescriptors: List[(PieceType, String, GameState => Bitboard)] = List(
+    (PieceType.Pawn, "pawns", _.pawns),
+    (PieceType.Knight, "knights", _.knights),
+    (PieceType.Bishop, "bishops", _.bishops),
+    (PieceType.Rook, "rooks", _.rooks),
+    (PieceType.Queen, "queens", _.queens),
+    (PieceType.King, "kings", _.kings)
+  )
+
+  private def verifyEmptySquareSync(state: GameState, sq: Square, lastMove: String, fen: String): Unit =
+    val not = sq.toNotation
+    if state.whitePieces.contains(sq) then
+      sys.error(s"Desync: mailbox empty but whitePieces set at $not (after $lastMove) in FEN: $fen")
+    if state.blackPieces.contains(sq) then
+      sys.error(s"Desync: mailbox empty but blackPieces set at $not (after $lastMove) in FEN: $fen")
+    for (_, name, getter) <- PieceTypeDescriptors if getter(state).contains(sq) do
+      sys.error(s"Desync: mailbox empty but $name set at $not (after $lastMove) in FEN: $fen")
+
+  private def verifyOccupiedSquareSync(
+      state: GameState,
+      sq: Square,
+      piece: Piece,
+      lastMove: String,
+      fen: String
+  ): Unit =
+    val not   = sq.toNotation
+    val color = piece.color
+    val pt    = piece.pieceType
+    if color.isWhite then
+      if !state.whitePieces.contains(sq) then
+        sys.error(s"Desync: mailbox has white $pt but whitePieces not set at $not (after $lastMove) in FEN: $fen")
+      if state.blackPieces.contains(sq) then
+        sys.error(s"Desync: mailbox has white $pt but blackPieces set at $not (after $lastMove) in FEN: $fen")
+    else
+      if !state.blackPieces.contains(sq) then
+        sys.error(s"Desync: mailbox has black $pt but blackPieces not set at $not (after $lastMove) in FEN: $fen")
+      if state.whitePieces.contains(sq) then
+        sys.error(s"Desync: mailbox has black $pt but whitePieces set at $not (after $lastMove) in FEN: $fen")
+
+    for (descPt, name, getter) <- PieceTypeDescriptors do
+      if descPt == pt && !getter(state).contains(sq) then
+        sys.error(s"Desync: mailbox has $pt but $name not set at $not (after $lastMove) in FEN: $fen")
+      if descPt != pt && getter(state).contains(sq) then
+        sys.error(s"Desync: mailbox has $pt but $name set at $not (after $lastMove) in FEN: $fen")
+
+  private[bench] def verifySyncInternal(state: GameState, lastMove: String): Unit =
+    val fen = FenParser.serialize(state)
     for i <- 0 until 64 do
       val sq    = Square.fromIndex(i)
       val piece = state.mailbox(sq)
-      if piece.isEmpty then
-        if state.whitePieces.contains(sq) then
-          sys.error(
-            s"Desync: mailbox empty but whitePieces set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-          )
-        if state.blackPieces.contains(sq) then
-          sys.error(
-            s"Desync: mailbox empty but blackPieces set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-          )
-        if state.pawns.contains(sq) then
-          sys.error(
-            s"Desync: mailbox empty but pawns set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-          )
-        if state.knights.contains(sq) then
-          sys.error(
-            s"Desync: mailbox empty but knights set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-          )
-        if state.bishops.contains(sq) then
-          sys.error(
-            s"Desync: mailbox empty but bishops set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-          )
-        if state.rooks.contains(sq) then
-          sys.error(
-            s"Desync: mailbox empty but rooks set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-          )
-        if state.queens.contains(sq) then
-          sys.error(
-            s"Desync: mailbox empty but queens set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-          )
-        if state.kings.contains(sq) then
-          sys.error(
-            s"Desync: mailbox empty but kings set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-          )
-      else
-        val color = piece.color
-        val pt    = piece.pieceType
-        if color.isWhite then
-          if !state.whitePieces.contains(sq) then
-            sys.error(
-              s"Desync: mailbox has white $pt but whitePieces not set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-            )
-          if state.blackPieces.contains(sq) then
-            sys.error(
-              s"Desync: mailbox has white $pt but blackPieces set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-            )
-        else
-          if !state.blackPieces.contains(sq) then
-            sys.error(
-              s"Desync: mailbox has black $pt but blackPieces not set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-            )
-          if state.whitePieces.contains(sq) then
-            sys.error(
-              s"Desync: mailbox has black $pt but whitePieces set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-            )
-
-        if pt == PieceType.Pawn && !state.pawns.contains(sq) then
-          sys.error(
-            s"Desync: mailbox has Pawn but pawns not set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-          )
-        if pt == PieceType.Knight && !state.knights.contains(sq) then
-          sys.error(
-            s"Desync: mailbox has Knight but knights not set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-          )
-        if pt == PieceType.Bishop && !state.bishops.contains(sq) then
-          sys.error(
-            s"Desync: mailbox has Bishop but bishops not set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-          )
-        if pt == PieceType.Rook && !state.rooks.contains(sq) then
-          sys.error(
-            s"Desync: mailbox has Rook but rooks not set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-          )
-        if pt == PieceType.Queen && !state.queens.contains(sq) then
-          sys.error(
-            s"Desync: mailbox has Queen but queens not set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-          )
-        if pt == PieceType.King && !state.kings.contains(sq) then
-          sys.error(
-            s"Desync: mailbox has King but kings not set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-          )
-
-        if pt != PieceType.Pawn && state.pawns.contains(sq) then
-          sys.error(
-            s"Desync: mailbox has $pt but pawns set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-          )
-        if pt != PieceType.Knight && state.knights.contains(sq) then
-          sys.error(
-            s"Desync: mailbox has $pt but knights set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-          )
-        if pt != PieceType.Bishop && state.bishops.contains(sq) then
-          sys.error(
-            s"Desync: mailbox has $pt but bishops set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-          )
-        if pt != PieceType.Rook && state.rooks.contains(sq) then
-          sys.error(
-            s"Desync: mailbox has $pt but rooks set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-          )
-        if pt != PieceType.Queen && state.queens.contains(sq) then
-          sys.error(
-            s"Desync: mailbox has $pt but queens set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-          )
-        if pt != PieceType.King && state.kings.contains(sq) then
-          sys.error(
-            s"Desync: mailbox has $pt but kings set at ${sq.toNotation} (after $lastMove) in FEN: ${FenParser.serialize(state)}"
-          )
+      if piece.isEmpty then verifyEmptySquareSync(state, sq, lastMove, fen)
+      else verifyOccupiedSquareSync(state, sq, piece, lastMove, fen)
 
   private def printSummaryTable(results: List[(BotInfo, MatchResult)]): Unit =
     println("\n📊 MATCH RESULTS OVERVIEW:")
     println(
       f"${"Opponent Bot"}%-20s | ${"Total"}%-5s | ${"Wins (W/B)"}%-12s | ${"Losses (W/B)"}%-12s | ${"Draws (W/B)"}%-12s | ${"Win Rate"}%-8s | ${"Time"}%-8s"
     )
-    println("-" * 92)
+    println(OverviewSeparator)
 
     for (botInfo, r) <- results do
       val totalWins   = r.winsAsWhite + r.winsAsBlack
@@ -733,9 +699,9 @@ object BotMatchRunner:
           timeStr
         )
       )
-    println("================================================================================")
+    println(SectionSeparator)
     printHangTelemetry(results)
-    println("================================================================================\n")
+    println(s"$SectionSeparator\n")
 
   /** Per-game hang rates for both sides of every match — the blunder-shaped counterpart of the W/L/D overview. Material
     * is printed in pawns (centipawns / 100) because "1.8 pawns of material hung per game" is the unit a human reasons
@@ -746,7 +712,7 @@ object BotMatchRunner:
     println(
       f"${"Bot"}%-20s | ${"Turns"}%-7s | ${"HangT"}%-7s | ${"QHang"}%-7s | ${"HungMat(p)"}%-10s | ${"Punished"}%-8s | ${"PunMat(p)"}%-9s"
     )
-    println("-" * 92)
+    println(OverviewSeparator)
     for (botInfo, r) <- results do
       printHangRow(botInfo.name, r.opponentHangs, r.totalGames)
       printHangRow("  └ baseline", r.baseHangs, r.totalGames)
@@ -1168,3 +1134,9 @@ final case class TimedMatchResult(
 ):
   /** Win-rate of the bot under test, counting draws as half a point. */
   def scorePercent: Double = (wins + 0.5 * draws) / totalGames * 100.0
+
+/** Bundles a [[SearchAlgorithm]] with its associated [[TimeManager]] for timed game simulation. */
+final case class TimedPlayer(
+    algorithm: SearchAlgorithm,
+    timeManager: TimeManager = TimeManager.default
+)

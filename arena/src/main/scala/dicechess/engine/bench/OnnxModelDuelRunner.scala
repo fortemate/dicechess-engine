@@ -89,24 +89,11 @@ object OnnxModelDuelRunner:
       // Shared by both sides on purpose: holding the search identical is what makes a result a statement about the
       // models or the time policies. A per-side search would be a different runner with a different premise.
       searchOpt
-    ).mapN(runDuel)
+    ).mapN(OnnxModelDuelConfig.apply).map(runDuel)
   }
 
-  private def runDuel(
-      challengerModel: String,
-      defenderModel: String,
-      challengerFeatures: String,
-      defenderFeatures: String,
-      games: Int,
-      candidateLimit: Option[Int],
-      presets: String,
-      seed: Long,
-      jsonPath: Option[String],
-      sprtConfig: Option[SprtConfig],
-      challengerPolicy: TimePolicy,
-      defenderPolicy: TimePolicy,
-      searchKind: SearchKind
-  ): Unit =
+  private def runDuel(config: OnnxModelDuelConfig): Unit =
+    import config.*
     val onePly = searchKind == SearchKind.OnePly
 
     // Rejected rather than ignored. A candidate limit is an ExpectimaxConfig parameter with no meaning at one ply, and
@@ -117,9 +104,9 @@ object OnnxModelDuelRunner:
 
     // Parsed before either model is loaded: a bad preset should cost nothing, and loading two onnxruntime sessions
     // only to reject the argument that follows them is a slow way to report a typo.
-    val controls = TimedArenaRunner.parsePresets(presets)
-    val config   = ExpectimaxConfig(candidateLimit.getOrElse(ExpectimaxConfig().candidateLimit))
-    val width    = if onePly then "n/a" else config.candidateLimit.toString
+    val controls  = TimedArenaRunner.parsePresets(presets)
+    val configObj = ExpectimaxConfig(candidateLimit.getOrElse(ExpectimaxConfig().candidateLimit))
+    val width     = if onePly then "n/a" else configObj.candidateLimit.toString
 
     // The search kind is in the header because every chunk log and archived result is read later by someone who needs
     // to know which depth produced the number.
@@ -128,8 +115,8 @@ object OnnxModelDuelRunner:
         s"$defenderModel (features=$defenderFeatures), search=${searchKind.id}, K=$width, controls=$presets, seed=$seed"
     )
 
-    Using.resource(register(ChallengerId, challengerModel, challengerFeatures, searchKind, config)) { _ =>
-      Using.resource(register(DefenderId, defenderModel, defenderFeatures, searchKind, config)) { _ =>
+    Using.resource(register(ChallengerId, challengerModel, challengerFeatures, searchKind, configObj)) { _ =>
+      Using.resource(register(DefenderId, defenderModel, defenderFeatures, searchKind, configObj)) { _ =>
         val results = controls.map(tc =>
           BotMatchRunner.runTimedMatch(
             ChallengerId,
@@ -186,3 +173,19 @@ object OnnxModelDuelRunner:
       ArenaDifficulty,
       s"clock-aware model duel over $modelPath"
     )
+
+final case class OnnxModelDuelConfig(
+    challengerModel: String,
+    defenderModel: String,
+    challengerFeatures: String,
+    defenderFeatures: String,
+    games: Int,
+    candidateLimit: Option[Int],
+    presets: String,
+    seed: Long,
+    jsonPath: Option[String],
+    sprtConfig: Option[SprtConfig],
+    challengerPolicy: TimePolicy,
+    defenderPolicy: TimePolicy,
+    searchKind: SearchKind
+)
