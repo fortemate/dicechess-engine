@@ -132,3 +132,23 @@ class OnnxModelDuelRunnerSpec extends FunSuite:
 
   test("registers both sides under distinct ids"):
     assertNotEquals(OnnxModelDuelRunner.ChallengerId, OnnxModelDuelRunner.DefenderId)
+
+  test("holds all OnnxModelDuelConfig fields correctly"):
+    val config = OnnxModelDuelConfig(
+      challengerModel = "c.onnx",
+      defenderModel = "d.onnx",
+      challengerFeatures = "rich",
+      defenderFeatures = "material",
+      games = 10,
+      candidateLimit = Some(24),
+      presets = "3+2",
+      seed = 42L,
+      jsonPath = Some("out.json"),
+      sprtConfig = None,
+      challengerPolicy = dicechess.engine.search.TimePolicies.default,
+      defenderPolicy = dicechess.engine.search.TimePolicies.default,
+      searchKind = SearchKind.Expectimax
+    )
+    assertEquals(config.challengerModel, "c.onnx")
+    assertEquals(config.defenderModel, "d.onnx")
+    assertEquals(config.games, 10)
