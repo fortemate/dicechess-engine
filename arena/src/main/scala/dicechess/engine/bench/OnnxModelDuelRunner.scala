@@ -56,21 +56,6 @@ object OnnxModelDuelRunner:
     */
   private val ArenaDifficulty = 5
 
-  private val challengerModelOpt: Opts[String] =
-    Opts.argument[String](metavar = "challenger.onnx")
-
-  private val defenderModelOpt: Opts[String] =
-    Opts.argument[String](metavar = "defender.onnx")
-
-  private val defenderFeaturesOpt: Opts[String] =
-    Opts
-      .option[String](
-        "baseline-features",
-        help = s"Feature set for the defender model: ${ArenaOptions.FeatureSets.mkString(", ")} (default: rich)"
-      )
-      .withDefault("rich")
-      .validate("Unknown feature set")(set => ArenaOptions.FeatureSets.contains(set.toLowerCase))
-
   def main(args: Array[String]): Unit =
     ArenaOptions.runCommand(command, args)
 
@@ -80,10 +65,10 @@ object OnnxModelDuelRunner:
   ) {
     import ArenaOptions.*
     (
-      challengerModelOpt,
-      defenderModelOpt,
+      challengerModelPathOpt,
+      defenderModelPathOpt,
       featuresOpt("rich"),
-      defenderFeaturesOpt,
+      baselineFeaturesOpt(),
       gamesOpt(10),
       optionalCandidateLimitOpt,
       rescoreModelPathOpt,
