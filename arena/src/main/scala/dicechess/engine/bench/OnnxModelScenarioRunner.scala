@@ -79,28 +79,34 @@ object OnnxModelScenarioRunner:
 
     def table: Option[TranspositionTable] = ttCapacity.map(new TranspositionTable(_))
 
+    def registerSide(id: String, modelPath: String, featureSet: String, role: String) =
+      OnnxArenaBot.register(
+        id = id,
+        modelPath = modelPath,
+        featureSet = featureSet,
+        searchKind = SearchKind.Expectimax,
+        config = searchConfig,
+        difficulty = ArenaDifficulty,
+        description = s"deterministic model scenario $role over $modelPath",
+        rootRescore = rootRescore,
+        preRankWithModel = preRankWithModel,
+        tt = table
+      )
+
     Using.resource(
-      register(
+      registerSide(
         ChallengerId,
         challengerModel,
         challengerFeatures,
-        searchConfig,
-        "challenger",
-        rootRescore,
-        table,
-        preRankWithModel
+        "challenger"
       )
     ) { _ =>
       Using.resource(
-        register(
+        registerSide(
           DefenderId,
           defenderModel,
           defenderFeatures,
-          searchConfig,
-          "defender",
-          rootRescore,
-          table,
-          preRankWithModel
+          "defender"
         )
       ) { _ =>
         val report = SearchEvaluation
@@ -122,29 +128,6 @@ object OnnxModelScenarioRunner:
         }
       }
     }
-
-  private def register(
-      id: String,
-      modelPath: String,
-      featureSet: String,
-      config: ExpectimaxConfig,
-      role: String,
-      rootRescore: Option[RootRescoreModel],
-      tt: Option[TranspositionTable],
-      preRankWithModel: Boolean
-  ) =
-    OnnxArenaBot.register(
-      id = id,
-      modelPath = modelPath,
-      featureSet = featureSet,
-      searchKind = SearchKind.Expectimax,
-      config = config,
-      difficulty = ArenaDifficulty,
-      description = s"deterministic model scenario $role over $modelPath",
-      rootRescore = rootRescore,
-      preRankWithModel = preRankWithModel,
-      tt = tt
-    )
 
   private def hashModel(path: String): String =
     DepthDuelCheckpoint.sha256(path).fold(error => sys.error(error), identity)
