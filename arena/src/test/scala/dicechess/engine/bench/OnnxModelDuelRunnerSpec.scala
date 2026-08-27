@@ -52,6 +52,20 @@ class OnnxModelDuelRunnerSpec extends FunSuite:
     assert(result.isLeft, result)
     assert(result.left.exists(_.contains("no meaning with --search oneply")), result)
 
+  test("rejects expectimax-only hybrid options at one ply"):
+    val rescore = run(model, model, "--search", "oneply", "--rescore-model", model)
+    assert(rescore.left.exists(_.contains("require --search expectimax")), rescore)
+    val preRank = run(model, model, "--search", "oneply", "--pre-rank-with-model")
+    assert(preRank.left.exists(_.contains("require --search expectimax")), preRank)
+    val tt = run(model, model, "--search", "oneply", "--tt-capacity", "1024")
+    assert(tt.left.exists(_.contains("require --search expectimax")), tt)
+
+  test("rejects root-rescore tuning without a root-rescore model"):
+    val weight = run(model, model, "--rescore-weight", "0.25")
+    assert(weight.left.exists(_.contains("require --rescore-model")), weight)
+    val features = run(model, model, "--rescore-features", "material")
+    assert(features.left.exists(_.contains("require --rescore-model")), features)
+
   test("the JSON report records what the run varied, not just the two fixed side ids"):
     // Both sides register under constant ids, so without this the chunk files of two unrelated experiments are
     // identical in every identifying field and tell apart only by the directory someone filed them in. The time
@@ -72,6 +86,15 @@ class OnnxModelDuelRunnerSpec extends FunSuite:
       "1",
       "--candidate-limit",
       "2",
+      "--rescore-model",
+      model,
+      "--rescore-features",
+      "material",
+      "--rescore-weight",
+      "0.5",
+      "--pre-rank-with-model",
+      "--tt-capacity",
+      "1024",
       "--presets",
       "1+0",
       "--seed",
@@ -85,6 +108,12 @@ class OnnxModelDuelRunnerSpec extends FunSuite:
     assert(json.contains("expectimax"), json)
     assert(json.contains("empirical-v1"), json)
     assert(json.contains("legacy-linear-v1"), json)
+    assert(json.contains("rootRescoreModel"), json)
+    assert(json.contains("rootRescoreFeatures"), json)
+    assert(json.contains("material"), json)
+    assert(json.contains("preRankWithModel"), json)
+    assert(json.contains("transpositionCapacity"), json)
+    assert(json.contains("1024"), json)
     java.nio.file.Files.deleteIfExists(out)
 
   test("plays a one-ply duel"):
@@ -141,6 +170,11 @@ class OnnxModelDuelRunnerSpec extends FunSuite:
       defenderFeatures = "material",
       games = 10,
       candidateLimit = Some(24),
+      rescoreModel = Some("kcp.onnx"),
+      rescoreFeatures = Some("kcp"),
+      rescoreWeight = Some(0.5),
+      preRankWithModel = true,
+      ttCapacity = Some(262144),
       presets = "3+2",
       seed = 42L,
       jsonPath = Some("out.json"),
@@ -152,3 +186,5 @@ class OnnxModelDuelRunnerSpec extends FunSuite:
     assertEquals(config.challengerModel, "c.onnx")
     assertEquals(config.defenderModel, "d.onnx")
     assertEquals(config.games, 10)
+    assertEquals(config.rescoreModel, Some("kcp.onnx"))
+    assertEquals(config.ttCapacity, Some(262144))

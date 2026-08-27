@@ -19,9 +19,12 @@ class ArenaOptionsSpec extends FunSuite:
     val _ = ArenaOptions.modelPathOpt
     val _ = ArenaOptions.rescoreModelPathOpt
     val _ = ArenaOptions.rescoreWeightOpt
+    val _ = ArenaOptions.optionalRescoreWeightOpt
+    val _ = ArenaOptions.optionalRescoreFeaturesOpt
     val _ = ArenaOptions.jsonPathOpt
     val _ = ArenaOptions.sprtConfigOpt
     val _ = ArenaOptions.preRankWithModelOpt
+    val _ = ArenaOptions.optionalTtCapacityOpt
     val _ = ArenaOptions.bookPathOpt
     val _ = ArenaOptions.reqBookPathOpt
     val _ = ArenaOptions.corpusPathOpt
@@ -66,6 +69,23 @@ class ArenaOptionsSpec extends FunSuite:
     // extractFeatures does the actual dispatch. Adding a set to one and not the other passes validation and then
     // dies with `Unknown feature set` at run time, after the models are already loaded.
     ArenaOptions.FeatureSets.foreach(set => ArenaOptions.extractFeatures(set))
+  }
+
+  test("rescore weight validation") {
+    val command = Command("test", "test")(ArenaOptions.optionalRescoreWeightOpt)
+    assert(command.parse(Seq("--rescore-weight", "0"), sys.env).isRight)
+    assert(command.parse(Seq("--rescore-weight", "1"), sys.env).isRight)
+    assert(command.parse(Seq("--rescore-weight", "-0.1"), sys.env).isLeft)
+    assert(command.parse(Seq("--rescore-weight", "1.1"), sys.env).isLeft)
+    assert(command.parse(Seq("--rescore-weight", "NaN"), sys.env).isLeft)
+  }
+
+  test("transposition-table capacity validation") {
+    val command = Command("test", "test")(ArenaOptions.optionalTtCapacityOpt)
+    assert(command.parse(Seq("--tt-capacity", "262144"), sys.env).isRight)
+    assert(command.parse(Seq("--tt-capacity", "3"), sys.env).isLeft)
+    assert(command.parse(Seq("--tt-capacity", "0"), sys.env).isLeft)
+    assert(command.parse(Seq("--tt-capacity", "8388608"), sys.env).isLeft)
   }
 
   test("parseAndRun reports a failure inside the command body as Left") {

@@ -13,8 +13,16 @@ private[bench] object ArenaOptions:
   val rescoreModelPathOpt: Opts[Option[String]] =
     Opts.option[String]("rescore-model", help = "Path to the rescore ONNX model").orNone
 
+  val optionalRescoreWeightOpt: Opts[Option[Double]] =
+    Opts
+      .option[Double]("rescore-weight", help = "Weight for rescore model (default: 0.5)")
+      .validate("rescore-weight must be finite and in [0, 1]")(weight =>
+        !weight.isNaN && !weight.isInfinite && weight >= 0.0 && weight <= 1.0
+      )
+      .orNone
+
   val rescoreWeightOpt: Opts[Double] =
-    Opts.option[Double]("rescore-weight", help = "Weight for rescore model").withDefault(0.5)
+    optionalRescoreWeightOpt.map(_.getOrElse(0.5))
 
   def botUnderTestOpt(default: String = "monte-carlo"): Opts[String] =
     Opts
@@ -77,6 +85,15 @@ private[bench] object ArenaOptions:
     */
   val FeatureSets: List[String] = List("material", "rich", "kcp", "rawboard")
 
+  val optionalRescoreFeaturesOpt: Opts[Option[String]] =
+    Opts
+      .option[String](
+        "rescore-features",
+        help = s"Feature set for the root-rescore model: ${FeatureSets.mkString(", ")} (default: kcp)"
+      )
+      .validate("Unknown rescore feature set")(set => FeatureSets.contains(set.toLowerCase))
+      .orNone
+
   def featuresOpt(default: String = "rich"): Opts[String] =
     Opts
       .option[String]("features", help = s"Feature set: ${FeatureSets.mkString(", ")} (default: $default)")
@@ -131,7 +148,18 @@ private[bench] object ArenaOptions:
       }
 
   val preRankWithModelOpt: Opts[Boolean] =
-    Opts.flag("pre-rank-with-model", help = "Use rescore model for pre-ranking").orFalse
+    Opts.flag("pre-rank-with-model", help = "Use the leaf model for root-candidate pre-ranking").orFalse
+
+  val optionalTtCapacityOpt: Opts[Option[Int]] =
+    Opts
+      .option[Int](
+        "tt-capacity",
+        help = s"Per-side transposition-table capacity (positive power of two, max ${1 << 22})"
+      )
+      .validate(s"tt-capacity must be a positive power of two no greater than ${1 << 22}")(capacity =>
+        capacity > 0 && capacity <= (1 << 22) && (capacity & (capacity - 1)) == 0
+      )
+      .orNone
 
   def bookOpt(default: String = "opening_book.tsv"): Opts[String] =
     Opts.option[String]("book", help = s"Path to the opening book TSV file (default: $default)").withDefault(default)

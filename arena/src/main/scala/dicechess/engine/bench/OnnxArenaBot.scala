@@ -6,6 +6,8 @@ import dicechess.engine.search.{
   ExpectimaxConfig,
   OnnxEvalSearch,
   OnnxExpectimaxSearch,
+  RootRescoreModel,
+  TranspositionTable,
   RootSearchStats
 }
 
@@ -41,7 +43,10 @@ private[bench] object OnnxArenaBot:
       config: ExpectimaxConfig,
       difficulty: Int,
       description: String,
-      statsSink: RootSearchStats => Unit = _ => ()
+      statsSink: RootSearchStats => Unit = _ => (),
+      rootRescore: Option[RootRescoreModel] = None,
+      preRankWithModel: Boolean = false,
+      tt: Option[TranspositionTable] = None
   ): BotRegistry.Registration =
     val extract     = ArenaOptions.extractFeatures(featureSet)
     val (bot, name) = searchKind match
@@ -49,7 +54,15 @@ private[bench] object OnnxArenaBot:
         (new OnnxEvalSearch(modelPath, extract), s"ONNX One-Ply ($featureSet)")
       case SearchKind.Expectimax =>
         (
-          new OnnxExpectimaxSearch(modelPath, config, extract, statsSink = statsSink),
+          new OnnxExpectimaxSearch(
+            modelPath,
+            config,
+            extract,
+            rootRescore = rootRescore,
+            preRankWithModel = preRankWithModel,
+            statsSink = statsSink,
+            tt = tt
+          ),
           s"ONNX Expectimax ($featureSet, K=${config.candidateLimit})"
         )
 
