@@ -27,21 +27,6 @@ object OnnxModelScenarioRunner:
   private val ArenaDifficulty = 5
   private val SearchDepth     = 2
 
-  private val challengerModelOpt: Opts[String] =
-    Opts.argument[String](metavar = "challenger.onnx")
-
-  private val defenderModelOpt: Opts[String] =
-    Opts.argument[String](metavar = "defender.onnx")
-
-  private val defenderFeaturesOpt: Opts[String] =
-    Opts
-      .option[String](
-        "baseline-features",
-        help = s"Feature set for the defender model: ${ArenaOptions.FeatureSets.mkString(", ")} (default: rich)"
-      )
-      .withDefault("rich")
-      .validate("Unknown feature set")(set => ArenaOptions.FeatureSets.contains(set.toLowerCase))
-
   private val fixturePathOpt: Opts[Option[String]] =
     Opts.option[String]("fixtures", help = "Path to a search-evaluation fixture JSON file").orNone
 
@@ -54,10 +39,10 @@ object OnnxModelScenarioRunner:
   ) {
     import ArenaOptions.*
     (
-      challengerModelOpt,
-      defenderModelOpt,
+      challengerModelPathOpt,
+      defenderModelPathOpt,
       featuresOpt("rich"),
-      defenderFeaturesOpt,
+      baselineFeaturesOpt(),
       candidateLimitOpt(8),
       rescoreModelPathOpt,
       optionalRescoreFeaturesOpt,

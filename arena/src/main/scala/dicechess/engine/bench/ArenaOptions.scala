@@ -10,6 +10,21 @@ private[bench] object ArenaOptions:
   val modelPathOpt: Opts[String] =
     Opts.argument[String](metavar = "model.onnx")
 
+  val challengerModelPathOpt: Opts[String] =
+    Opts.argument[String](metavar = "challenger.onnx")
+
+  val defenderModelPathOpt: Opts[String] =
+    Opts.argument[String](metavar = "defender.onnx")
+
+  def baselineFeaturesOpt(default: String = "rich"): Opts[String] =
+    Opts
+      .option[String](
+        "baseline-features",
+        help = s"Feature set for the defender model: ${FeatureSets.mkString(", ")} (default: $default)"
+      )
+      .withDefault(default)
+      .validate("Unknown feature set")(set => FeatureSets.contains(set.toLowerCase))
+
   val rescoreModelPathOpt: Opts[Option[String]] =
     Opts.option[String]("rescore-model", help = "Path to the rescore ONNX model").orNone
 
