@@ -153,29 +153,33 @@ object OnnxModelDuelRunner:
 
     try
       Using.resource(
-        register(
-          ChallengerId,
-          challengerModel,
-          challengerFeatures,
-          searchKind,
-          configObj,
-          sink("challenger"),
-          rootRescore,
-          preRankWithModel,
-          table
+        OnnxArenaBot.register(
+          id = ChallengerId,
+          modelPath = challengerModel,
+          featureSet = challengerFeatures,
+          searchKind = searchKind,
+          config = configObj,
+          difficulty = ArenaDifficulty,
+          description = s"clock-aware model duel over $challengerModel",
+          statsSink = sink("challenger"),
+          rootRescore = rootRescore,
+          preRankWithModel = preRankWithModel,
+          tt = table
         )
       ) { _ =>
         Using.resource(
-          register(
-            DefenderId,
-            defenderModel,
-            defenderFeatures,
-            searchKind,
-            configObj,
-            sink("defender"),
-            rootRescore,
-            preRankWithModel,
-            table
+          OnnxArenaBot.register(
+            id = DefenderId,
+            modelPath = defenderModel,
+            featureSet = defenderFeatures,
+            searchKind = searchKind,
+            config = configObj,
+            difficulty = ArenaDifficulty,
+            description = s"clock-aware model duel over $defenderModel",
+            statsSink = sink("defender"),
+            rootRescore = rootRescore,
+            preRankWithModel = preRankWithModel,
+            tt = table
           )
         ) { _ =>
           val results = controls.map { tc =>
@@ -230,31 +234,6 @@ object OnnxModelDuelRunner:
         if writer.checkError() then
           System.err.println("STATS_OUT: write errors occurred — the stats file may be incomplete")
       }
-
-  private def register(
-      id: String,
-      modelPath: String,
-      featureSet: String,
-      searchKind: SearchKind,
-      config: ExpectimaxConfig,
-      statsSink: RootSearchStats => Unit,
-      rootRescore: Option[RootRescoreModel],
-      preRankWithModel: Boolean,
-      tt: Option[TranspositionTable]
-  ) =
-    OnnxArenaBot.register(
-      id,
-      modelPath,
-      featureSet,
-      searchKind,
-      config,
-      ArenaDifficulty,
-      s"clock-aware model duel over $modelPath",
-      statsSink,
-      rootRescore,
-      preRankWithModel,
-      tt
-    )
 
 final case class OnnxModelDuelConfig(
     challengerModel: String,
