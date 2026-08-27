@@ -14,7 +14,8 @@ class OnnxQueenSafetyProbeSpec extends FunSuite:
 
   override def munitTimeout: Duration = 2.minutes
 
-  private val model = getClass.getResource("/synthetic_test_model.onnx").getPath
+  private val model = Option(getClass.getResource("/synthetic_test_model.onnx"))
+    .fold(fail("missing /synthetic_test_model.onnx test resource"))(_.getPath)
 
   private def state(fen: String): GameState = FenParser.parse(fen).fold(fail(_), identity)
 
@@ -47,6 +48,14 @@ class OnnxQueenSafetyProbeSpec extends FunSuite:
     assertEquals(summary.ties, 1)
     assertEquals(summary.meanDelta, 6.25)
     assertEquals(summary.deltaP50, 0)
+
+  test("rejects mismatched ONNX batch output lengths"):
+    val deltas = scala.collection.mutable.ArrayBuffer.empty[Int]
+    val error  = intercept[RuntimeException] {
+      QueenSafetyProbe.appendDeltas(Array(1), Array(2, 3), expected = 2, deltas)
+    }
+    assert(error.getMessage.contains("ONNX batch size mismatch"))
+    assertEquals(deltas.toVector, Vector.empty)
 
   test("requires both models and a positive pair count"):
     assert(ArenaOptions.parseAndRun(OnnxQueenSafetyProbeMain.command, Array.empty).isLeft)

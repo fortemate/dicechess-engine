@@ -28,7 +28,10 @@ import dicechess.engine.search.{OnnxEvalSearch, PieceSafety}
   * aggregate counts and score deltas leave the process.
   *
   * Usage:
-  * `sbt 'arena/runMain dicechess.engine.bench.OnnxQueenSafetyProbeMain challenger.onnx defender.onnx corpus.csv.gz --pairs 100000 --features rich --seed 42 --json report.json'`
+  * {{{
+  * sbt 'arena/runMain dicechess.engine.bench.OnnxQueenSafetyProbeMain challenger.onnx defender.onnx \
+  *   corpus.csv.gz --pairs 100000 --features rich --seed 42 --json report.json'
+  * }}}
   */
 object OnnxQueenSafetyProbeMain:
 
@@ -99,7 +102,8 @@ object OnnxQueenSafetyProbeMain:
       "schemaVersion" -> Json.int(1),
       "setup"         -> Json.obj(
         "pairDefinition" -> Json.str(
-          "mover queen attacked and undefended; counterfactual shifts it one file towards a onto an empty square and must remove the hang"
+          "mover queen attacked and undefended; counterfactual shifts it one file towards a onto an empty square " +
+            "and must remove the hang"
         ),
         "challengerModel"  -> Json.str(config.challengerModel),
         "challengerSha256" -> Json.str(QueenSafetyProbe.sha256(Path.of(config.challengerModel))),
@@ -304,7 +308,19 @@ private[bench] object QueenSafetyProbe:
     if pairs.nonEmpty then
       val hanging = model.onnxEvalBatch(pairs.map(_.hanging).toArray, mover)
       val safe    = model.onnxEvalBatch(pairs.map(_.safe).toArray, mover)
-      safe.lazyZip(hanging).foreach((safeScore, hangingScore) => deltas += safeScore - hangingScore)
+      appendDeltas(safe, hanging, pairs.length, deltas)
+
+  private[bench] def appendDeltas(
+      safe: Array[Int],
+      hanging: Array[Int],
+      expected: Int,
+      deltas: ArrayBuffer[Int]
+  ): Unit =
+    if safe.length != expected || hanging.length != expected then
+      sys.error(
+        s"ONNX batch size mismatch: expected $expected, safe=${safe.length}, hanging=${hanging.length}"
+      )
+    safe.lazyZip(hanging).foreach((safeScore, hangingScore) => deltas += safeScore - hangingScore)
 
   private[bench] def summarize(deltas: Array[Int]): QueenSafetyScoreSummary =
     require(deltas.nonEmpty, "at least one score delta is required")
