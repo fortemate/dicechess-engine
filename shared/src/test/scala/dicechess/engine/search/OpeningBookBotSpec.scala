@@ -175,9 +175,10 @@ class OpeningBookBotSpec extends FunSuite:
   }
 
   test("chooses the shortest king capture path (fewest micro-moves) among multiple capture paths") {
-    // White queen on h5, rook on a1 (e1 is the white king), black king on e8, f7 empty (ppppp1pp).
-    // Dice pool has Q and R, so capture paths of different lengths exist:
-    // 1 micro-move: Qh5xe8; 2 micro-moves: any rook move followed by Qh5xe8 (e.g. a1a3, h5e8).
+    // White Queen on h5, Rook on e1, Black King on e8, f7 empty (ppppp1pp).
+    // Dice pool has Q and R.
+    // 1 micro-move capture: Qh5xe8 (1 move)
+    // 2 micro-move capture: e1e7, e7e8 (2 moves)
     val fen     = "rnbqkbnr/ppppp1pp/8/7Q/5p2/8/PPPPPPPP/R3KBNR w KQkq - 0 1 QR"
     val state   = FenParser.parse(fen).toOption.get
     val bookKey = OpeningBook.key(state).get
