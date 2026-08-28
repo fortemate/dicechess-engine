@@ -7,10 +7,11 @@ import scala.util.Random
   *
   * The `book` maps a canonical key (see [[OpeningBook.key]]) to the chosen continuation, a comma-separated list of
   * long-algebraic micro-moves (e.g. `"e2e4,f1c4"`). On a book-key hit, if any legal turn path captures the enemy king,
-  * the decorator plays the shortest such immediate win path instead of the booked continuation. Otherwise, when the
-  * key is present, it plays the booked turn instantly — without spending the underlying bot's search budget — which is
+  * the decorator plays the shortest such immediate win path instead of the booked continuation. Otherwise, when the key
+  * is present, it plays the booked turn instantly — without spending the underlying bot's search budget — which is
   * exactly where a heuristic or rollout-based engine is weakest and where empirical data is richest. In summary, the
-  * precedence order is capture > book > underlying. When the position's key is absent from `book`, it delegates to `underlying`.
+  * precedence order is capture > book > underlying. When the position's key is absent from `book`, it delegates to
+  * `underlying`.
   *
   * The booked moves are matched against the position's legal turn paths by move **multiset**, so the order stored in
   * the book does not matter and an entry that cannot be realised legally (a stale or corrupt book) is silently ignored
@@ -68,8 +69,10 @@ class OpeningBookBot(val underlying: SearchAlgorithm, val book: Map[String, Stri
     for
       key       <- OpeningBook.key(state)
       bookMoves <- book.get(key)
-      allPaths = TurnGenerator.generateAllLegalTurnPaths(state)
-      capturePaths = allPaths.filter(p => SearchScoring.scorePath(state, p, (_, _) => 0).score == SearchScoring.TerminalWinScore)
+      allPaths     = TurnGenerator.generateAllLegalTurnPaths(state)
+      capturePaths = allPaths.filter(p =>
+        SearchScoring.scorePath(state, p, (_, _) => 0).score == SearchScoring.TerminalWinScore
+      )
       move <-
         if capturePaths.nonEmpty then
           val shortestCapture = capturePaths.minBy(_.size)

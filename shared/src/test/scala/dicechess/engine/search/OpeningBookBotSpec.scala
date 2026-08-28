@@ -179,8 +179,8 @@ class OpeningBookBotSpec extends FunSuite:
     // Dice pool has Q and R.
     // 1 micro-move capture: Qh5xe8 (1 move)
     // 2 micro-move capture: e1e7, e7e8 (2 moves)
-    val fen   = "rnbqkbnr/ppppp1pp/8/7Q/5p2/8/PPPPPPPP/R3KBNR w KQkq - 0 1 QR"
-    val state = FenParser.parse(fen).toOption.get
+    val fen     = "rnbqkbnr/ppppp1pp/8/7Q/5p2/8/PPPPPPPP/R3KBNR w KQkq - 0 1 QR"
+    val state   = FenParser.parse(fen).toOption.get
     val bookKey = OpeningBook.key(state).get
     val book    = Map(bookKey -> "a2a3")
     val bot     = new OpeningBookBot(silentBot(fallback), book)
@@ -192,12 +192,12 @@ class OpeningBookBotSpec extends FunSuite:
   }
 
   test("immediate king capture takes precedence through TimeBudgetedOpeningBookBot") {
-    val fen   = "rnbqkbnr/ppppp1pp/8/7Q/5p2/8/PPPPPPPP/RNB1KBNR w KQkq - 0 1 Q"
-    val state = FenParser.parse(fen).toOption.get
-    val bookKey = OpeningBook.key(state).get
-    val book    = Map(bookKey -> "h5e5")
+    val fen          = "rnbqkbnr/ppppp1pp/8/7Q/5p2/8/PPPPPPPP/RNB1KBNR w KQkq - 0 1 Q"
+    val state        = FenParser.parse(fen).toOption.get
+    val bookKey      = OpeningBook.key(state).get
+    val book         = Map(bookKey -> "h5e5")
     val tbUnderlying = new SearchAlgorithm with TimeBudgetedSearch:
-      def findBestMove(state: GameState): Option[ScoredSequence] = None
+      def findBestMove(state: GameState): Option[ScoredSequence]                                               = None
       override def findBestMove(state: GameState, deadlineNanos: Long, random: Random): Option[ScoredSequence] = None
     val bot = new TimeBudgetedOpeningBookBot(tbUnderlying, book)
 
@@ -207,8 +207,8 @@ class OpeningBookBotSpec extends FunSuite:
   }
 
   test("booked position with no capture available still returns the booked move") {
-    val state = FenParser.parse(startWithDice).toOption.get
-    val path  = TurnGenerator.generateAllLegalTurnPaths(state).head
+    val state   = FenParser.parse(startWithDice).toOption.get
+    val path    = TurnGenerator.generateAllLegalTurnPaths(state).head
     val bookKey = OpeningBook.key(state).get
     val book    = Map(bookKey -> path.map(uci).mkString(","))
     val bot     = new OpeningBookBot(silentBot(fallback), book)
