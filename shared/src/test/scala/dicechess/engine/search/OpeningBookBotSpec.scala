@@ -159,3 +159,61 @@ class OpeningBookBotSpec extends FunSuite:
       OpeningBookParser.parse("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - BPR\t").isLeft
     ) // Missing continuation
   }
+
+  test("plays an immediate king capture instead of the booked move when king capture is available on book hit") {
+    // White Qh5, Black f-pawn advanced (f7 empty: ppppp1pp), Black king on e8, Queen die in pool
+    val fen   = "rnbqkbnr/ppppp1pp/8/7Q/5p2/8/PPPPPPPP/RNB1KBNR w KQkq - 0 1 Q"
+    val state = FenParser.parse(fen).toOption.get
+    // Key hit with a quiet continuation (e.g. h5e5)
+    val bookKey = OpeningBook.key(state).get
+    val book    = Map(bookKey -> "h5e5")
+    val bot     = new OpeningBookBot(silentBot(fallback), book)
+
+    val res = bot.findBestMove(state).get
+    assertEquals(res.score, SearchScoring.TerminalWinScore)
+    assertEquals(res.moves.map(uci), List("h5e8"))
+  }
+
+  test("chooses the shortest king capture path (fewest micro-moves) among multiple capture paths") {
+    // White Queen on h5, Rook on e1, Black King on e8, f7 empty (ppppp1pp).
+    // Dice pool has Q and R.
+    // 1 micro-move capture: Qh5xe8 (1 move)
+    // 2 micro-move capture: e1e7, e7e8 (2 moves)
+    val fen     = "rnbqkbnr/ppppp1pp/8/7Q/5p2/8/PPPPPPPP/R3KBNR w KQkq - 0 1 QR"
+    val state   = FenParser.parse(fen).toOption.get
+    val bookKey = OpeningBook.key(state).get
+    val book    = Map(bookKey -> "a2a3")
+    val bot     = new OpeningBookBot(silentBot(fallback), book)
+
+    val res = bot.findBestMove(state).get
+    assertEquals(res.score, SearchScoring.TerminalWinScore)
+    assertEquals(res.moves.size, 1)
+    assertEquals(res.moves.map(uci), List("h5e8"))
+  }
+
+  test("immediate king capture takes precedence through TimeBudgetedOpeningBookBot") {
+    val fen          = "rnbqkbnr/ppppp1pp/8/7Q/5p2/8/PPPPPPPP/RNB1KBNR w KQkq - 0 1 Q"
+    val state        = FenParser.parse(fen).toOption.get
+    val bookKey      = OpeningBook.key(state).get
+    val book         = Map(bookKey -> "h5e5")
+    val tbUnderlying = new SearchAlgorithm with TimeBudgetedSearch:
+      def findBestMove(state: GameState): Option[ScoredSequence]                                               = None
+      override def findBestMove(state: GameState, deadlineNanos: Long, random: Random): Option[ScoredSequence] = None
+    val bot = new TimeBudgetedOpeningBookBot(tbUnderlying, book)
+
+    val res = bot.findBestMove(state, 1000000L, new Random(1)).get
+    assertEquals(res.score, SearchScoring.TerminalWinScore)
+    assertEquals(res.moves.map(uci), List("h5e8"))
+  }
+
+  test("booked position with no capture available still returns the booked move") {
+    val state   = FenParser.parse(startWithDice).toOption.get
+    val path    = TurnGenerator.generateAllLegalTurnPaths(state).head
+    val bookKey = OpeningBook.key(state).get
+    val book    = Map(bookKey -> path.map(uci).mkString(","))
+    val bot     = new OpeningBookBot(silentBot(fallback), book)
+
+    val res = bot.findBestMove(state).get
+    assertNotEquals(res.score, SearchScoring.TerminalWinScore)
+    assertEquals(res.moves.map(uci).sorted, path.map(uci).sorted)
+  }
