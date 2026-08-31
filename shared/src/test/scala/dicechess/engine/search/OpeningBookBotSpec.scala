@@ -8,6 +8,9 @@ class OpeningBookBotSpec extends FunSuite:
 
   private val startWithDice = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 BPR"
   private val startNoDice   = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+  private val winFen        = "k7/8/8/8/8/8/PPPPPPPP/QNBK4 w - - 0 1"
+  private val loseFen       = "k7/q7/r7/8/8/8/8/4K3 w - - 0 1"
+  private val equalFen      = "k7/8/8/8/8/8/8/K7 w - - 0 1"
 
   /** Long-algebraic notation of a micro-move, mirroring the decorator's internal matcher. */
   private def uci(m: Move): String = m.toUci
@@ -98,20 +101,34 @@ class OpeningBookBotSpec extends FunSuite:
     assert(OpeningBookBot.decorate(tb, Map.empty).isInstanceOf[TimeBudgetedSearch])
   }
 
-  test("proxies double decisions to a DrawOfferLogic underlying, else stays silent") {
+  test("proxies double decisions unconditionally to underlying") {
     val state     = FenParser.parse(startNoDice).toOption.get
+    val winState  = FenParser.parse(winFen).toOption.get
+    val loseState = FenParser.parse(loseFen).toOption.get
+
+    // 1. DrawOfferLogic underlying
     val withLogic = new SearchAlgorithm with DrawOfferLogic:
       def findBestMove(state: GameState): Option[ScoredSequence]             = None
       override def shouldOfferDouble(state: GameState, stake: Int): Boolean  = stake == 10
       override def shouldAcceptDouble(state: GameState, stake: Int): Boolean = stake == 20
-    val booked = new OpeningBookBot(withLogic, Map.empty)
-    assert(booked.shouldOfferDouble(state, 10))
-    assert(!booked.shouldOfferDouble(state, 5))
-    assert(booked.shouldAcceptDouble(state, 20))
+    val bookedLogic = new OpeningBookBot(withLogic, Map.empty)
+    assert(bookedLogic.shouldOfferDouble(state, 10))
+    assert(!bookedLogic.shouldOfferDouble(state, 5))
+    assert(bookedLogic.shouldAcceptDouble(state, 20))
+    assert(!bookedLogic.shouldAcceptDouble(state, 10))
 
+    // 2. Direct-override underlying (e.g. AggressiveSearch without DrawOfferLogic)
+    val bookedAggressive = OpeningBookBot.decorate(AggressiveSearch, Map.empty)
+    assert(bookedAggressive.shouldOfferDouble(winState, 1))
+    assert(bookedAggressive.shouldAcceptDouble(winState, 2))
+    assert(!bookedAggressive.shouldOfferDouble(loseState, 1))
+    assert(!bookedAggressive.shouldAcceptDouble(loseState, 2))
+
+    // 3. Default SearchAlgorithm underlying (preserves trait default: accept when winProb > 0.25)
     val plain = new OpeningBookBot(silentBot(), Map.empty)
     assert(!plain.shouldOfferDouble(state, 10))
-    assert(!plain.shouldAcceptDouble(state, 20))
+    assert(plain.shouldAcceptDouble(state, 20))      // winProb ~0.50 > 0.25 in starting position
+    assert(!plain.shouldAcceptDouble(loseState, 20)) // winProb < 0.25 in lost position
   }
 
   test("plays a booked turn for Black, using the lower-cased dice key") {
@@ -129,16 +146,35 @@ class OpeningBookBotSpec extends FunSuite:
     assertEquals(bot.findBestMove(state), fallback)
   }
 
-  test("proxies draw decisions to a DrawOfferLogic underlying, else stays silent") {
-    val state     = FenParser.parse(startNoDice).toOption.get
+  test("proxies draw decisions unconditionally to underlying") {
+    val startState = FenParser.parse(startNoDice).toOption.get
+    val equalState = FenParser.parse(equalFen).toOption.get
+    val loseState  = FenParser.parse(loseFen).toOption.get
+
+    // 1. Inherited DrawOfferLogic underlying (no method overrides)
     val withLogic = new SearchAlgorithm with DrawOfferLogic:
       def findBestMove(state: GameState): Option[ScoredSequence] = None
+    val bookedLogic = new OpeningBookBot(withLogic, Map.empty)
+    // Insufficient material (K vs K) triggers offer; starting position does not
+    assert(bookedLogic.shouldOfferDraw(equalState))
+    assert(!bookedLogic.shouldOfferDraw(startState))
+    // Severe disadvantage (eval < -200) triggers acceptance; starting position does not
+    assert(bookedLogic.shouldAcceptDraw(loseState))
+    assert(!bookedLogic.shouldAcceptDraw(startState))
+
+    // 2. Direct-override underlying without DrawOfferLogic returning distinct outcomes
+    val directOverride = new SearchAlgorithm:
+      def findBestMove(state: GameState): Option[ScoredSequence] = None
       override def shouldOfferDraw(state: GameState): Boolean    = true
-      override def shouldAcceptDraw(state: GameState): Boolean   = true
-    assert(new OpeningBookBot(withLogic, Map.empty).shouldOfferDraw(state))
-    assert(new OpeningBookBot(withLogic, Map.empty).shouldAcceptDraw(state))
-    assert(!new OpeningBookBot(silentBot(), Map.empty).shouldOfferDraw(state))
-    assert(!new OpeningBookBot(silentBot(), Map.empty).shouldAcceptDraw(state))
+      override def shouldAcceptDraw(state: GameState): Boolean   = false
+    val bookedOverride = new OpeningBookBot(directOverride, Map.empty)
+    assert(bookedOverride.shouldOfferDraw(startState))
+    assert(!bookedOverride.shouldAcceptDraw(startState))
+
+    // 3. Default SearchAlgorithm underlying (both default to false)
+    val plain = new OpeningBookBot(silentBot(), Map.empty)
+    assert(!plain.shouldOfferDraw(startState))
+    assert(!plain.shouldAcceptDraw(startState))
   }
 
   test("OpeningBookParser parses a canonical-key TSV format") {

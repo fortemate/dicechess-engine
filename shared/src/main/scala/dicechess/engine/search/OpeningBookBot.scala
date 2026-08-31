@@ -22,6 +22,10 @@ import scala.util.Random
   * a plain bot yields a plain decorator — so a host's `getBestMove` does not advertise a time budget for a bot that
   * ignores it.
   *
+  * The decorator delegates all doubling and draw policy queries ([[shouldOfferDouble]], [[shouldAcceptDouble]],
+  * [[shouldOfferDraw]], [[shouldAcceptDraw]]) unconditionally to `underlying`, preserving the wrapped bot's custom
+  * policies, `DrawOfferLogic` mix-ins, and default `SearchAlgorithm` heuristics.
+  *
   * @param underlying
   *   the bot to consult when the position is not booked
   * @param book
@@ -36,24 +40,16 @@ class OpeningBookBot(val underlying: SearchAlgorithm, val book: Map[String, Stri
     lookupMove(state).orElse(underlying.findBestMove(state, random))
 
   override def shouldOfferDouble(state: GameState, currentStake: Int): Boolean =
-    underlying match
-      case drawLogic: DrawOfferLogic => drawLogic.shouldOfferDouble(state, currentStake)
-      case _                         => false
+    underlying.shouldOfferDouble(state, currentStake)
 
   override def shouldAcceptDouble(state: GameState, currentStake: Int): Boolean =
-    underlying match
-      case drawLogic: DrawOfferLogic => drawLogic.shouldAcceptDouble(state, currentStake)
-      case _                         => false
+    underlying.shouldAcceptDouble(state, currentStake)
 
   override def shouldOfferDraw(state: GameState): Boolean =
-    underlying match
-      case drawLogic: DrawOfferLogic => drawLogic.shouldOfferDraw(state)
-      case _                         => false
+    underlying.shouldOfferDraw(state)
 
   override def shouldAcceptDraw(state: GameState): Boolean =
-    underlying match
-      case drawLogic: DrawOfferLogic => drawLogic.shouldAcceptDraw(state)
-      case _                         => false
+    underlying.shouldAcceptDraw(state)
 
   /** Long-algebraic notation of a micro-move including any promotion suffix (e.g. `"e2e4"`, `"e7e8q"`). */
   private def uci(move: Move): String = move.toUci
