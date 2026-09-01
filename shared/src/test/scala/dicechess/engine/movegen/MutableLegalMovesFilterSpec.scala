@@ -397,18 +397,30 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
     "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", // Position 2
     "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",                            // Position 3
     "r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1",                   // Castling Position
-    "k7/4P3/8/8/8/8/8/4K3 w - - 0 1"                                        // Promotion Position
+    "k7/4P3/8/8/8/8/8/4K3 w - - 0 1",                                       // Promotion Position
+    "8/8/8/2k5/8/1N6/2P5/K7 w - - 0 1",                                     // King-Capture available (Nb3xc5)
+    "n1n5/PPPk4/8/8/8/8/4Kppp/5N1N b - - 0 1"                               // King-Capture available, Black to move
   )
 
   // ScalaCheck Generator: Custom FEN position selector
   val gameStateGen: Gen[GameState] =
     Gen.oneOf(benchmarkFens).map(parse)
 
-  // ScalaCheck Generator: Exactly 3 dice rolled (values 1 to 6)
+  // ScalaCheck Generator: 1 to 3 dice rolled (values 1 to 6).
+  // Partially-consumed dice pools are reachable mid-turn, so they must be covered too.
   val diceGen: Gen[List[Int]] =
-    Gen.listOfN(3, Gen.choose(1, 6))
+    Gen.choose(1, 3).flatMap(Gen.listOfN(_, Gen.choose(1, 6)))
 
   // ── Reference implementation (unmemoized) for differential testing ─────────
+  //
+  // Deliberately carries its own King-capture predicate rather than calling
+  // GameState.isKingCapture: sharing that helper with the implementation under test
+  // would make this differential blind to any fault inside it.
+
+  private def isKingCaptureRef(state: GameState, move: Move): Boolean =
+    state.mailbox
+      .get(move.toSquare)
+      .exists(p => p.pieceType == PieceType.King && p.color != state.activeColor)
 
   private def referenceFilter(state: GameState): List[Move] =
     if state.flags.isDicePoolEmpty then Nil
@@ -419,7 +431,7 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
         var maxLen = 0
         for move <- moves do
           val depth =
-            if state.isKingCapture(move) then 1
+            if isKingCaptureRef(state, move) then 1
             else continuationLengthRef(state, move)
           if depth > maxLen then maxLen = depth
 
@@ -427,7 +439,7 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
         else
           val result = List.newBuilder[Move]
           for move <- moves do
-            if state.isKingCapture(move) || continuationLengthRef(state, move) == maxLen then result += move
+            if isKingCaptureRef(state, move) || continuationLengthRef(state, move) == maxLen then result += move
           result.result()
 
   private def continuationLengthRef(state: GameState, move: Move): Int =
@@ -449,7 +461,7 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
       var best = 0
       for move <- MoveGenerator.generateMoves(state) do
         val depth =
-          if state.isKingCapture(move) then 1
+          if isKingCaptureRef(state, move) then 1
           else continuationLengthRef(state, move)
         if depth > best then best = depth
       best
@@ -489,6 +501,18 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
     }
   }
 
+  property("D5: GameState.isKingCapture agrees with an independent reference predicate") {
+    /*
+     * The shared GameState.isKingCapture is consumed by LegalMovesFilter, TurnGenerator and
+     * SearchAlgorithm alike, so a fault in it would shift every consumer at once and stay
+     * invisible to any differential built on top of it. Pin it directly instead.
+     */
+    forAll(gameStateGen, diceGen) { (state, dice) =>
+      val st = state.withDicePool(dice)
+      MoveGenerator.generateMoves(st).forall(m => st.isKingCapture(m) == isKingCaptureRef(st, m))
+    }
+  }
+
   // ── AREA E: REGRESSION TESTS (PERFT INTEGRATION) ──────────────────────────
 
   test("E1: Perft at depth 1 with filtered moves remains consistent") {
@@ -513,11 +537,21 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
     assert(legal.size >= 0)
   }
 
-  test("E3: Issue #117 - Single-pass depth memoization consistency") {
-    val state    = parse("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
-    val dice     = List(Pawn, Knight, Bishop)
-    val st       = state.withDicePool(dice)
-    val legal    = filterMoves(state, dice)
-    val expected = referenceFilter(st)
-    assertEquals(legal, expected)
+  test("E3: Issue #117 - Depth memoization preserves the King-Capture exemption") {
+    /*
+     * Nb3 already attacks the Black King on c5, so Nb3xc5 is a 1-move King capture,
+     * while the globally optimal non-capturing sequence is 3 moves long. The capture is
+     * therefore legal *only* via the King-Capture exemption, not via the maximum-length
+     * rule — which pins the `isKingCapture(move) ||` branch of Pass 2 deterministically,
+     * independently of the ScalaCheck seed that D4 depends on.
+     */
+    val state = parse("8/8/8/2k5/8/1N6/2P5/K7 w - - 0 1")
+    val dice  = List(Knight, Pawn, Pawn)
+    val st    = state.withDicePool(dice)
+    val legal = filterMoves(state, dice)
+
+    val kingCapture = legal.find(isKingCaptureRef(st, _))
+    assert(kingCapture.isDefined, "the 1-move King capture must survive the maximum-length filter")
+    assert(referenceFilter(st).exists(isKingCaptureRef(st, _)))
+    assertEquals(legal, referenceFilter(st))
   }
