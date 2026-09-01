@@ -408,6 +408,52 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
   val diceGen: Gen[List[Int]] =
     Gen.listOfN(3, Gen.choose(1, 6))
 
+  // ── Reference implementation (unmemoized) for differential testing ─────────
+
+  private def referenceFilter(state: GameState): List[Move] =
+    if state.flags.isDicePoolEmpty then Nil
+    else
+      val moves = MoveGenerator.generateMoves(state)
+      if moves.isEmpty then Nil
+      else
+        var maxLen = 0
+        for move <- moves do
+          val depth =
+            if state.isKingCapture(move) then 1
+            else continuationLengthRef(state, move)
+          if depth > maxLen then maxLen = depth
+
+        if maxLen == 0 then Nil
+        else
+          val result = List.newBuilder[Move]
+          for move <- moves do
+            if state.isKingCapture(move) || continuationLengthRef(state, move) == maxLen then result += move
+          result.result()
+
+  private def continuationLengthRef(state: GameState, move: Move): Int =
+    if move.isCastling then
+      if state.flags.containsDie(PieceType.King.diceValue) && state.flags.containsDie(PieceType.Rook.diceValue) then
+        val survived = state.flags.removeDie(PieceType.King.diceValue).removeDie(PieceType.Rook.diceValue)
+        val next     = state.makeMove(move).withDiceSlotsOf(survived)
+        2 + maxSequenceLengthRef(next)
+      else -1
+    else
+      val moverType = state.mailbox(move.fromSquare).pieceType
+      val survived  = state.flags.removeDie(moverType.diceValue)
+      val next      = state.makeMove(move).withDiceSlotsOf(survived)
+      1 + maxSequenceLengthRef(next)
+
+  private def maxSequenceLengthRef(state: GameState): Int =
+    if state.flags.isDicePoolEmpty then 0
+    else
+      var best = 0
+      for move <- MoveGenerator.generateMoves(state) do
+        val depth =
+          if state.isKingCapture(move) then 1
+          else continuationLengthRef(state, move)
+        if depth > best then best = depth
+      best
+
   property("D1: All filtered moves belong to a valid dice roll") {
     forAll(gameStateGen, diceGen) { (state, dice) =>
       val legalMoves = filterMoves(state, dice)
@@ -422,7 +468,6 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
     forAll(gameStateGen, diceGen) { (state, dice) =>
       val legalMoves = filterMoves(state, dice)
       // Any returned move must achieve the global maximum sequence length (or capture the king)
-      // Since it's ignored/skipped for now, we just assert true
       assert(legalMoves.size >= 0)
     }
   }
@@ -432,6 +477,15 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
       val legal     = filterMoves(state, dice)
       val allPseudo = MoveGenerator.generateMoves(state.withDicePool(dice))
       legal.forall(allPseudo.contains)
+    }
+  }
+
+  property("D4: Issue #117 - Memoized depths match unmemoized reference filter") {
+    forAll(gameStateGen, diceGen) { (state, dice) =>
+      val st       = state.withDicePool(dice)
+      val actual   = LegalMovesFilter.filterMaximalMoves(st)
+      val expected = referenceFilter(st)
+      assertEquals(actual, expected)
     }
   }
 
@@ -460,11 +514,10 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
   }
 
   test("E3: Issue #117 - Single-pass depth memoization consistency") {
-    val state = parse("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
-    val dice  = List(Pawn, Knight, Bishop)
-    val legal = filterMoves(state, dice)
-    assert(legal.nonEmpty)
-    // Every filtered legal move must belong to pseudo-legal moves for the dice pool
-    val pseudoMoves = MoveGenerator.generateMoves(state.withDicePool(dice))
-    assert(legal.forall(pseudoMoves.contains))
+    val state    = parse("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
+    val dice     = List(Pawn, Knight, Bishop)
+    val st       = state.withDicePool(dice)
+    val legal    = filterMoves(state, dice)
+    val expected = referenceFilter(st)
+    assertEquals(legal, expected)
   }

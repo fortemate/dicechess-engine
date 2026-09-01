@@ -25,10 +25,10 @@ object LegalMovesFilter:
 
   // ── Private helpers ──────────────────────────────────────────────────────────
 
-  /** Returns `true` when `move` captures the opponent's King (win condition). */
-  private inline def isKingCapture(state: GameState, move: Move): Boolean =
-    val p = state.mailbox(move.toSquare)
-    p.pieceType == PieceType.King && p.color != state.activeColor
+  /** Achievable sequence length for `move` played as a first move from `state`. */
+  private inline def rootDepth(state: GameState, move: Move): Int =
+    if state.isKingCapture(move) then 1
+    else continuationLength(state, move)
 
   /** Computes the sequence length reachable by playing `move` from `state` when `move` is not a King-Capture.
     *
@@ -71,9 +71,7 @@ object LegalMovesFilter:
       var best = 0
 
       for move <- MoveGenerator.generateMoves(state) do
-        val depth =
-          if isKingCapture(state, move) then 1
-          else continuationLength(state, move)
+        val depth = rootDepth(state, move)
         if depth > best then best = depth
 
       best
@@ -111,9 +109,7 @@ object LegalMovesFilter:
         // This considers ALL branches including King-capture paths without redundant re-traversal.
         while cur.nonEmpty do
           val move  = cur.head
-          val depth =
-            if isKingCapture(state, move) then 1
-            else continuationLength(state, move)
+          val depth = rootDepth(state, move)
           depths(i) = depth
           if depth > maxLen then maxLen = depth
           i += 1
@@ -130,7 +126,7 @@ object LegalMovesFilter:
           cur = moves
           while cur.nonEmpty do
             val move = cur.head
-            if isKingCapture(state, move) || depths(i) == maxLen then result += move
+            if state.isKingCapture(move) || depths(i) == maxLen then result += move
             i += 1
             cur = cur.tail
 

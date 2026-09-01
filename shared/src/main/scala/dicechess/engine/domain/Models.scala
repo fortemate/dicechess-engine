@@ -336,6 +336,11 @@ case class GameState(
 ) derives CanEqual:
   inline def activeColor: Color = flags.activeColor
 
+  /** Returns `true` when `move` captures the opponent's King from this state (win condition). */
+  inline def isKingCapture(move: Move): Boolean =
+    val p = mailbox(move.toSquare)
+    p.pieceType == PieceType.King && p.color != activeColor
+
   /** Returns the precalculated Zobrist key, or computes it on demand if unpopulated (0L).
     *
     * ⚠️ Incremental-hash contract: position-relevant fields (boards, mailbox, flags, enPassant) must NEVER be mutated

@@ -72,12 +72,6 @@ object TurnGenerator:
           if dice == maxDice then f(outPath, unpackPath(p, outPath))
           i += 1
 
-  /** Returns `true` when `move` captures the opponent's King from `state`. */
-  private def isKingCapture(state: GameState, move: Move): Boolean =
-    state.mailbox
-      .get(move.toSquare)
-      .exists(p => p.pieceType == PieceType.King && p.color != state.activeColor)
-
   /** Packs a path of up to 3 moves, its length, and the total dice consumed into a single 64-bit Long.
     *
     * The packing layout is:
@@ -166,7 +160,7 @@ object TurnGenerator:
       ctx: TurnGenContext,
       move: Move
   ): Unit =
-    if isKingCapture(state, move) then handleKingCapture(currentPath, depth, diceConsumedSoFar, ctx, move)
+    if state.isKingCapture(move) then handleKingCapture(currentPath, depth, diceConsumedSoFar, ctx, move)
     else if move.isCastling then handleCastling(state, currentPath, depth, diceConsumedSoFar, ctx, move)
     else handleNormalMove(state, currentPath, depth, diceConsumedSoFar, ctx, move)
 
