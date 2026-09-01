@@ -133,9 +133,7 @@ object SearchScoring:
         val activeColor       = state.activeColor
         val intermediateState = path.init.foldLeft(state)((s, m) => s.makeMove(m))
         val lastMove          = path.last
-        val isKingCapture     = intermediateState.mailbox
-          .get(lastMove.toSquare)
-          .exists(piece => piece.pieceType == PieceType.King && piece.color != activeColor)
+        val isKingCapture     = intermediateState.isKingCapture(lastMove)
 
         if isKingCapture then TerminalWinScore
         else
