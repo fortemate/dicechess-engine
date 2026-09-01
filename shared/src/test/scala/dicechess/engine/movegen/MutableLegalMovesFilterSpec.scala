@@ -458,3 +458,13 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
     val legal = filterMoves(state, dice)
     assert(legal.size >= 0)
   }
+
+  test("E3: Issue #117 - Single-pass depth memoization consistency") {
+    val state = parse("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
+    val dice  = List(Pawn, Knight, Bishop)
+    val legal = filterMoves(state, dice)
+    assert(legal.nonEmpty)
+    // Every filtered legal move must belong to pseudo-legal moves for the dice pool
+    val pseudoMoves = MoveGenerator.generateMoves(state.withDicePool(dice))
+    assert(legal.forall(pseudoMoves.contains))
+  }

@@ -26,10 +26,9 @@ object LegalMovesFilter:
   // ── Private helpers ──────────────────────────────────────────────────────────
 
   /** Returns `true` when `move` captures the opponent's King (win condition). */
-  private def isKingCapture(state: GameState, move: Move): Boolean =
-    state.mailbox
-      .get(move.toSquare)
-      .exists(p => p.pieceType == PieceType.King && p.color != state.activeColor)
+  private inline def isKingCapture(state: GameState, move: Move): Boolean =
+    val p = state.mailbox(move.toSquare)
+    p.pieceType == PieceType.King && p.color != state.activeColor
 
   /** Computes the sequence length reachable by playing `move` from `state` when `move` is not a King-Capture.
     *
@@ -100,19 +99,39 @@ object LegalMovesFilter:
   def filterMaximalMoves(state: GameState): List[Move] =
     if state.flags.isDicePoolEmpty then Nil
     else
-      // Pass 1: determine the globally optimal sequence length from this position.
-      // This considers ALL branches including King-capture paths.
-      val maxLen = maxSequenceLength(state)
-
-      // If no sequence is achievable (all dice unplayable), the player passes
-      if maxLen == 0 then Nil
+      val moves = MoveGenerator.generateMoves(state)
+      if moves.isEmpty then Nil
       else
-        // Pass 2: collect legal first moves under both criteria:
-        //   (a) king-capture paths — always legal
-        //   (b) non-king-capture paths that achieve maxLen
-        val result = List.newBuilder[Move]
+        val depths = new Array[Int](moves.length)
+        var maxLen = 0
+        var i      = 0
+        var cur    = moves
 
-        for move <- MoveGenerator.generateMoves(state) do
-          if isKingCapture(state, move) || continuationLength(state, move) == maxLen then result += move
+        // Pass 1: compute achievable sequence length for each candidate first move and record it.
+        // This considers ALL branches including King-capture paths without redundant re-traversal.
+        while cur.nonEmpty do
+          val move  = cur.head
+          val depth =
+            if isKingCapture(state, move) then 1
+            else continuationLength(state, move)
+          depths(i) = depth
+          if depth > maxLen then maxLen = depth
+          i += 1
+          cur = cur.tail
 
-        result.result()
+        // If no sequence is achievable (all dice unplayable), the player passes
+        if maxLen == 0 then Nil
+        else
+          // Pass 2: collect legal first moves under both criteria using recorded depths:
+          //   (a) king-capture paths — always legal
+          //   (b) non-king-capture paths that achieve maxLen
+          val result = List.newBuilder[Move]
+          i = 0
+          cur = moves
+          while cur.nonEmpty do
+            val move = cur.head
+            if isKingCapture(state, move) || depths(i) == maxLen then result += move
+            i += 1
+            cur = cur.tail
+
+          result.result()
