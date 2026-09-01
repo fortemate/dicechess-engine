@@ -109,6 +109,10 @@ run = "sbt rootJS/fastOptJS"
 description = "🧹 Remove the distribution folder"
 run = "rm -rf dist"
 
+[tasks."package:test-handoff"]
+description = "🔐 Test the immutable npm release artifact handoff"
+run = "bash .mise/lib/test-npm-release-handoff.sh"
+
 [tasks."docs:generate"]
 description = "📝 Generate visual test cases catalog from JSON files"
 run = "sbt 'project rootJVM; Test / runMain dicechess.engine.movegen.DocGenerator'"

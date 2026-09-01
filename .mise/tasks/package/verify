@@ -3,40 +3,56 @@
 
 set -euo pipefail
 
-JS_PACKAGE_DIRECTORY=${1:-dist}
-WASM_PACKAGE_DIRECTORY=${2:-dist-wasm}
 TEMP_DIRECTORY=$(mktemp -d)
 trap 'rm -rf -- "$TEMP_DIRECTORY"' EXIT
 
+if [[ ${1:-} == "--bundle" ]]; then
+  if [[ $# -ne 2 ]]; then
+    echo "usage: $0 --bundle <bundle-directory>" >&2
+    exit 2
+  fi
+  BUNDLE_DIRECTORY=$2
+  RELEASE_TAG=$(jq -er '.release.tag' "$BUNDLE_DIRECTORY/manifest.json")
+  COMMIT_SHA=$(jq -er '.release.sha' "$BUNDLE_DIRECTORY/manifest.json")
+else
+  if [[ $# -gt 2 ]]; then
+    echo "usage: $0 [js-package-directory] [wasm-package-directory]" >&2
+    exit 2
+  fi
+  JS_PACKAGE_DIRECTORY=${1:-dist}
+  WASM_PACKAGE_DIRECTORY=${2:-dist-wasm}
+  PACKAGE_VERSION=$(jq -er '.version' "$JS_PACKAGE_DIRECTORY/package.json")
+  RELEASE_TAG="v$PACKAGE_VERSION"
+  COMMIT_SHA=0000000000000000000000000000000000000000
+  BUNDLE_DIRECTORY="$TEMP_DIRECTORY/bundle"
+  bash "$(dirname "$0")/../../lib/create-npm-release-bundle.sh" \
+    "$BUNDLE_DIRECTORY" \
+    "$RELEASE_TAG" \
+    "$COMMIT_SHA" \
+    "$JS_PACKAGE_DIRECTORY" \
+    "$WASM_PACKAGE_DIRECTORY"
+fi
+
+bash "$(dirname "$0")/../../lib/verify-npm-release-bundle.sh" \
+  "$BUNDLE_DIRECTORY" \
+  "$RELEASE_TAG" \
+  "$COMMIT_SHA"
+
 verify_package() {
-  local package_directory
-  package_directory=$(cd "$1" && pwd)
-  local expected_name=$2
-  shift 2
+  local expected_name=$1
+  shift
   local expected_files=("$@")
-  local dry_run_json="$TEMP_DIRECTORY/dry-run.json"
-  local pack_json="$TEMP_DIRECTORY/pack.json"
   local actual_files="$TEMP_DIRECTORY/actual-files.txt"
   local expected_files_list="$TEMP_DIRECTORY/expected-files.txt"
+  local filename
+  local tarball
 
-  jq -e \
-    --arg name "$expected_name" \
-    '.name == $name and
-     (.version | test("^[0-9]+\\.[0-9]+\\.[0-9]+$")) and
-     (.repository.url == "git+https://github.com/fortemate/dicechess-engine.git") and
-     (.publishConfig.registry == null) and
-     (.publishConfig.access == "public")' \
-    "$package_directory/package.json" >/dev/null
-
-  npm pack --dry-run --json "$package_directory" >"$dry_run_json"
-  jq -r '.[0].files[].path' "$dry_run_json" | sort >"$actual_files"
+  filename=$(jq -er --arg name "$expected_name" '.packages[] | select(.name == $name) | .filename' "$BUNDLE_DIRECTORY/manifest.json")
+  tarball="$BUNDLE_DIRECTORY/$filename"
+  tar -tzf "$tarball" | sed -n 's#^package/##p' | sort >"$actual_files"
   printf '%s\n' "${expected_files[@]}" | sort >"$expected_files_list"
   diff -u "$expected_files_list" "$actual_files"
 
-  npm pack --json --pack-destination "$TEMP_DIRECTORY" "$package_directory" >"$pack_json"
-  local tarball_name
-  tarball_name=$(jq -er '.[0].filename' "$pack_json")
-  local tarball="$TEMP_DIRECTORY/$tarball_name"
   local consumer="$TEMP_DIRECTORY/consumer-${expected_name##*/}"
   mkdir -p "$consumer"
 
@@ -49,13 +65,23 @@ verify_package() {
 
   (cd "$consumer" && node --input-type=module - \
     "$consumer/node_modules/$expected_name/package.json" \
-    "$expected_name" <<'NODE'
+    "$expected_name" \
+    "${RELEASE_TAG#v}" <<'NODE'
 import { readFile } from 'node:fs/promises';
 
-const [, , manifestPath, expectedName] = process.argv;
+const [, , manifestPath, expectedName, expectedVersion] = process.argv;
 const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
 if (manifest.name !== expectedName) {
   throw new Error(`installed ${manifest.name}, expected ${expectedName}`);
+}
+if (manifest.version !== expectedVersion) {
+  throw new Error(`installed ${manifest.version}, expected ${expectedVersion}`);
+}
+if (manifest.repository?.url !== 'git+https://github.com/fortemate/dicechess-engine.git') {
+  throw new Error(`unexpected repository URL for ${expectedName}`);
+}
+if (manifest.publishConfig?.registry !== undefined || manifest.publishConfig?.access !== 'public') {
+  throw new Error(`unsafe publishConfig for ${expectedName}`);
 }
 await import(expectedName);
 NODE
@@ -63,7 +89,6 @@ NODE
 }
 
 verify_package \
-  "$JS_PACKAGE_DIRECTORY" \
   '@fortemate/dicechess-engine' \
   README.md \
   dicechess-engine.d.ts \
@@ -71,7 +96,6 @@ verify_package \
   package.json
 
 verify_package \
-  "$WASM_PACKAGE_DIRECTORY" \
   '@fortemate/dicechess-engine-wasm' \
   README.md \
   __loader.js \

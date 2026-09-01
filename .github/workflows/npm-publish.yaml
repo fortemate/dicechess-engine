@@ -12,6 +12,18 @@ on:
         description: "Full commit SHA that the release tag must resolve to"
         required: true
         type: string
+      source_run_id:
+        description: "Trusted release/publish workflow run that uploaded the npm bundle"
+        required: true
+        type: string
+      artifact_name:
+        description: "Immutable npm release bundle artifact name"
+        required: true
+        type: string
+      manifest_sha512:
+        description: "Expected SHA-512 of the npm release bundle manifest"
+        required: true
+        type: string
 
 permissions: {}
 
@@ -23,14 +35,19 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      id-token: write
+      actions: read # To download the immutable npm bundle from its source run
+      contents: read # To check out the exact release tag
+      id-token: write # To authenticate npm Trusted Publishing through OIDC
+      packages: read # To verify the GitHub Packages mirror digests
 
     steps:
       - name: Validate release identity
         env:
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
           RELEASE_TAG: ${{ inputs.tag }}
           EXPECTED_SHA: ${{ inputs.sha }}
+          MANIFEST_SHA512: ${{ inputs.manifest_sha512 }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
         run: |
           if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::'$RELEASE_TAG' is not an exact vX.Y.Z release tag"
@@ -40,6 +57,40 @@ jobs:
             echo "::error::'$EXPECTED_SHA' is not a full commit SHA"
             exit 1
           fi
+          if [[ ! "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::'$SOURCE_RUN_ID' is not a GitHub Actions run ID"
+            exit 1
+          fi
+          if [[ ! "$ARTIFACT_NAME" =~ ^npm-release-${SOURCE_RUN_ID}-[0-9]+$ ]]; then
+            echo "::error::Artifact '$ARTIFACT_NAME' does not belong to source run $SOURCE_RUN_ID"
+            exit 1
+          fi
+          if [[ ! "$MANIFEST_SHA512" =~ ^[0-9a-f]{128}$ ]]; then
+            echo "::error::Manifest SHA-512 is not 128 lowercase hexadecimal characters"
+            exit 1
+          fi
+
+      - name: Verify npm bundle source workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          SOURCE_RUN=$(gh api "repos/$REPOSITORY/actions/runs/$SOURCE_RUN_ID")
+          SOURCE_REPOSITORY=$(jq -er '.repository.full_name' <<<"$SOURCE_RUN")
+          SOURCE_WORKFLOW=$(jq -er '.path' <<<"$SOURCE_RUN")
+          if [[ "$SOURCE_REPOSITORY" != "$REPOSITORY" ]]; then
+            echo "::error::Artifact source repository is '$SOURCE_REPOSITORY', expected '$REPOSITORY'"
+            exit 1
+          fi
+          case "$SOURCE_WORKFLOW" in
+            .github/workflows/release.yaml|.github/workflows/publish.yaml) ;;
+            *)
+              echo "::error::Artifact source workflow '$SOURCE_WORKFLOW' is not a trusted release entry point"
+              exit 1
+              ;;
+          esac
+          echo "Verified artifact source run $SOURCE_RUN_ID from $SOURCE_WORKFLOW"
 
       - name: Checkout exact release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -60,16 +111,6 @@ jobs:
             exit 1
           fi
 
-      - name: Setup Java
-        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
-        with:
-          distribution: temurin
-          java-version: "25"
-          cache: "sbt"
-
-      - name: Setup sbt
-        uses: sbt/setup-sbt@c7d2d6258b4bd0d3ec5129e6b3453199d3c79729 # v1.5.8
-
       - name: Setup Node.js for npm Trusted Publishing
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -86,19 +127,32 @@ jobs:
             }
           ' "$(npm --version)"
 
-      - name: Build JavaScript packages
+      - name: Download immutable npm release bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ runner.temp }}/npm-release
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+
+      - name: Verify npm release artifact handoff
         env:
-          PACKAGE_VERSION: ${{ inputs.tag }}
-        run: |
-          sbt 'rootJS/fullOptJS; rootWasm/fullLinkJS'
-          bash .mise/tasks/package/prepare
-          bash .mise/tasks/package/prepare-wasm
+          EXPECTED_SHA: ${{ inputs.sha }}
+          MANIFEST_SHA512: ${{ inputs.manifest_sha512 }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: bash .mise/lib/verify-npm-release-bundle.sh "$RUNNER_TEMP/npm-release" "$RELEASE_TAG" "$EXPECTED_SHA" "$MANIFEST_SHA512"
 
       - name: Verify package tarballs and clean installation
-        run: bash .mise/tasks/package/verify
+        run: bash .mise/tasks/package/verify --bundle "$RUNNER_TEMP/npm-release"
 
-      - name: Publish JavaScript package to npmjs.org
-        run: bash .mise/lib/npm-publish-if-missing.sh ./dist https://registry.npmjs.org --provenance
+      - name: Configure GitHub Packages read authentication
+        run: npm config set //npm.pkg.github.com/:_authToken '${NODE_AUTH_TOKEN}' --location=user
 
-      - name: Publish WebAssembly package to npmjs.org
-        run: bash .mise/lib/npm-publish-if-missing.sh ./dist-wasm https://registry.npmjs.org --provenance
+      - name: Verify GitHub Packages mirror digests before canonical publication
+        run: bash .mise/lib/publish-npm-release-bundle.sh "$RUNNER_TEMP/npm-release" https://npm.pkg.github.com --verify-only
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish exact npm release bundle to npmjs.org
+        run: bash .mise/lib/publish-npm-release-bundle.sh "$RUNNER_TEMP/npm-release" https://registry.npmjs.org --provenance
