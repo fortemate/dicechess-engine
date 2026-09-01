@@ -315,13 +315,16 @@ jobs:
           retention-days: 90
 
       - name: Publish npm release bundle to GitHub Packages
-        run: bash .mise/lib/publish-npm-release-bundle.sh "${{ steps.npm_bundle.outputs.path }}" https://npm.pkg.github.com
         env:
+          BUNDLE_DIRECTORY: ${{ steps.npm_bundle.outputs.path }}
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .mise/lib/publish-npm-release-bundle.sh "$BUNDLE_DIRECTORY" https://npm.pkg.github.com
 
       - name: Publish both packages to npmjs.org through the canonical workflow
         env:
+          BUNDLE_NAME: ${{ steps.npm_bundle.outputs.name }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MANIFEST_SHA512: ${{ steps.npm_bundle.outputs.manifest_sha512 }}
           RELEASE_SHA: ${{ github.sha }}
           RELEASE_TAG: ${{ steps.bump_version.outputs.new_tag }}
           REPOSITORY: ${{ github.repository }}
@@ -331,8 +334,8 @@ jobs:
             "$RELEASE_TAG" \
             "$RELEASE_SHA" \
             "$GITHUB_RUN_ID" \
-            "${{ steps.npm_bundle.outputs.name }}" \
-            "${{ steps.npm_bundle.outputs.manifest_sha512 }}"
+            "$BUNDLE_NAME" \
+            "$MANIFEST_SHA512"
 
       - name: Create GitHub Release and Upload Assets
         env:

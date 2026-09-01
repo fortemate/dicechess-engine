@@ -330,10 +330,10 @@ jobs:
         id: create_npm_bundle
         if: steps.npm_bundle_source.outputs.reuse != 'true'
         env:
+          BUNDLE_DIRECTORY: ${{ steps.npm_bundle_source.outputs.path }}
           RELEASE_SHA: ${{ steps.source.outputs.sha }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
-          BUNDLE_DIRECTORY="${{ steps.npm_bundle_source.outputs.path }}"
           bash .mise/lib/create-npm-release-bundle.sh \
             "$BUNDLE_DIRECTORY" \
             "$RELEASE_TAG" \
@@ -344,13 +344,16 @@ jobs:
       - name: Verify npm release bundle
         id: npm_bundle
         env:
+          BUNDLE_DIRECTORY: ${{ steps.npm_bundle_source.outputs.path }}
+          BUNDLE_NAME: ${{ steps.npm_bundle_source.outputs.name }}
+          BUNDLE_REUSED: ${{ steps.npm_bundle_source.outputs.reuse }}
           CREATED_MANIFEST_SHA512: ${{ steps.create_npm_bundle.outputs.manifest_sha512 }}
           RELEASE_SHA: ${{ steps.source.outputs.sha }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           REQUESTED_MANIFEST_SHA512: ${{ steps.npm_bundle_source.outputs.manifest_sha512 }}
+          SOURCE_RUN_ID: ${{ steps.npm_bundle_source.outputs.source_run_id }}
         run: |
           MANIFEST_SHA512=${CREATED_MANIFEST_SHA512:-$REQUESTED_MANIFEST_SHA512}
-          BUNDLE_DIRECTORY="${{ steps.npm_bundle_source.outputs.path }}"
           bash .mise/lib/verify-npm-release-bundle.sh \
             "$BUNDLE_DIRECTORY" \
             "$RELEASE_TAG" \
@@ -361,17 +364,19 @@ jobs:
           {
             echo "### Immutable npm release bundle"
             echo
-            echo "- Source run: \`${{ steps.npm_bundle_source.outputs.source_run_id }}\`"
-            echo "- Artifact: \`${{ steps.npm_bundle_source.outputs.name }}\`"
+            echo "- Source run: \`$SOURCE_RUN_ID\`"
+            echo "- Artifact: \`$BUNDLE_NAME\`"
             echo "- Manifest SHA-512: \`$MANIFEST_SHA512\`"
-            echo "- Reused from an earlier run: \`${{ steps.npm_bundle_source.outputs.reuse }}\`"
+            echo "- Reused from an earlier run: \`$BUNDLE_REUSED\`"
             echo
             jq -r '.packages[] | "- `\(.name)`: `\(.integrity)`"' "$BUNDLE_DIRECTORY/manifest.json"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Restore npm package directories from reused bundle
         if: steps.npm_bundle_source.outputs.reuse == 'true'
-        run: bash .mise/lib/extract-npm-release-bundle.sh "${{ steps.npm_bundle_source.outputs.path }}"
+        env:
+          BUNDLE_DIRECTORY: ${{ steps.npm_bundle_source.outputs.path }}
+        run: bash .mise/lib/extract-npm-release-bundle.sh "$BUNDLE_DIRECTORY"
 
       - name: Upload immutable npm release bundle
         if: steps.npm_bundle_source.outputs.reuse != 'true'
@@ -384,24 +389,28 @@ jobs:
           retention-days: 90
 
       - name: Publish npm release bundle to GitHub Packages
-        run: bash .mise/lib/publish-npm-release-bundle.sh "${{ steps.npm_bundle_source.outputs.path }}" https://npm.pkg.github.com
         env:
+          BUNDLE_DIRECTORY: ${{ steps.npm_bundle_source.outputs.path }}
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .mise/lib/publish-npm-release-bundle.sh "$BUNDLE_DIRECTORY" https://npm.pkg.github.com
 
       - name: Publish both packages to npmjs.org through the canonical workflow
         env:
+          BUNDLE_NAME: ${{ steps.npm_bundle_source.outputs.name }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MANIFEST_SHA512: ${{ steps.npm_bundle.outputs.manifest_sha512 }}
           RELEASE_SHA: ${{ steps.source.outputs.sha }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           REPOSITORY: ${{ github.repository }}
+          SOURCE_RUN_ID: ${{ steps.npm_bundle_source.outputs.source_run_id }}
         run: |
           bash .mise/lib/dispatch-npm-publish.sh \
             "$REPOSITORY" \
             "$RELEASE_TAG" \
             "$RELEASE_SHA" \
-            "${{ steps.npm_bundle_source.outputs.source_run_id }}" \
-            "${{ steps.npm_bundle_source.outputs.name }}" \
-            "${{ steps.npm_bundle.outputs.manifest_sha512 }}"
+            "$SOURCE_RUN_ID" \
+            "$BUNDLE_NAME" \
+            "$MANIFEST_SHA512"
 
       - name: Upload Release Assets
         run: |

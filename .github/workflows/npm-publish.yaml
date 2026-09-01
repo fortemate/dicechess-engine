@@ -35,10 +35,10 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      actions: read
-      contents: read
-      id-token: write
-      packages: read
+      actions: read # To download the immutable npm bundle from its source run
+      contents: read # To check out the exact release tag
+      id-token: write # To authenticate npm Trusted Publishing through OIDC
+      packages: read # To verify the GitHub Packages mirror digests
 
     steps:
       - name: Validate release identity

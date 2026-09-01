@@ -73,6 +73,32 @@ bash "$SCRIPT_DIRECTORY/verify-npm-release-bundle.sh" \
   "$COMMIT_SHA" \
   "$MANIFEST_SHA512"
 
+WRONG_MANIFEST_SHA512=00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+if bash "$SCRIPT_DIRECTORY/verify-npm-release-bundle.sh" \
+  "$HANDOFF_DIRECTORY" \
+  "$RELEASE_TAG" \
+  "$COMMIT_SHA" \
+  "$WRONG_MANIFEST_SHA512" >"$TEMP_DIRECTORY/wrong-manifest-digest.log" 2>&1; then
+  echo "error: incorrect expected manifest digest passed bundle verification" >&2
+  exit 1
+fi
+grep -F 'npm release manifest digest mismatch' "$TEMP_DIRECTORY/wrong-manifest-digest.log" >/dev/null
+
+TAMPERED_MANIFEST_DIRECTORY="$TEMP_DIRECTORY/tampered-manifest"
+cp -R "$HANDOFF_DIRECTORY" "$TAMPERED_MANIFEST_DIRECTORY"
+jq '(.packages[0].integrity) = "sha512-bWlzbWF0Y2g="' \
+  "$TAMPERED_MANIFEST_DIRECTORY/manifest.json" >"$TAMPERED_MANIFEST_DIRECTORY/manifest.tmp"
+mv "$TAMPERED_MANIFEST_DIRECTORY/manifest.tmp" "$TAMPERED_MANIFEST_DIRECTORY/manifest.json"
+if bash "$SCRIPT_DIRECTORY/verify-npm-release-bundle.sh" \
+  "$TAMPERED_MANIFEST_DIRECTORY" \
+  "$RELEASE_TAG" \
+  "$COMMIT_SHA" \
+  "$MANIFEST_SHA512" >"$TEMP_DIRECTORY/tampered-manifest.log" 2>&1; then
+  echo "error: modified manifest passed verification against its original digest" >&2
+  exit 1
+fi
+grep -F 'npm release manifest digest mismatch' "$TEMP_DIRECTORY/tampered-manifest.log" >/dev/null
+
 bash "$SCRIPT_DIRECTORY/extract-npm-release-bundle.sh" \
   "$HANDOFF_DIRECTORY" \
   "$TEMP_DIRECTORY/recovered-js" \
@@ -144,6 +170,15 @@ PATH="$FAKE_BIN:$PATH" bash "$SCRIPT_DIRECTORY/publish-npm-release-bundle.sh" \
   "$HANDOFF_DIRECTORY" \
   https://npm.pkg.github.test \
   --verify-only
+
+rm -f -- "$FAKE_PUBLISH_LOG"
+PATH="$FAKE_BIN:$PATH" bash "$SCRIPT_DIRECTORY/publish-npm-release-bundle.sh" \
+  "$HANDOFF_DIRECTORY" \
+  https://npm.pkg.github.test
+if [[ -f "$FAKE_PUBLISH_LOG" ]]; then
+  echo "error: matching existing registry packages were published again" >&2
+  exit 1
+fi
 
 export FAKE_MISMATCH_PACKAGE='@fortemate/dicechess-engine'
 if PATH="$FAKE_BIN:$PATH" bash "$SCRIPT_DIRECTORY/publish-npm-release-bundle.sh" \
