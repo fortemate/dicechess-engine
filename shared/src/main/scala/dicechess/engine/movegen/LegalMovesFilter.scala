@@ -33,7 +33,8 @@ object LegalMovesFilter:
 
   /** Computes the sequence length reachable by playing `move` from `state` when `move` is not a King-Capture.
     *
-    * Returns 0 if `move` is castling but the required dice (King and Rook) are not available in the dice pool.
+    * Assumes `move` is a pseudo-legal move generated from `state`, so the mover's die is present in the dice pool.
+    * Returns `-1` if `move` is castling but the required dice (King and Rook) are not both available in the dice pool.
     */
   private def continuationLength(state: GameState, move: Move): Int =
     if move.isCastling then
@@ -42,29 +43,28 @@ object LegalMovesFilter:
         val survived = state.flags.removeDie(PieceType.King.diceValue).removeDie(PieceType.Rook.diceValue)
         val next     = state.makeMove(move).withDiceSlotsOf(survived)
         2 + maxSequenceLength(next)
-      else 0
+      else -1
     else
       val moverType = state.mailbox(move.fromSquare).pieceType
-      val survived  = state.flags.removeDie(moverType.diceValue)
-      val next      = state.makeMove(move).withDiceSlotsOf(survived)
+      require(moverType.diceValue != 0, s"Move generated from an empty square: $move")
+      val survived = state.flags.removeDie(moverType.diceValue)
+      val next     = state.makeMove(move).withDiceSlotsOf(survived)
       1 + maxSequenceLength(next)
 
-  /** Recursively computes the maximum achievable micro-move sequence length from `state` with `remainingDice`.
+  /** Recursively computes the maximum achievable micro-move sequence length from `state`.
     *
-    * The search is bounded by the depth of `remainingDice` (at most 3), so it always terminates. The `makeMove` method
-    * preserves the active color for micro-moves, meaning no color flipping occurs during the recursion. Callers can
-    * safely apply sequential micro-moves.
+    * The search is bounded by the depth of available dice in `state.flags` (at most 3), so it always terminates. The
+    * `makeMove` method preserves the active color for micro-moves, meaning no color flipping occurs during the
+    * recursion. Callers can safely apply sequential micro-moves.
     *
     * A King-Capture move terminates its branch at depth 1 (the game ends). However, the search continues exploring all
     * other branches — King captures do **not** short-circuit the entire computation. This ensures that `maxLen`
     * reflects the true global maximum, including paths of length 2 or 3 that exist alongside a 1-move King capture.
     *
     * @param state
-    *   the board position to evaluate
-    * @param remainingDice
-    *   the dice still available to spend in this turn (multiset)
+    *   the board position and remaining dice pool to evaluate
     * @return
-    *   the maximum number of micro-moves reachable from `state` using `remainingDice`
+    *   the maximum number of micro-moves reachable from `state` using its dice pool
     */
   private def maxSequenceLength(state: GameState): Int =
     if state.flags.isDicePoolEmpty then 0
@@ -81,7 +81,7 @@ object LegalMovesFilter:
 
   // ── Public API ────────────────────────────────────────────────────────────────
 
-  /** Filters and returns the legal first moves for a given position and rolled dice.
+  /** Filters and returns the legal first moves for a given game state (position and rolled dice).
     *
     * A first move is legal if and only if one of the following holds:
     *   1. **King-Capture path** — there exists a continuation from this move (including the move itself) that captures
@@ -93,9 +93,7 @@ object LegalMovesFilter:
     * list is returned and the player must pass their turn.
     *
     * @param state
-    *   the current game state (active color indicates whose turn it is)
-    * @param dice
-    *   the list of dice rolls for this turn (multiset, values in `[1, 6]`)
+    *   the current game state including active color and dice pool
     * @return
     *   the list of legal first micro-moves under the Maximum Micro-moves Rule
     */

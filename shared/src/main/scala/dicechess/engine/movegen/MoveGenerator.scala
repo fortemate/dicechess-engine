@@ -224,6 +224,14 @@ object MoveGenerator {
     tryCastle(state, myPieces, allPieces, moves, qRight, rank, kingSide = false)
   }
 
+  /** Returns `true` when every square the rook traverses between king and rook is empty. */
+  private def isCastlingPathClear(allPieces: Bitboard, rank: Int, kingSide: Boolean): Boolean =
+    if kingSide then !allPieces.contains(Square('f', rank)) && !allPieces.contains(Square('g', rank))
+    else
+      !allPieces.contains(Square('b', rank)) &&
+      !allPieces.contains(Square('c', rank)) &&
+      !allPieces.contains(Square('d', rank))
+
   /** Appends a castling move if all three preconditions are satisfied:
     *
     *   1. The castling right character (`K`, `Q`, `k`, or `q`) is present in [[GameState.castlingRights]].
@@ -243,13 +251,6 @@ object MoveGenerator {
     * @param kingSide
     *   `true` for king-side (O-O), `false` for queen-side (O-O-O)
     */
-  private def isCastlingPathClear(allPieces: Bitboard, rank: Int, kingSide: Boolean): Boolean =
-    if kingSide then !allPieces.contains(Square('f', rank)) && !allPieces.contains(Square('g', rank))
-    else
-      !allPieces.contains(Square('b', rank)) &&
-      !allPieces.contains(Square('c', rank)) &&
-      !allPieces.contains(Square('d', rank))
-
   private def tryCastle(
       state: GameState,
       myPieces: Bitboard,
