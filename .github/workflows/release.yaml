@@ -278,16 +278,44 @@ jobs:
         env:
           PACKAGE_VERSION: ${{ steps.bump_version.outputs.new_version }}
 
-      - name: Verify package tarballs and clean installation
-        run: bash .mise/tasks/package/verify
-
-      - name: Publish JavaScript package to GitHub Packages
-        run: bash .mise/lib/npm-publish-if-missing.sh ./dist https://npm.pkg.github.com
+      - name: Create and verify npm release bundle
+        id: npm_bundle
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_TAG: ${{ steps.bump_version.outputs.new_tag }}
+        run: |
+          BUNDLE_NAME="npm-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          BUNDLE_DIRECTORY="$RUNNER_TEMP/$BUNDLE_NAME"
+          bash .mise/lib/create-npm-release-bundle.sh \
+            "$BUNDLE_DIRECTORY" \
+            "$RELEASE_TAG" \
+            "$RELEASE_SHA"
+          bash .mise/tasks/package/verify --bundle "$BUNDLE_DIRECTORY"
+          MANIFEST_SHA512=$(sha512sum "$BUNDLE_DIRECTORY/manifest.json" | awk '{print $1}')
+          echo "name=$BUNDLE_NAME" >> "$GITHUB_OUTPUT"
+          echo "path=$BUNDLE_DIRECTORY" >> "$GITHUB_OUTPUT"
+          echo "manifest_sha512=$MANIFEST_SHA512" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Immutable npm release bundle"
+            echo
+            echo "- Source run: \`$GITHUB_RUN_ID\` attempt \`$GITHUB_RUN_ATTEMPT\`"
+            echo "- Artifact: \`$BUNDLE_NAME\`"
+            echo "- Manifest SHA-512: \`$MANIFEST_SHA512\`"
+            echo
+            jq -r '.packages[] | "- `\(.name)`: `\(.integrity)`"' "$BUNDLE_DIRECTORY/manifest.json"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Publish WebAssembly package to GitHub Packages
-        run: bash .mise/lib/npm-publish-if-missing.sh ./dist-wasm https://npm.pkg.github.com
+      - name: Upload immutable npm release bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.npm_bundle.outputs.name }}
+          path: ${{ steps.npm_bundle.outputs.path }}
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish npm release bundle to GitHub Packages
+        run: bash .mise/lib/publish-npm-release-bundle.sh "${{ steps.npm_bundle.outputs.path }}" https://npm.pkg.github.com
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -301,7 +329,10 @@ jobs:
           bash .mise/lib/dispatch-npm-publish.sh \
             "$REPOSITORY" \
             "$RELEASE_TAG" \
-            "$RELEASE_SHA"
+            "$RELEASE_SHA" \
+            "$GITHUB_RUN_ID" \
+            "${{ steps.npm_bundle.outputs.name }}" \
+            "${{ steps.npm_bundle.outputs.manifest_sha512 }}"
 
       - name: Create GitHub Release and Upload Assets
         env:

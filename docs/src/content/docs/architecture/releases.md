@@ -24,9 +24,10 @@ The repository has two supported release entry points:
   the recovery path after a partial release.
 
 Both entry points publish the JVM artifact to GitHub Packages and Maven Central from the same tag.
-They also build and verify the two JavaScript packages, publish their GitHub Packages mirrors, then
-dispatch `npm-publish.yaml` with the exact tag and commit SHA. They wait for that child run and fail
-if it fails.
+They also build each JavaScript package once, create one immutable npm release bundle, and record the
+SHA-512 digest of its manifest and both tarballs. The entry point publishes those exact tarballs to
+GitHub Packages, then dispatches `npm-publish.yaml` with the exact tag, commit SHA, source run,
+artifact name, and manifest digest. It waits for that child run and fails if it fails.
 
 ```mermaid
 flowchart LR
@@ -34,11 +35,11 @@ flowchart LR
     Tag["publish.yaml<br/>tag or retry"] --> JvmMirror
     Release --> Central["Maven Central<br/>JVM canonical"]
     Tag --> Central
-    Release --> Mirror["GitHub Packages<br/>JS + Wasm mirrors"]
-    Tag --> Mirror
-    Release --> Dispatch["dispatch exact tag + SHA"]
-    Tag --> Dispatch
-    Dispatch --> Canonical["npm-publish.yaml<br/>OIDC trusted publisher"]
+    Release --> Bundle["one npm bundle<br/>JS + Wasm .tgz + SHA-512"]
+    Tag --> Bundle
+    Bundle --> Mirror["GitHub Packages<br/>exact tarballs"]
+    Mirror --> Dispatch["dispatch artifact identity<br/>+ tag + SHA"]
+    Dispatch --> Canonical["npm-publish.yaml<br/>verify mirror digest + OIDC"]
     Canonical --> Npm["npmjs.org<br/>JS + Wasm + provenance"]
 ```
 
@@ -49,10 +50,34 @@ both entry points would therefore present two different identities. A top-level
 publisher configuration. The dispatch API returns the canonical run ID, which lets the parent wait
 for a definitive result.
 
-`npm-publish.yaml` checks that the tag resolves to the supplied full SHA, checks out that tag, builds
-both packages, verifies their tarballs and clean-project imports, and then publishes. Its job has
-`id-token: write`; no npm write token is stored. Trusted Publishing supplies a short-lived OIDC
-credential, and `npm publish --provenance` records build provenance.
+`npm-publish.yaml` checks that the tag resolves to the supplied full SHA and that the artifact came
+from this repository's `release.yaml` or `publish.yaml` workflow. It downloads that immutable
+cross-workflow artifact, verifies the supplied manifest SHA-512, recomputes both tarball digests,
+installs both tarballs in clean temporary projects, and checks that the GitHub Packages copies expose
+the same `dist.integrity` values. Only then does it publish those same `.tgz` files to npmjs.org. Its
+job has `id-token: write`; no npm write token is stored. Trusted Publishing supplies a short-lived
+OIDC credential, and `npm publish --provenance` records build provenance.
+
+## Single npm artifact and digest enforcement
+
+The workflow never asks npm to pack a release package independently for each registry. The parent
+release entry point runs `npm pack` once per package and stores the resulting tarballs with a
+`manifest.json` that binds all of the following values:
+
+* the exact `vX.Y.Z` release tag and 40-character commit SHA;
+* package name, version, tarball filename, and byte size;
+* the hexadecimal SHA-512 digest and equivalent npm SRI `sha512-...` integrity value.
+
+The Actions artifact is named `npm-release-<run-id>-<run-attempt>` and retained for 90 days. The
+manifest SHA-512 and both package integrity values are written to the workflow summary. GitHub's
+artifact download verifies the transport-level artifact digest; the repository scripts separately
+verify the release manifest and every tarball after the cross-workflow handoff.
+
+Every registry readback compares `dist.integrity` with the manifest. An already published version is
+skipped only when its SHA-512 matches. A mismatch names the divergent package and fails closed. In
+particular, `npm-publish.yaml` verifies both GitHub Packages mirror digests before it can publish
+either package to npmjs.org, so the second immutable destination is never populated from a divergent
+build.
 
 ## Idempotency and registry selection
 
@@ -68,9 +93,10 @@ another incomplete, so every retry checks the exact package and version separate
 * Each npmjs.org package uses an independent `npm view` against
   `https://registry.npmjs.org`.
 
-An exact match is skipped. A `404` is publishable. Authentication, network, or unexpected registry
-errors stop the workflow instead of being mistaken for a missing version. Every `npm view` and
-`npm publish` command carries an explicit registry URL; package metadata does not select a registry.
+An exact version-and-integrity match is skipped. A `404` is publishable. A version with a different
+integrity, authentication failure, network failure, or unexpected registry response stops the
+workflow instead of being mistaken for a missing version. Every `npm view` and `npm publish` command
+carries an explicit registry URL; package metadata does not select a registry.
 
 ## Trusted publisher configuration
 
@@ -218,7 +244,26 @@ gh workflow run publish.yaml --ref main \
 The workflow checks out the requested tag and requires both `HEAD` and the tag reference to equal the
 independently recorded commit SHA. It derives every registry version from that tag. Do not move the
 tag or advance the version. A complete registry entry is skipped, a completely absent one is
-published, and a partial immutable version fails closed for manual investigation. The release and
-recovery workflows share one non-cancelling concurrency group, so they cannot write the same
-coordinates at the same time. Before recovering a run created before that concurrency guard existed,
-cancel it and confirm that it reached a terminal state.
+published, and a partial immutable version with a different digest fails closed for manual
+investigation. The release and recovery workflows share one non-cancelling concurrency group, so they
+cannot write the same coordinates at the same time. Before recovering a run created before that
+concurrency guard existed, cancel it and confirm that it reached a terminal state.
+
+If a run published only part of an npm release, reuse its original retained bundle instead of
+rebuilding. Copy the source run ID, artifact name, and manifest SHA-512 from that run's **Immutable npm
+release bundle** summary and provide all three recovery inputs together:
+
+```bash
+gh workflow run publish.yaml --ref main \
+  -f release_tag="$RELEASE_TAG" \
+  -f release_sha="$EXPECTED_RELEASE_SHA" \
+  -f npm_artifact_run_id="<source-run-id>" \
+  -f npm_artifact_name="npm-release-<source-run-id>-<run-attempt>" \
+  -f npm_manifest_sha512="<128-character-hex-digest>"
+```
+
+The recovery workflow accepts bundles only from this repository's trusted release entry points,
+verifies their tag/SHA binding and digests, restores GitHub Release assets from the tarballs, and
+reconciles both registries. If the original artifact has expired, do not publish a newly rebuilt
+tarball over a partial immutable release: the digest check will stop and the mismatch requires a new
+version or explicit owner investigation.

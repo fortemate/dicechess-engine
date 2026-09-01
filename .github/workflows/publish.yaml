@@ -17,6 +17,18 @@ on:
         description: "Expected 40-character commit SHA for release_tag"
         required: true
         type: string
+      npm_artifact_run_id:
+        description: "Optional original release run ID whose npm bundle must be reused"
+        required: false
+        type: string
+      npm_artifact_name:
+        description: "Optional original immutable npm bundle artifact name"
+        required: false
+        type: string
+      npm_manifest_sha512:
+        description: "Optional original npm bundle manifest SHA-512"
+        required: false
+        type: string
 
 permissions: {}
 
@@ -109,6 +121,79 @@ jobs:
         with:
           node-version: "26"
           registry-url: "https://npm.pkg.github.com"
+
+      - name: Resolve npm release bundle source
+        id: npm_bundle_source
+        env:
+          REQUESTED_ARTIFACT_NAME: ${{ inputs.npm_artifact_name }}
+          REQUESTED_MANIFEST_SHA512: ${{ inputs.npm_manifest_sha512 }}
+          REQUESTED_RUN_ID: ${{ inputs.npm_artifact_run_id }}
+        run: |
+          PROVIDED=0
+          [[ -n "$REQUESTED_RUN_ID" ]] && PROVIDED=$((PROVIDED + 1))
+          [[ -n "$REQUESTED_ARTIFACT_NAME" ]] && PROVIDED=$((PROVIDED + 1))
+          [[ -n "$REQUESTED_MANIFEST_SHA512" ]] && PROVIDED=$((PROVIDED + 1))
+          if [[ "$PROVIDED" -ne 0 && "$PROVIDED" -ne 3 ]]; then
+            echo "::error::npm artifact recovery requires run ID, artifact name, and manifest SHA-512 together"
+            exit 1
+          fi
+
+          if [[ "$PROVIDED" -eq 3 ]]; then
+            if [[ ! "$REQUESTED_RUN_ID" =~ ^[0-9]+$ ]]; then
+              echo "::error::'$REQUESTED_RUN_ID' is not a GitHub Actions run ID"
+              exit 1
+            fi
+            if [[ ! "$REQUESTED_ARTIFACT_NAME" =~ ^npm-release-${REQUESTED_RUN_ID}-[0-9]+$ ]]; then
+              echo "::error::Artifact '$REQUESTED_ARTIFACT_NAME' does not belong to source run $REQUESTED_RUN_ID"
+              exit 1
+            fi
+            if [[ ! "$REQUESTED_MANIFEST_SHA512" =~ ^[0-9a-f]{128}$ ]]; then
+              echo "::error::Manifest SHA-512 is not 128 lowercase hexadecimal characters"
+              exit 1
+            fi
+            echo "reuse=true" >> "$GITHUB_OUTPUT"
+            echo "source_run_id=$REQUESTED_RUN_ID" >> "$GITHUB_OUTPUT"
+            echo "name=$REQUESTED_ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
+            echo "manifest_sha512=$REQUESTED_MANIFEST_SHA512" >> "$GITHUB_OUTPUT"
+          else
+            echo "reuse=false" >> "$GITHUB_OUTPUT"
+            echo "source_run_id=$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+            echo "name=npm-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "path=$RUNNER_TEMP/npm-release" >> "$GITHUB_OUTPUT"
+
+      - name: Verify original npm bundle source workflow
+        if: steps.npm_bundle_source.outputs.reuse == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_RUN_ID: ${{ steps.npm_bundle_source.outputs.source_run_id }}
+        run: |
+          SOURCE_RUN=$(gh api "repos/$REPOSITORY/actions/runs/$SOURCE_RUN_ID")
+          SOURCE_REPOSITORY=$(jq -er '.repository.full_name' <<<"$SOURCE_RUN")
+          SOURCE_WORKFLOW=$(jq -er '.path' <<<"$SOURCE_RUN")
+          if [[ "$SOURCE_REPOSITORY" != "$REPOSITORY" ]]; then
+            echo "::error::Artifact source repository is '$SOURCE_REPOSITORY', expected '$REPOSITORY'"
+            exit 1
+          fi
+          case "$SOURCE_WORKFLOW" in
+            .github/workflows/release.yaml|.github/workflows/publish.yaml) ;;
+            *)
+              echo "::error::Artifact source workflow '$SOURCE_WORKFLOW' is not a trusted release entry point"
+              exit 1
+              ;;
+          esac
+          echo "Verified artifact source run $SOURCE_RUN_ID from $SOURCE_WORKFLOW"
+
+      - name: Download original immutable npm release bundle
+        if: steps.npm_bundle_source.outputs.reuse == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ steps.npm_bundle_source.outputs.name }}
+          path: ${{ steps.npm_bundle_source.outputs.path }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.npm_bundle_source.outputs.source_run_id }}
 
       - name: Run checks
         # Run sbt directly (no mise): the runner already has the JVM toolchain, jq, and gh,
@@ -224,6 +309,7 @@ jobs:
       # package:prepare is a plain bash script (sbt + jq, both on the runner). Run its
       # js:build dependency first, then the script directly — no mise needed.
       - name: Build JavaScript package
+        if: steps.npm_bundle_source.outputs.reuse != 'true'
         run: |
           sbt --server rootJS/fullOptJS
           bash .mise/tasks/package/prepare
@@ -233,22 +319,72 @@ jobs:
           PACKAGE_VERSION: ${{ steps.release.outputs.tag }}
 
       - name: Build WebAssembly package
+        if: steps.npm_bundle_source.outputs.reuse != 'true'
         run: |
           sbt --server rootWasm/fullLinkJS
           bash .mise/tasks/package/prepare-wasm
         env:
           PACKAGE_VERSION: ${{ steps.release.outputs.tag }}
 
-      - name: Verify package tarballs and clean installation
-        run: bash .mise/tasks/package/verify
-
-      - name: Publish JavaScript package to GitHub Packages
-        run: bash .mise/lib/npm-publish-if-missing.sh ./dist https://npm.pkg.github.com
+      - name: Create npm release bundle
+        id: create_npm_bundle
+        if: steps.npm_bundle_source.outputs.reuse != 'true'
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ steps.source.outputs.sha }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          BUNDLE_DIRECTORY="${{ steps.npm_bundle_source.outputs.path }}"
+          bash .mise/lib/create-npm-release-bundle.sh \
+            "$BUNDLE_DIRECTORY" \
+            "$RELEASE_TAG" \
+            "$RELEASE_SHA"
+          MANIFEST_SHA512=$(sha512sum "$BUNDLE_DIRECTORY/manifest.json" | awk '{print $1}')
+          echo "manifest_sha512=$MANIFEST_SHA512" >> "$GITHUB_OUTPUT"
 
-      - name: Publish WebAssembly package to GitHub Packages
-        run: bash .mise/lib/npm-publish-if-missing.sh ./dist-wasm https://npm.pkg.github.com
+      - name: Verify npm release bundle
+        id: npm_bundle
+        env:
+          CREATED_MANIFEST_SHA512: ${{ steps.create_npm_bundle.outputs.manifest_sha512 }}
+          RELEASE_SHA: ${{ steps.source.outputs.sha }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          REQUESTED_MANIFEST_SHA512: ${{ steps.npm_bundle_source.outputs.manifest_sha512 }}
+        run: |
+          MANIFEST_SHA512=${CREATED_MANIFEST_SHA512:-$REQUESTED_MANIFEST_SHA512}
+          BUNDLE_DIRECTORY="${{ steps.npm_bundle_source.outputs.path }}"
+          bash .mise/lib/verify-npm-release-bundle.sh \
+            "$BUNDLE_DIRECTORY" \
+            "$RELEASE_TAG" \
+            "$RELEASE_SHA" \
+            "$MANIFEST_SHA512"
+          bash .mise/tasks/package/verify --bundle "$BUNDLE_DIRECTORY"
+          echo "manifest_sha512=$MANIFEST_SHA512" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Immutable npm release bundle"
+            echo
+            echo "- Source run: \`${{ steps.npm_bundle_source.outputs.source_run_id }}\`"
+            echo "- Artifact: \`${{ steps.npm_bundle_source.outputs.name }}\`"
+            echo "- Manifest SHA-512: \`$MANIFEST_SHA512\`"
+            echo "- Reused from an earlier run: \`${{ steps.npm_bundle_source.outputs.reuse }}\`"
+            echo
+            jq -r '.packages[] | "- `\(.name)`: `\(.integrity)`"' "$BUNDLE_DIRECTORY/manifest.json"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Restore npm package directories from reused bundle
+        if: steps.npm_bundle_source.outputs.reuse == 'true'
+        run: bash .mise/lib/extract-npm-release-bundle.sh "${{ steps.npm_bundle_source.outputs.path }}"
+
+      - name: Upload immutable npm release bundle
+        if: steps.npm_bundle_source.outputs.reuse != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.npm_bundle_source.outputs.name }}
+          path: ${{ steps.npm_bundle_source.outputs.path }}
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish npm release bundle to GitHub Packages
+        run: bash .mise/lib/publish-npm-release-bundle.sh "${{ steps.npm_bundle_source.outputs.path }}" https://npm.pkg.github.com
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -262,7 +398,10 @@ jobs:
           bash .mise/lib/dispatch-npm-publish.sh \
             "$REPOSITORY" \
             "$RELEASE_TAG" \
-            "$RELEASE_SHA"
+            "$RELEASE_SHA" \
+            "${{ steps.npm_bundle_source.outputs.source_run_id }}" \
+            "${{ steps.npm_bundle_source.outputs.name }}" \
+            "${{ steps.npm_bundle.outputs.manifest_sha512 }}"
 
       - name: Upload Release Assets
         run: |
