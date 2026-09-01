@@ -31,6 +31,24 @@ object LegalMovesFilter:
       .get(move.toSquare)
       .exists(p => p.pieceType == PieceType.King && p.color != state.activeColor)
 
+  /** Computes the sequence length reachable by playing `move` from `state` when `move` is not a King-Capture.
+    *
+    * Returns 0 if `move` is castling but the required dice (King and Rook) are not available in the dice pool.
+    */
+  private def continuationLength(state: GameState, move: Move): Int =
+    if move.isCastling then
+      if state.flags.containsDie(PieceType.King.diceValue) && state.flags.containsDie(PieceType.Rook.diceValue)
+      then
+        val survived = state.flags.removeDie(PieceType.King.diceValue).removeDie(PieceType.Rook.diceValue)
+        val next     = state.makeMove(move).withDiceSlotsOf(survived)
+        2 + maxSequenceLength(next)
+      else 0
+    else
+      val moverType = state.mailbox(move.fromSquare).pieceType
+      val survived  = state.flags.removeDie(moverType.diceValue)
+      val next      = state.makeMove(move).withDiceSlotsOf(survived)
+      1 + maxSequenceLength(next)
+
   /** Recursively computes the maximum achievable micro-move sequence length from `state` with `remainingDice`.
     *
     * The search is bounded by the depth of `remainingDice` (at most 3), so it always terminates. The `makeMove` method
@@ -54,24 +72,10 @@ object LegalMovesFilter:
       var best = 0
 
       for move <- MoveGenerator.generateMoves(state) do
-        val moverType = state.mailbox(move.fromSquare).pieceType
-        if isKingCapture(state, move) then
-          // King capture ends the game: contributes depth 1 to this branch.
-          // Do NOT recurse further, but continue exploring other branches.
-          if best < 1 then best = 1
-        else if move.isCastling then
-          // Castling requires BOTH King (6) and Rook (4) dice to be present
-          if state.flags.containsDie(PieceType.King.diceValue) && state.flags.containsDie(PieceType.Rook.diceValue)
-          then
-            val survived = state.flags.removeDie(PieceType.King.diceValue).removeDie(PieceType.Rook.diceValue)
-            val next     = state.makeMove(move).withDiceSlotsOf(survived)
-            val depth    = 2 + maxSequenceLength(next)
-            if depth > best then best = depth
-        else
-          val survived = state.flags.removeDie(moverType.diceValue)
-          val next     = state.makeMove(move).withDiceSlotsOf(survived)
-          val depth    = 1 + maxSequenceLength(next)
-          if depth > best then best = depth
+        val depth =
+          if isKingCapture(state, move) then 1
+          else continuationLength(state, move)
+        if depth > best then best = depth
 
       best
 
@@ -111,21 +115,6 @@ object LegalMovesFilter:
         val result = List.newBuilder[Move]
 
         for move <- MoveGenerator.generateMoves(state) do
-          val moverType = state.mailbox(move.fromSquare).pieceType
-          if isKingCapture(state, move) then
-            // Type 1: King-capture first move — always legal
-            result += move
-          else if move.isCastling then
-            if state.flags.containsDie(PieceType.King.diceValue) && state.flags.containsDie(PieceType.Rook.diceValue)
-            then
-              val survived  = state.flags.removeDie(PieceType.King.diceValue).removeDie(PieceType.Rook.diceValue)
-              val next      = state.makeMove(move).withDiceSlotsOf(survived)
-              val reachable = 2 + maxSequenceLength(next)
-              if reachable == maxLen then result += move
-          else
-            val survived  = state.flags.removeDie(moverType.diceValue)
-            val next      = state.makeMove(move).withDiceSlotsOf(survived)
-            val reachable = 1 + maxSequenceLength(next)
-            if reachable == maxLen then result += move
+          if isKingCapture(state, move) || continuationLength(state, move) == maxLen then result += move
 
         result.result()
