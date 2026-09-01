@@ -98,58 +98,74 @@ object MoveGenerator {
       val from    = Square.fromIndex(fromIdx)
       val fromBB  = Bitboard.fromSquare(from)
 
-      // --- Single Push ---
-      val push1     = PawnGeneration.singlePushes(fromBB, emptySquares, color)
-      val push1Prom = PawnGeneration.promotionSquares(push1, color)
-      val push1Std  = PawnGeneration.nonPromotionSquares(push1, color)
+      addPawnPushes(from, fromBB, emptySquares, color, moves)
 
-      if !push1Prom.isEmpty then {
-        val to = Square.fromIndex(java.lang.Long.numberOfTrailingZeros(push1Prom.value))
-        moves += Move(from, to, Move.QueenPromotion)
-        moves += Move(from, to, Move.RookPromotion)
-        moves += Move(from, to, Move.BishopPromotion)
-        moves += Move(from, to, Move.KnightPromotion)
-      }
-
-      if !push1Std.isEmpty then {
-        val to1 = Square.fromIndex(java.lang.Long.numberOfTrailingZeros(push1Std.value))
-        moves += Move(from, to1, Move.QuietMove)
-
-        // Double Push
-        val push2 = PawnGeneration.doublePushes(push1Std, emptySquares, color)
-        if !push2.isEmpty then {
-          val to2 = Square.fromIndex(java.lang.Long.numberOfTrailingZeros(push2.value))
-          moves += Move(from, to2, Move.DoublePawnPush)
-        }
-      }
-
-      // --- Captures ---
       val east = PawnGeneration.eastCaptures(fromBB, enemies, color)
       val west = PawnGeneration.westCaptures(fromBB, enemies, color)
       addPawnCaptures(from, east, color, enemyKings, moves)
       addPawnCaptures(from, west, color, enemyKings, moves)
 
-      // --- En Passant ---
-      val validEPRank = if color.isWhite then 6 else 3
-      var ep          = state.enPassant.value
-      while ep != 0 do {
-        val epIdx    = java.lang.Long.numberOfTrailingZeros(ep)
-        val epSquare = Square.fromIndex(epIdx)
-        if epSquare.rank == validEPRank then {
-          val epBB     = Bitboard.fromSquare(epSquare)
-          val epEast   = PawnGeneration.eastCaptures(fromBB, epBB, color)
-          val epWest   = PawnGeneration.westCaptures(fromBB, epBB, color)
-          val epTarget = epEast | epWest
-          if !epTarget.isEmpty then {
-            moves += Move(from, epSquare, Move.EnPassantCapture)
-          }
-        }
-        ep &= ep - 1
-      }
+      addPawnEnPassant(from, fromBB, state.enPassant, color, moves)
 
       p &= p - 1
     }
     moves.result()
+  }
+
+  private def addPawnPushes(
+      from: Square,
+      fromBB: Bitboard,
+      emptySquares: Bitboard,
+      color: Color,
+      moves: mutable.Builder[Move, List[Move]]
+  ): Unit = {
+    val push1     = PawnGeneration.singlePushes(fromBB, emptySquares, color)
+    val push1Prom = PawnGeneration.promotionSquares(push1, color)
+    val push1Std  = PawnGeneration.nonPromotionSquares(push1, color)
+
+    if !push1Prom.isEmpty then {
+      val to = Square.fromIndex(java.lang.Long.numberOfTrailingZeros(push1Prom.value))
+      moves += Move(from, to, Move.QueenPromotion)
+      moves += Move(from, to, Move.RookPromotion)
+      moves += Move(from, to, Move.BishopPromotion)
+      moves += Move(from, to, Move.KnightPromotion)
+    }
+
+    if !push1Std.isEmpty then {
+      val to1 = Square.fromIndex(java.lang.Long.numberOfTrailingZeros(push1Std.value))
+      moves += Move(from, to1, Move.QuietMove)
+
+      val push2 = PawnGeneration.doublePushes(push1Std, emptySquares, color)
+      if !push2.isEmpty then {
+        val to2 = Square.fromIndex(java.lang.Long.numberOfTrailingZeros(push2.value))
+        moves += Move(from, to2, Move.DoublePawnPush)
+      }
+    }
+  }
+
+  private def addPawnEnPassant(
+      from: Square,
+      fromBB: Bitboard,
+      enPassant: Bitboard,
+      color: Color,
+      moves: mutable.Builder[Move, List[Move]]
+  ): Unit = {
+    val validEPRank = if color.isWhite then 6 else 3
+    var ep          = enPassant.value
+    while ep != 0 do {
+      val epIdx    = java.lang.Long.numberOfTrailingZeros(ep)
+      val epSquare = Square.fromIndex(epIdx)
+      if epSquare.rank == validEPRank then {
+        val epBB     = Bitboard.fromSquare(epSquare)
+        val epEast   = PawnGeneration.eastCaptures(fromBB, epBB, color)
+        val epWest   = PawnGeneration.westCaptures(fromBB, epBB, color)
+        val epTarget = epEast | epWest
+        if !epTarget.isEmpty then {
+          moves += Move(from, epSquare, Move.EnPassantCapture)
+        }
+      }
+      ep &= ep - 1
+    }
   }
 
   /** Generates pseudo-legal moves for a leaper piece (Knight or King).
@@ -208,6 +224,14 @@ object MoveGenerator {
     tryCastle(state, myPieces, allPieces, moves, qRight, rank, kingSide = false)
   }
 
+  /** Returns `true` when every square the rook traverses between king and rook is empty. */
+  private def isCastlingPathClear(allPieces: Bitboard, rank: Int, kingSide: Boolean): Boolean =
+    if kingSide then !allPieces.contains(Square('f', rank)) && !allPieces.contains(Square('g', rank))
+    else
+      !allPieces.contains(Square('b', rank)) &&
+      !allPieces.contains(Square('c', rank)) &&
+      !allPieces.contains(Square('d', rank))
+
   /** Appends a castling move if all three preconditions are satisfied:
     *
     *   1. The castling right character (`K`, `Q`, `k`, or `q`) is present in [[GameState.castlingRights]].
@@ -237,16 +261,14 @@ object MoveGenerator {
       kingSide: Boolean
   ): Unit =
     if state.castlingRights.contains(right) then
-      val kingHome = Square('e', rank)
-      val rookHome = Square(if kingSide then 'h' else 'a', rank)
-      if (myPieces & state.kings).contains(kingHome) && (myPieces & state.rooks).contains(rookHome) then
-        if kingSide then
-          if !allPieces.contains(Square('f', rank)) && !allPieces.contains(Square('g', rank)) then
-            moves += Move(kingHome, Square('g', rank), Move.KingCastle)
-        else if !allPieces.contains(Square('b', rank)) && !allPieces.contains(Square('c', rank)) && !allPieces.contains(
-            Square('d', rank)
-          )
-        then moves += Move(kingHome, Square('c', rank), Move.QueenCastle)
+      val kingHome     = Square('e', rank)
+      val rookHome     = Square(if kingSide then 'h' else 'a', rank)
+      val piecesPlaced =
+        (myPieces & state.kings).contains(kingHome) && (myPieces & state.rooks).contains(rookHome)
+      if piecesPlaced && isCastlingPathClear(allPieces, rank, kingSide) then
+        val toSquare = if kingSide then Square('g', rank) else Square('c', rank)
+        val flags    = if kingSide then Move.KingCastle else Move.QueenCastle
+        moves += Move(kingHome, toSquare, flags)
 
   /** Generates pseudo-legal moves for a sliding piece (Bishop, Rook, or Queen).
     *
