@@ -271,7 +271,7 @@ lazy val cli = project
     libraryDependencies ++= Seq(
       "com.monovore"  %% "decline"   % "2.6.2",
       "org.typelevel" %% "cats-core" % "2.13.0",
-      "org.jline"      % "jline"     % "4.3.1"
+      "org.jline"      % "jline"     % "4.4.0"
     ),
     coverageMinimumStmtTotal := 60,
     coverageDataCheck        := Def.uncached {
