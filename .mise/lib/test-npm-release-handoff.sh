@@ -238,4 +238,26 @@ if PATH="$FAKE_BIN:$PATH" bash "$SCRIPT_DIRECTORY/publish-npm-release-bundle.sh"
 fi
 grep -F 'could not read the published integrity for @fortemate/dicechess-engine@9.9.9 from https://registry.npmjs.test after 3 attempts' "$TEMP_DIRECTORY/propagation-timeout.log" >/dev/null
 
+export NPM_VERIFY_MAX_ATTEMPTS=0
+export NPM_VERIFY_SLEEP_SECONDS=0
+rm -f -- "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine" "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine-wasm"
+if PATH="$FAKE_BIN:$PATH" bash "$SCRIPT_DIRECTORY/publish-npm-release-bundle.sh" \
+  "$HANDOFF_DIRECTORY" \
+  https://registry.npmjs.test >"$TEMP_DIRECTORY/invalid-max-attempts.log" 2>&1; then
+  echo "error: zero max attempts did not fail closed" >&2
+  exit 1
+fi
+grep -F 'error: NPM_VERIFY_MAX_ATTEMPTS must be a positive integer' "$TEMP_DIRECTORY/invalid-max-attempts.log" >/dev/null
+
+export NPM_VERIFY_MAX_ATTEMPTS=3
+export NPM_VERIFY_SLEEP_SECONDS="invalid"
+rm -f -- "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine" "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine-wasm"
+if PATH="$FAKE_BIN:$PATH" bash "$SCRIPT_DIRECTORY/publish-npm-release-bundle.sh" \
+  "$HANDOFF_DIRECTORY" \
+  https://registry.npmjs.test >"$TEMP_DIRECTORY/invalid-sleep.log" 2>&1; then
+  echo "error: invalid sleep seconds did not fail closed" >&2
+  exit 1
+fi
+grep -F 'error: NPM_VERIFY_SLEEP_SECONDS must be a non-negative number' "$TEMP_DIRECTORY/invalid-sleep.log" >/dev/null
+
 echo "npm release artifact handoff contract passed"
