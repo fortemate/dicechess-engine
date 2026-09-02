@@ -17,12 +17,18 @@ class FenParserBenchmark:
   @Param(Array("initial", "kiwipete", "endgame"))
   var position: String = uninitialized
 
-  var fen: String = uninitialized
+  var fen: String      = uninitialized
+  var state: GameState = uninitialized
 
   @Setup(Level.Trial)
   def setup(): Unit =
     fen = BenchmarkPositions.AllPositions(position)
+    state = FenParser.parse(fen).getOrElse(sys.error(s"Invalid FEN: $fen"))
 
   @Benchmark
   def parseFen(): Either[String, GameState] =
     FenParser.parse(fen)
+
+  @Benchmark
+  def serializeFen(): String =
+    FenParser.serialize(state)

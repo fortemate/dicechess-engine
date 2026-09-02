@@ -577,3 +577,53 @@ class MakeMoveSpec extends FunSuite:
     val expectedEP = Bitboard.fromSquare(Square('a', 3)) | Bitboard.fromSquare(Square('e', 3))
     assertEquals(state3.enPassant, expectedEP)
   }
+
+  // ── MicroMove Zobrist incremental update consistency ─────────────────────
+
+  test("MicroMove: quiet move updates zobristHash incrementally matching computeKey") {
+    val state  = parse(FenParser.InitialPosition)
+    val mv     = MicroMove(Square('e', 2), Square('e', 3))
+    val result = state.makeMove(mv)
+    assertEquals(result.zobristHash, Zobrist.computeKey(result))
+  }
+
+  test("MicroMove: double pawn push updates zobristHash incrementally matching computeKey") {
+    val state  = parse(FenParser.InitialPosition)
+    val mv     = MicroMove(Square('e', 2), Square('e', 4))
+    val result = state.makeMove(mv)
+    assertEquals(result.zobristHash, Zobrist.computeKey(result))
+  }
+
+  test("MicroMove: regular capture updates zobristHash incrementally matching computeKey") {
+    val fen    = "rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
+    val state  = parse(fen)
+    val mv     = MicroMove(Square('e', 4), Square('d', 5))
+    val result = state.makeMove(mv)
+    assertEquals(result.zobristHash, Zobrist.computeKey(result))
+  }
+
+  test("MicroMove: en-passant capture updates zobristHash incrementally matching computeKey") {
+    val fen    = "rnbqkbnr/ppp1pppp/8/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3"
+    val state  = parse(fen)
+    val mv     = MicroMove(Square('e', 5), Square('d', 6))
+    val result = state.makeMove(mv)
+    assertEquals(result.zobristHash, Zobrist.computeKey(result))
+  }
+
+  test("MicroMove: promotion updates zobristHash incrementally matching computeKey") {
+    val fen    = "8/P7/8/8/8/8/8/4K2k w - - 0 1"
+    val state  = parse(fen)
+    val mv     = MicroMove(Square('a', 7), Square('a', 8), Some(PieceType.Queen))
+    val result = state.makeMove(mv)
+    assertEquals(result.zobristHash, Zobrist.computeKey(result))
+  }
+
+  test("MicroMove: dice consumption updates zobristHash incrementally matching computeKey") {
+    val fen    = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 PPR"
+    val state  = parse(fen)
+    val state1 = state.makeMove(MicroMove(Square('a', 2), Square('a', 4)))
+    assertEquals(state1.zobristHash, Zobrist.computeKey(state1))
+
+    val state2 = state1.makeMove(MicroMove(Square('a', 1), Square('a', 3)))
+    assertEquals(state2.zobristHash, Zobrist.computeKey(state2))
+  }

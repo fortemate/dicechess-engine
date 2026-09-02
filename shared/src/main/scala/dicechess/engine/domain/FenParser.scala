@@ -78,70 +78,20 @@ object FenParser {
       val ranks = board.split("/")
       if ranks.length != 8 then break(Left(s"Invalid FEN: board must have 8 ranks, found ${ranks.length}"))
 
-      var whitePieces = Bitboard.empty
-      var blackPieces = Bitboard.empty
-      var pawns       = Bitboard.empty
-      var knights     = Bitboard.empty
-      var bishops     = Bitboard.empty
-      var rooks       = Bitboard.empty
-      var queens      = Bitboard.empty
-      var kings       = Bitboard.empty
-      val mailbox     = new Array[Piece](64)
-
-      inline def addPiece(color: Color, pt: PieceType, bb: Bitboard): Unit =
-        if color.isWhite then whitePieces |= bb else blackPieces |= bb
-        pt match
-          case PieceType.Pawn   => pawns |= bb
-          case PieceType.Knight => knights |= bb
-          case PieceType.Bishop => bishops |= bb
-          case PieceType.Rook   => rooks |= bb
-          case PieceType.Queen  => queens |= bb
-          case PieceType.King   => kings |= bb
-          case _                => ()
-
-      inline def parseRank(rankIndex: Int, rankStr: String): Unit =
-        var file = 0
-        var i    = 0
-        val len  = rankStr.length
-        while i < len do
-          val char = rankStr.charAt(i)
-          if char.isDigit then file += char.asDigit
-          else
-            if file >= 8 then break(Left(s"Rank $rankIndex overflows 8 files"))
-            val sq    = Square.fromIndex(rankIndex * 8 + file)
-            val color = if char.isUpper then Color.White else Color.Black
-            val pt    = char.toLower match
-              case 'p' => PieceType.Pawn
-              case 'n' => PieceType.Knight
-              case 'b' => PieceType.Bishop
-              case 'r' => PieceType.Rook
-              case 'q' => PieceType.Queen
-              case 'k' => PieceType.King
-              case _   => break(Left(s"Unknown piece character '$char'"))
-
-            val piece = Piece(color, pt)
-            mailbox(sq.index) = piece
-            addPiece(color, pt, Bitboard.fromSquare(sq))
-            file += 1
-          i += 1
-        if file != 8 then break(Left(s"Rank $rankIndex must have 8 files, found $file"))
-
-      var r = 0
-      while r < 8 do
-        parseRank(7 - r, ranks(r))
-        r += 1
+      val builder = new BoardBuilder
+      builder.parseRanks(ranks)
 
       Right(
         GameState(
-          whitePieces,
-          blackPieces,
-          pawns,
-          knights,
-          bishops,
-          rooks,
-          queens,
-          kings,
-          mailbox = Mailbox.fromBuilder(mailbox),
+          builder.whitePieces,
+          builder.blackPieces,
+          builder.pawns,
+          builder.knights,
+          builder.bishops,
+          builder.rooks,
+          builder.queens,
+          builder.kings,
+          mailbox = Mailbox.fromBuilder(builder.mailbox),
           flags = flags,
           enPassant = enPassantBb,
           fullMoveNumber = fullMove
@@ -151,6 +101,63 @@ object FenParser {
   catch {
     case e: Exception => Left(s"FEN parsing error: ${e.getMessage}")
   }
+
+  final private class BoardBuilder:
+    var whitePieces: Bitboard = Bitboard.empty
+    var blackPieces: Bitboard = Bitboard.empty
+    var pawns: Bitboard       = Bitboard.empty
+    var knights: Bitboard     = Bitboard.empty
+    var bishops: Bitboard     = Bitboard.empty
+    var rooks: Bitboard       = Bitboard.empty
+    var queens: Bitboard      = Bitboard.empty
+    var kings: Bitboard       = Bitboard.empty
+    val mailbox: Array[Piece] = new Array[Piece](64)
+
+    private inline def addPiece(color: Color, pt: PieceType, bb: Bitboard): Unit =
+      if color.isWhite then whitePieces |= bb else blackPieces |= bb
+      pt match
+        case PieceType.Pawn   => pawns |= bb
+        case PieceType.Knight => knights |= bb
+        case PieceType.Bishop => bishops |= bb
+        case PieceType.Rook   => rooks |= bb
+        case PieceType.Queen  => queens |= bb
+        case PieceType.King   => kings |= bb
+        case _                => ()
+
+    private inline def parsePieceChar(char: Char)(using boundary.Label[Either[String, GameState]]): (Color, PieceType) =
+      val color = if char.isUpper then Color.White else Color.Black
+      val pt    = char.toLower match
+        case 'p' => PieceType.Pawn
+        case 'n' => PieceType.Knight
+        case 'b' => PieceType.Bishop
+        case 'r' => PieceType.Rook
+        case 'q' => PieceType.Queen
+        case 'k' => PieceType.King
+        case _   => break(Left(s"Unknown piece character '$char'"))
+      (color, pt)
+
+    private def parseRank(rankIndex: Int, rankStr: String)(using boundary.Label[Either[String, GameState]]): Unit =
+      var file = 0
+      var i    = 0
+      val len  = rankStr.length
+      while i < len do
+        val char = rankStr.charAt(i)
+        if char.isDigit then file += char.asDigit
+        else
+          if file >= 8 then break(Left(s"Rank $rankIndex overflows 8 files"))
+          val (color, pt) = parsePieceChar(char)
+          val sq          = Square.fromIndex(rankIndex * 8 + file)
+          mailbox(sq.index) = Piece(color, pt)
+          addPiece(color, pt, Bitboard.fromSquare(sq))
+          file += 1
+        i += 1
+      if file != 8 then break(Left(s"Rank $rankIndex must have 8 files, found $file"))
+
+    def parseRanks(ranks: Array[String])(using boundary.Label[Either[String, GameState]]): Unit =
+      var r = 0
+      while r < 8 do
+        parseRank(7 - r, ranks(r))
+        r += 1
 
   private inline def parseActiveColor(s: String)(using boundary.Label[Either[String, GameState]]): Color =
     s match
@@ -170,34 +177,49 @@ object FenParser {
     *   a valid FEN string representing `state`
     */
   def serialize(state: GameState): String = {
-    val res = new StringBuilder()
-    var r   = 7
+    val res = new StringBuilder(64)
+    serializePiecePlacement(state.mailbox, res)
+    res.append(if state.flags.activeColor.isWhite then " w " else " b ")
+    serializeCastling(state.flags.castlingRights, res)
+    res.append(" ")
+    serializeEnPassant(state.enPassant, res)
+    res.append(" ")
+    res.append(state.flags.halfMoveClock.toString)
+    res.append(" ")
+    res.append(state.fullMoveNumber.toString)
+    serializeDicePool(state.flags.dicePool, state.flags.activeColor.isWhite, res)
+    res.toString
+  }
+
+  private def serializePiecePlacement(mailbox: Mailbox, res: StringBuilder): Unit = {
+    var r = 7
     while r >= 0 do {
-      var empty = 0
-      var f     = 0
-      while f < 8 do {
-        val sq    = Square.fromIndex(r * 8 + f)
-        val piece = state.mailbox(sq)
-        if !piece.isEmpty then {
-          if empty > 0 then res.append(empty.toString)
-          empty = 0
-          val char = piece.pieceType.asNotation
-          res.append(if piece.color.isWhite then char.toUpperCase else char.toLowerCase)
-        } else {
-          empty += 1
-        }
-        f += 1
-      }
-      if empty > 0 then res.append(empty.toString)
+      serializeRank(r, mailbox, res)
       if r > 0 then res.append("/")
       r -= 1
     }
+  }
 
-    res.append(" ")
-    res.append(if state.flags.activeColor.isWhite then "w" else "b")
-    res.append(" ")
+  private def serializeRank(r: Int, mailbox: Mailbox, res: StringBuilder): Unit = {
+    var empty = 0
+    var f     = 0
+    while f < 8 do {
+      val sq    = Square.fromIndex(r * 8 + f)
+      val piece = mailbox(sq)
+      if !piece.isEmpty then {
+        if empty > 0 then res.append(empty.toString)
+        empty = 0
+        val char = piece.pieceType.asNotation
+        res.append(if piece.color.isWhite then char.toUpperCase else char.toLowerCase)
+      } else {
+        empty += 1
+      }
+      f += 1
+    }
+    if empty > 0 then res.append(empty.toString)
+  }
 
-    val cr = state.flags.castlingRights
+  private def serializeCastling(cr: Int, res: StringBuilder): Unit =
     if cr == 0 then res.append("-")
     else {
       if (cr & 1) != 0 then res.append("K")
@@ -206,26 +228,22 @@ object FenParser {
       if (cr & 8) != 0 then res.append("q")
     }
 
-    res.append(" ")
-    if state.enPassant.isEmpty then {
+  private def serializeEnPassant(enPassant: Bitboard, res: StringBuilder): Unit =
+    if enPassant.isEmpty then {
       res.append("-")
     } else {
-      var ep = state.enPassant.value
+      var ep = enPassant.value
       while ep != 0 do {
         val sqIdx = java.lang.Long.numberOfTrailingZeros(ep)
         res.append(Square.fromIndex(sqIdx).toNotation)
         ep &= ep - 1
       }
     }
-    res.append(" ")
-    res.append(state.flags.halfMoveClock.toString)
-    res.append(" ")
-    res.append(state.fullMoveNumber.toString)
 
-    val pool = state.flags.dicePool
-    if pool.nonEmpty then {
+  private def serializeDicePool(dicePool: List[Int], isWhite: Boolean, res: StringBuilder): Unit =
+    if dicePool.nonEmpty then {
       res.append(" ")
-      pool.sorted.foreach { d =>
+      dicePool.sorted.foreach { d =>
         val char = d match {
           case 1 => 'p'
           case 2 => 'n'
@@ -235,12 +253,9 @@ object FenParser {
           case 6 => 'k'
           case _ => '?'
         }
-        res.append(if state.flags.activeColor.isWhite then char.toUpper else char)
+        res.append(if isWhite then char.toUpper else char)
       }
     }
-
-    res.toString
-  }
 
   /** Parses the castling FEN string to an integer bitmask. Uses a single pass `foreach` which is highly optimized in
     * Scala 3. Directly breaks the enclosing boundary on invalid characters.

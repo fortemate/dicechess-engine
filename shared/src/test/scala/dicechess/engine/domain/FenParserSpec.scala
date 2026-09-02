@@ -241,3 +241,27 @@ class FenParserSpec extends FunSuite:
     assert(large.isRight, s"expected a large but representable full-move number to parse, got $large")
     assertEquals(large.toOption.get.fullMoveNumber, 2000000000)
   }
+
+  test("return Left for rank with fewer than 8 files") {
+    val shortRank = "rnbqkbnr/ppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    val parsed    = FenParser.parse(shortRank)
+    assert(parsed.isLeft)
+    assert(parsed.left.toOption.get.contains("must have 8 files, found 7"))
+  }
+
+  test("return Left for empty rank segment") {
+    val emptyRank = "rnbqkbnr//8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    val parsed    = FenParser.parse(emptyRank)
+    assert(parsed.isLeft)
+    assert(parsed.left.toOption.get.contains("must have 8 files, found 0"))
+  }
+
+  test("FenParser should round-trip Black active color with lowercase dice pool") {
+    val fen    = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1 pnb"
+    val parsed = FenParser.parse(fen)
+    assert(parsed.isRight)
+    val state = parsed.toOption.get
+    assertEquals(state.activeColor, Color.Black)
+    assertEquals(state.dicePool, List(1, 2, 3))
+    assertEquals(FenParser.serialize(state), fen)
+  }

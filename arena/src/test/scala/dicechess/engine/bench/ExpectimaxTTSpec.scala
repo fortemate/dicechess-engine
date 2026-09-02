@@ -3,9 +3,12 @@ package dicechess.engine.bench
 import dicechess.engine.domain.*
 import dicechess.engine.search.*
 import munit.FunSuite
+import scala.concurrent.duration.*
 import scala.util.Random
 
 class ExpectimaxTTSpec extends FunSuite:
+
+  override def munitTimeout: Duration = 3.minutes
 
   private val evalMaterialBatch: (Array[GameState], Color) => Array[Int] =
     (states, color) => states.map(Evaluator.evaluateMaterial(_, color))

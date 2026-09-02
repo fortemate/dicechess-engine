@@ -40,6 +40,13 @@ cd "$repo_root"
 
 cache_dir="$repo_root/target/covcache"
 
+if [[ -z "${JAVA_HOME:-}" ]] && command -v mise >/dev/null 2>&1; then
+  _mise_java="$(mise where java 2>/dev/null || true)"
+  if [[ -n "$_mise_java" && -d "$_mise_java" ]]; then
+    export JAVA_HOME="$_mise_java"
+  fi
+fi
+
 sbt shutdown >/dev/null 2>&1 || true
 rm -rf "$cache_dir"
 
