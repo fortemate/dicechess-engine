@@ -10,11 +10,9 @@ import scala.language.implicitConversions
 /** Comprehensive Test Suite for the Maximum Micro-moves Rule Algorithm.
   *
   * This test suite serves as the executable specification and acceptance criteria for the legal move filtering logic.
-  * All tests are currently ignored (@Ignore/skipped) to allow compilation and pass CI verification prior to the actual
-  * algorithm implementation.
   *
   * The test suite covers: A. Basic Multi-Dice Scenarios B. Special Chess Rules (Promotion, Castling, En Passant) C.
-  * King Capture Exemption D. ScalaCheck Property-Based Tests E. Regression Testing (Perft integration)
+  * King Capture Exemption D. ScalaCheck Property-Based Tests E. Specific Regression Tests
   */
 class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
 
@@ -478,9 +476,11 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
 
   property("D2: Maximum sequence length condition is satisfied") {
     forAll(gameStateGen, diceGen) { (state, dice) =>
-      val legalMoves = filterMoves(state, dice)
-      // Any returned move must achieve the global maximum sequence length (or capture the king)
-      assert(legalMoves.size >= 0)
+      val st     = state.withDicePool(dice)
+      val maxLen = maxSequenceLengthRef(st)
+      LegalMovesFilter.filterMaximalMoves(st).forall { m =>
+        isKingCaptureRef(st, m) || continuationLengthRef(st, m) == maxLen
+      }
     }
   }
 
@@ -513,31 +513,9 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
     }
   }
 
-  // ── AREA E: REGRESSION TESTS (PERFT INTEGRATION) ──────────────────────────
+  // ── AREA E: SPECIFIC REGRESSION TESTS ─────────────────────────────────────
 
-  test("E1: Perft at depth 1 with filtered moves remains consistent") {
-    /*
-     * Input: Initial position, dice = [Pawn, Knight, Bishop]
-     * Expected: Count of legal moves matches the filtered list size.
-     */
-    val state = parse(FenParser.InitialPosition)
-    val dice  = List(Pawn, Knight, Bishop)
-    val legal = filterMoves(state, dice)
-    assert(legal.size >= 0)
-  }
-
-  test("E2: Perft at depth 2 with filtered moves") {
-    /*
-     * Input: Custom FEN, dice = [Rook, Rook, Rook]
-     * Expected: Count remains consistent.
-     */
-    val state = parse("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1")
-    val dice  = List(Rook, Rook, Rook)
-    val legal = filterMoves(state, dice)
-    assert(legal.size >= 0)
-  }
-
-  test("E3: Issue #117 - Depth memoization preserves the King-Capture exemption") {
+  test("E1: Issue #117 - Depth memoization preserves the King-Capture exemption") {
     /*
      * Nb3 already attacks the Black King on c5, so Nb3xc5 is a 1-move King capture,
      * while the globally optimal non-capturing sequence is 3 moves long. The capture is
