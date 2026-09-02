@@ -167,14 +167,14 @@ private object Position:
       mailbox(rookFrom.index) = Piece.Empty
       mailbox(rookTo.index) = Piece(color, PieceType.Rook)
 
-    /** Clears an en-passant victim pawn from the mailbox, opponent color bitboard, and pawns bitboard. */
+    /** En-passant captures remove the victim pawn from its passed square rather than the destination square. */
     def applyEnPassantVictim(victimSq: Square, victimPiece: Option[Piece], isWhite: Boolean): Unit =
       val victimBB = Bitboard.fromSquare(victimSq)
       mailbox(victimSq.index) = Piece.Empty
       removeCaptured(isWhite, victimBB)
       victimPiece.foreach(p => clearPiece(p.pieceType, victimBB))
 
-  /** Converts an en-passant [[Bitboard]] to an 8-bit file mask. */
+  /** Projects active en-passant squares onto the GameFlags 8-bit file mask field. */
   private[engine] inline def enPassantFiles(bb: Bitboard): Int =
     var epFiles = 0
     var ep      = bb.value

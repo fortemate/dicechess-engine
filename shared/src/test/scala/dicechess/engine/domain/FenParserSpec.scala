@@ -245,15 +245,30 @@ class FenParserSpec extends FunSuite:
   test("return Left for rank with fewer than 8 files") {
     val shortRank = "rnbqkbnr/ppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
     val parsed    = FenParser.parse(shortRank)
-    assert(parsed.isLeft)
-    assert(parsed.left.toOption.get.contains("must have 8 files, found 7"))
+    assertEquals(parsed, Left("Rank 6 must have 8 files, found 7"))
   }
 
   test("return Left for empty rank segment") {
     val emptyRank = "rnbqkbnr//8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
     val parsed    = FenParser.parse(emptyRank)
-    assert(parsed.isLeft)
-    assert(parsed.left.toOption.get.contains("must have 8 files, found 0"))
+    assertEquals(parsed, Left("Rank 6 must have 8 files, found 0"))
+  }
+
+  test("FenParser should round-trip valid empty board (eight '8' ranks)") {
+    val fen    = "8/8/8/8/8/8/8/8 w - - 0 1"
+    val parsed = FenParser.parse(fen)
+    assert(parsed.isRight)
+    val state = parsed.toOption.get
+    assertEquals(FenParser.serialize(state), fen)
+  }
+
+  test("FenParser should round-trip valid full board with 64 occupied squares") {
+    val fen    = "rnbqkbnr/pppppppp/rnbqkbnr/pppppppp/PPPPPPPP/RNBQKBNR/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    val parsed = FenParser.parse(fen)
+    assert(parsed.isRight)
+    val state = parsed.toOption.get
+    assertEquals(state.mailbox.toArray.count(!_.isEmpty), 64)
+    assertEquals(FenParser.serialize(state), fen)
   }
 
   test("FenParser should round-trip Black active color with lowercase dice pool") {
