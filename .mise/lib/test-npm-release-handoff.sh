@@ -128,6 +128,7 @@ REAL_NPM=$(command -v npm)
 export REAL_NPM FAKE_STATE_DIRECTORY FAKE_PUBLISH_LOG
 export FAKE_MANIFEST="$HANDOFF_DIRECTORY/manifest.json"
 export FAKE_MISMATCH_PACKAGE=
+export FAKE_PROPAGATION_DELAY_ATTEMPTS=
 
 cat >"$FAKE_BIN/npm" <<'FAKE_NPM'
 #!/usr/bin/env bash
@@ -142,6 +143,20 @@ if [[ $1 == view ]]; then
     exit 1
   fi
   if [[ " $* " == *" dist.integrity "* ]]; then
+    if [[ -n "${FAKE_PROPAGATION_DELAY_ATTEMPTS:-}" ]]; then
+      delay_file="$FAKE_STATE_DIRECTORY/${package_name//\//_}.integrity_views"
+      current_views=0
+      if [[ -f "$delay_file" ]]; then
+        current_views=$(cat "$delay_file")
+      fi
+      current_views=$((current_views + 1))
+      printf '%s\n' "$current_views" >"$delay_file"
+      if [[ $current_views -le $FAKE_PROPAGATION_DELAY_ATTEMPTS ]]; then
+        echo "npm error code E404" >&2
+        echo "npm error 404 No match found for version 9.9.9" >&2
+        exit 1
+      fi
+    fi
     if [[ "$package_name" == "${FAKE_MISMATCH_PACKAGE:-}" ]]; then
       printf '%s\n' 'sha512-bWlzbWF0Y2g='
     else
@@ -194,13 +209,33 @@ if [[ -f "$FAKE_PUBLISH_LOG" ]]; then
 fi
 
 export FAKE_MISMATCH_PACKAGE=
-rm -f -- "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine" "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine-wasm"
+export FAKE_PROPAGATION_DELAY_ATTEMPTS=2
+export NPM_VERIFY_SLEEP_SECONDS=0
+rm -f -- "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine" "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine-wasm" \
+  "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine.integrity_views" "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine-wasm.integrity_views"
+rm -f -- "$FAKE_PUBLISH_LOG"
 PATH="$FAKE_BIN:$PATH" bash "$SCRIPT_DIRECTORY/publish-npm-release-bundle.sh" \
   "$HANDOFF_DIRECTORY" \
-  https://registry.npmjs.test
+  https://registry.npmjs.test >"$TEMP_DIRECTORY/propagation-delay.log" 2>&1
+grep -F 'Waiting for @fortemate/dicechess-engine@9.9.9 integrity to propagate to https://registry.npmjs.test (attempt 1/15)...' "$TEMP_DIRECTORY/propagation-delay.log" >/dev/null
+grep -F 'Waiting for @fortemate/dicechess-engine-wasm@9.9.9 integrity to propagate to https://registry.npmjs.test (attempt 1/15)...' "$TEMP_DIRECTORY/propagation-delay.log" >/dev/null
 if [[ $(wc -l <"$FAKE_PUBLISH_LOG") -ne 2 ]]; then
-  echo "error: fixture registry did not receive both npm tarballs" >&2
+  echo "error: fixture registry with simulated propagation delay did not receive both npm tarballs" >&2
   exit 1
 fi
+
+export FAKE_PROPAGATION_DELAY_ATTEMPTS=10
+export NPM_VERIFY_MAX_ATTEMPTS=3
+export NPM_VERIFY_SLEEP_SECONDS=0
+rm -f -- "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine" "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine-wasm" \
+  "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine.integrity_views" "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine-wasm.integrity_views"
+rm -f -- "$FAKE_PUBLISH_LOG"
+if PATH="$FAKE_BIN:$PATH" bash "$SCRIPT_DIRECTORY/publish-npm-release-bundle.sh" \
+  "$HANDOFF_DIRECTORY" \
+  https://registry.npmjs.test >"$TEMP_DIRECTORY/propagation-timeout.log" 2>&1; then
+  echo "error: excessive propagation delay did not fail closed" >&2
+  exit 1
+fi
+grep -F 'could not read the published integrity for @fortemate/dicechess-engine@9.9.9 from https://registry.npmjs.test after 3 attempts' "$TEMP_DIRECTORY/propagation-timeout.log" >/dev/null
 
 echo "npm release artifact handoff contract passed"

@@ -67,24 +67,41 @@ trap 'rm -f -- "$VIEW_ERROR"; if [[ -n "${PACKAGE_MANIFEST:-}" && "$PACKAGE_MANI
 
 verify_integrity() {
   local published_integrity
+  local attempt=1
+  local max_attempts=${NPM_VERIFY_MAX_ATTEMPTS:-15}
+  local sleep_seconds=${NPM_VERIFY_SLEEP_SECONDS:-2}
 
   if [[ -z "$EXPECTED_INTEGRITY" ]]; then
     return 0
   fi
 
-  : >"$VIEW_ERROR"
-  if ! published_integrity=$(npm view "$PACKAGE_SPEC" dist.integrity --registry="$REGISTRY_URL" 2>"$VIEW_ERROR"); then
-    echo "error: could not read the published integrity for $PACKAGE_SPEC from $REGISTRY_URL" >&2
-    sed 's/^/  /' "$VIEW_ERROR" >&2
-    return 1
-  fi
-  if [[ "$published_integrity" != "$EXPECTED_INTEGRITY" ]]; then
-    echo "error: registry digest mismatch for $PACKAGE_SPEC in $REGISTRY_URL" >&2
-    echo "  expected: $EXPECTED_INTEGRITY" >&2
-    echo "  actual:   $published_integrity" >&2
-    return 1
-  fi
-  echo "Verified $PACKAGE_SPEC in $REGISTRY_URL: $published_integrity"
+  while true; do
+    : >"$VIEW_ERROR"
+    if published_integrity=$(npm view "$PACKAGE_SPEC" dist.integrity --registry="$REGISTRY_URL" 2>"$VIEW_ERROR"); then
+      if [[ "$published_integrity" == "$EXPECTED_INTEGRITY" ]]; then
+        echo "Verified $PACKAGE_SPEC in $REGISTRY_URL: $published_integrity"
+        return 0
+      fi
+      if [[ -n "$published_integrity" ]]; then
+        echo "error: registry digest mismatch for $PACKAGE_SPEC in $REGISTRY_URL" >&2
+        echo "  expected: $EXPECTED_INTEGRITY" >&2
+        echo "  actual:   $published_integrity" >&2
+        return 1
+      fi
+    fi
+
+    if [[ $attempt -ge $max_attempts ]]; then
+      echo "error: could not read the published integrity for $PACKAGE_SPEC from $REGISTRY_URL after $attempt attempts" >&2
+      sed 's/^/  /' "$VIEW_ERROR" >&2
+      return 1
+    fi
+
+    echo "Waiting for $PACKAGE_SPEC integrity to propagate to $REGISTRY_URL (attempt $attempt/$max_attempts)..."
+    if [[ "$sleep_seconds" != "0" ]]; then
+      sleep "$sleep_seconds"
+    fi
+    attempt=$((attempt + 1))
+  done
 }
 
 if PUBLISHED_VERSION=$(npm view "$PACKAGE_SPEC" version --registry="$REGISTRY_URL" 2>"$VIEW_ERROR"); then

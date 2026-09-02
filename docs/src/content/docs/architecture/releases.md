@@ -95,8 +95,10 @@ another incomplete, so every retry checks the exact package and version separate
 
 An exact version-and-integrity match is skipped. A `404` is publishable. A version with a different
 integrity, authentication failure, network failure, or unexpected registry response stops the
-workflow instead of being mistaken for a missing version. Every `npm view` and `npm publish` command
-carries an explicit registry URL; package metadata does not select a registry.
+workflow instead of being mistaken for a missing version. Post-publish integrity verification polls
+the registry with retries to account for registry replication lag and CDN propagation delay before
+failing closed. Every `npm view` and `npm publish` command carries an explicit registry URL;
+package metadata does not select a registry.
 
 ## Trusted publisher configuration
 
