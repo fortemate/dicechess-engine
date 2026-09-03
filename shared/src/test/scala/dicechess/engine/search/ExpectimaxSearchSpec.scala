@@ -453,6 +453,26 @@ class ExpectimaxSearchSpec extends FunSuite:
     assert(s.ttHits > 0, s"expected the completed candidate to reuse an exact TT value, got $s")
     assert(s.ttCutoffs > 0, s"expected root-rescored candidates to reuse TT upper bounds, got $s")
 
+  test("ttProbes counts every candidate the root loop reached, and stays zero without a table"):
+    // The probe counter is incremented before the chance node runs, so it measures how many candidates consulted the
+    // table — not how many it answered. Nothing else in this suite pins that distinction, and it is the one root
+    // counter whose value is independent of what the search then decided.
+    var probing = Option.empty[RootSearchStats]
+    val withTt  = ExpectimaxSearch(
+      materialBatch,
+      statsSink = s => probing = Some(s),
+      tt = Some(new TranspositionTable(256))
+    )
+    assert(withTt.findBestMove(rootRescorePosition, Random(0)).isDefined)
+    assertEquals(probing.map(_.candidatesSelected), Some(4))
+    assertEquals(probing.map(_.ttProbes), Some(4))
+
+    var unprobed  = Option.empty[RootSearchStats]
+    val withoutTt = ExpectimaxSearch(materialBatch, statsSink = s => unprobed = Some(s))
+    assert(withoutTt.findBestMove(rootRescorePosition, Random(0)).isDefined)
+    assertEquals(unprobed.map(_.candidatesSelected), Some(4))
+    assertEquals(unprobed.map(_.ttProbes), Some(0))
+
   test("statsSink reports 0/0 on an immediate king capture — no candidate was ever expanded"):
     val state = parse("k7/8/8/8/8/8/8/R3K3 w - - 0 1").withDicePool(List(1, 1, 4))
     var stats = Option.empty[RootSearchStats]

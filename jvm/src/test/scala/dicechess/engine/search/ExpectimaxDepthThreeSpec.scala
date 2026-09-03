@@ -22,6 +22,67 @@ class ExpectimaxDepthThreeSpec extends FunSuite:
   private val materialBatch: (Array[GameState], Color) => Array[Int] =
     (states, color) => states.map(state => Evaluator.evaluateMaterial(state, color))
 
+  private def uci(moves: List[Move]): String =
+    moves.map(m => m.fromSquare.toNotation + m.toSquare.toNotation).mkString(" ")
+
+  private def whiteKingOn(square: (Char, Int))(state: GameState): Boolean =
+    state.mailbox
+      .get(Square(square._1, square._2))
+      .exists(piece => piece.color == Color.White && piece.pieceType == PieceType.King)
+
+  /** A pre-ranker that forces exactly one root candidate: the turn that puts the white king on `square`. */
+  private def prefers(square: (Char, Int)): (Array[GameState], Color) => Array[Int] =
+    (states, _) => states.map(s => if whiteKingOn(square)(s) then 1 else 0)
+
+  /** Distinct leaf values per white-king square, so the depth-3 tree has a strict ordering to prune against. */
+  private def scoresKingSquares(d1: Int, d2: Int, e2: Int, f1: Int): (Array[GameState], Color) => Array[Int] =
+    (states, _) =>
+      states.map: s =>
+        if whiteKingOn('d' -> 1)(s) then d1
+        else if whiteKingOn('d' -> 2)(s) then d2
+        else if whiteKingOn('e' -> 2)(s) then e2
+        else if whiteKingOn('f' -> 1)(s) then f1
+        else 0
+
+  test("depth 3 window pruning matches an exhaustive per-candidate depth-3 search"):
+    // The depth-2 equivalent of this test lives in ExpectimaxSearchSpec; depth 3 adds a whole second layer of window
+    // arithmetic — per-roll alpha/beta transforms, the fail-soft re-search, and the leaf-ply nodes that provably never
+    // read their window — none of which may change what the wide search decides.
+    //
+    // Only the king die (6) is usable (no rook or pawn die, and White has no knight or bishop), so the root offers
+    // exactly the four king steps d1, d2, e2 and f1. Searched one at a time the root window is open, so no bound of
+    // any kind can reach them; searched together every candidate after the first prunes against a real alpha.
+    //
+    // Black is a lone king on purpose: eight exact depth-3 candidate trees are affordable only if the opponent passes
+    // on most rolls. A richer Black turns the same assertion into two minutes under scoverage instrumentation.
+    val state   = parse("7k/8/8/8/8/8/5P2/4K3 w - - 0 1").withDicePool(List(6, 2, 3))
+    val leaf    = scoresKingSquares(d1 = 300, d2 = 9000, e2 = 100, f1 = 0)
+    val targets = List(('d', 1), ('d', 2), ('e', 2), ('f', 1))
+
+    val exhaustive = targets.map: target =>
+      ExpectimaxSearch(
+        leaf,
+        ExpectimaxConfig(candidateLimit = 1, searchDepth = 3),
+        preRank = prefers(target)
+      ).findBestMove(state, Random(0)).getOrElse(fail(s"no turn for target $target"))
+    val bestScore = exhaustive.map(_.score).max
+
+    var stats  = Option.empty[RootSearchStats]
+    val pruned = ExpectimaxSearch(
+      leaf,
+      ExpectimaxConfig(candidateLimit = 4, searchDepth = 3),
+      statsSink = s => stats = Some(s),
+      tt = Some(new TranspositionTable(4096))
+    ).findBestMove(state, Random(0)).getOrElse(fail("no turn from the wide search"))
+
+    assertEquals(pruned.score, bestScore)
+    val bestTurns = exhaustive.filter(_.score == bestScore).map(candidate => uci(candidate.moves))
+    assert(bestTurns.contains(uci(pruned.moves)), s"pruned turn ${uci(pruned.moves)} is not among $bestTurns")
+
+    val s = stats.getOrElse(fail("expected root stats"))
+    assertEquals(s.candidatesSelected, 4)
+    assert(s.cutoffs + s.ttCutoffs > 0, s"the wide search must prune something, or this proves nothing: $s")
+
   test("depth 3 values a future king capture above every non-terminal leaf"):
     // The root roll contains no rook die, so White cannot take Ka8 immediately. After White's forced king move and
     // Black's reply/pass, an inner rook roll lets Ra1 capture the king. A zero evaluator makes that terminal preference
