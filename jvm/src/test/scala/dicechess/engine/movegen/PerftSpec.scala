@@ -43,3 +43,21 @@ class PerftSpec extends FunSuite:
       val actualNodes = Perft.countNodes(state.withDicePool(List(tc.diceRoll)), tc.depth)
       assertEquals(actualNodes, tc.expectedNodes)
     }
+
+  test("Perft: classical initial position without dice pool") {
+    val state = FenParser.parse(FenParser.InitialPosition).toOption.get
+    assertEquals(Perft.countNodes(state, 0), 1L)
+    assertEquals(Perft.countNodes(state, 1), 20L)
+    assertEquals(Perft.countNodes(state, 2), 400L)
+  }
+
+  test("Perft: divide returns move breakdown matching countNodes") {
+    val state = FenParser.parse(FenParser.InitialPosition).toOption.get
+    val div1  = Perft.divide(state, 1)
+    assertEquals(div1.values.sum, 20L)
+    assertEquals(div1("e2e4"), 1L)
+
+    val div2 = Perft.divide(state, 2)
+    assertEquals(div2.values.sum, 400L)
+    assertEquals(div2("e2e4"), 20L)
+  }

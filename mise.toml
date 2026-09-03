@@ -65,6 +65,22 @@ run = "sbt 'benchmark/Jmh/run -wi 3 -i 5 -f 1'"
 description = "⚡ Run JMH benchmarks matching a regex pattern"
 run = "sbt \"benchmark/Jmh/run {{arg(name=\\\"pattern\\\")}}\""
 
+[tasks."bench:js"]
+description = "⚡ Run JavaScript (Scala.js / ES2022) performance benchmarks on Node.js"
+depends = ["js:build"]
+run = "node benchmark/node/runner.mjs --target js"
+
+[tasks."bench:wasm"]
+description = "⚡ Run WebAssembly (Scala.js / WasmGC) performance benchmarks on Node.js"
+depends = ["wasm:build"]
+run = "node benchmark/node/runner.mjs --target wasm"
+
+[tasks."bench:all"]
+description = "⚡ Run JS and WebAssembly benchmarks with cross-platform comparison on Node.js"
+depends = ["js:build", "wasm:build"]
+run = "node benchmark/node/runner.mjs --target all"
+
+
 [tasks.arena]
 description = "⚔️  Run the Bot Battle Arena match runner (JVM)"
 run = "sbt 'arena/runMain dicechess.engine.bench.BotMatchRunner --base-bot {{arg(name=\"base\", default=\"greedy\")}} --games {{arg(name=\"games\", default=\"50\")}} --seed {{arg(name=\"seed\", default=\"42\")}}'"

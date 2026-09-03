@@ -44,7 +44,8 @@ mise run check          # THE pre-PR gate: scalafix check, clean, scalafmt check
 mise run test           # sbt testOnly * (JVM + JS + Wasm on Node)
 mise run format         # sbt scalafmtAll; scalafixAll — git add new .scala files FIRST
 mise run compile | run | console | coverage | clean
-mise run bench | bench:quick | bench:filter <regex>     # JMH benchmarks
+mise run bench | bench:quick | bench:filter <regex>     # JMH benchmarks (JVM)
+mise run bench:js | bench:wasm | bench:all              # Node.js benchmarks (JS / Wasm)
 mise run arena [base] [games]                           # bot arena (BotMatchRunner)
 mise run arena:timed | arena:book                       # time-controlled / opening-book arenas
 mise run arena:evaluate [bot] [baseline] [fixtures]     # deterministic search scenario comparison

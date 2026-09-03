@@ -62,7 +62,14 @@ mise run setup
 
 # Run full test suite and quality gates
 mise run check
+
+# Performance benchmarks
+mise run bench          # JVM JMH benchmarks
+mise run bench:js       # JavaScript (Scala.js / ES2022) on Node.js
+mise run bench:wasm     # WebAssembly (Scala.js / WasmGC) on Node.js
+mise run bench:all      # Cross-platform JS vs Wasm vs JVM comparison
 ```
+
 
 ---
 

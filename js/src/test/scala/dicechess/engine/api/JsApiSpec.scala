@@ -288,3 +288,54 @@ class JsApiSpec extends FunSuite:
       assertEquals(played.sorted, booked.sorted)
     finally dicechess.engine.search.BotRegistry.reset()
   }
+
+  test("perft: computes leaf node count correctly and handles edge cases") {
+    assertEquals(JsApi.perft(initialDfen, 0), 1.0)
+    assertEquals(JsApi.perft(initialDfen, 1), 20.0)
+    assertEquals(JsApi.perft(initialDfen, 2), 400.0)
+
+    // With dice pool
+    assertEquals(JsApi.perft(budgetDfen, 1), 4.0) // 4 promotion moves
+
+    // Edge cases
+    assertEquals(JsApi.perft(null.asInstanceOf[String], 1), 0.0) // scalafix:ok(DisableSyntax.null)
+    assertEquals(JsApi.perft("invalid-fen", 1), 0.0)
+    assertEquals(JsApi.perft(initialDfen, -1), 0.0)
+  }
+
+  test("generateMoves: generates pseudo-legal moves and handles edge cases") {
+    val initialMoves = JsApi.generateMoves(initialDfen).toList
+    assertEquals(initialMoves.length, 20)
+    assert(initialMoves.contains("e2e4"))
+    assert(initialMoves.contains("g1f3"))
+
+    val pawnMoves = JsApi.generateMoves(budgetDfen).toList
+    assertEquals(pawnMoves.length, 4) // e7e8q, e7e8r, e7e8b, e7e8n
+
+    // Edge cases
+    assertEquals(JsApi.generateMoves(null.asInstanceOf[String]).length, 0) // scalafix:ok(DisableSyntax.null)
+    assertEquals(JsApi.generateMoves("invalid-fen").length, 0)
+  }
+
+  test("benchGenerateMoves: runs iterations in tight loop and returns cumulative move count") {
+    val totalMoves = JsApi.benchGenerateMoves(initialDfen, 5)
+    assertEquals(totalMoves, 100.0) // 5 iterations * 20 moves
+
+    // Edge cases
+    assertEquals(JsApi.benchGenerateMoves(null.asInstanceOf[String], 5), 0.0) // scalafix:ok(DisableSyntax.null)
+    assertEquals(JsApi.benchGenerateMoves("invalid-fen", 5), 0.0)
+    assertEquals(JsApi.benchGenerateMoves(initialDfen, 0), 0.0)
+    assertEquals(JsApi.benchGenerateMoves(initialDfen, -5), 0.0)
+  }
+
+  test("benchFilterMaximalMoves: runs iterations in tight loop and returns cumulative move count") {
+    val singleMoves = JsApi.getLegalUciMoves(budgetDfen).length
+    val totalMoves  = JsApi.benchFilterMaximalMoves(budgetDfen, 4)
+    assertEquals(totalMoves, (4 * singleMoves).toDouble)
+
+    // Edge cases
+    assertEquals(JsApi.benchFilterMaximalMoves(null.asInstanceOf[String], 4), 0.0) // scalafix:ok(DisableSyntax.null)
+    assertEquals(JsApi.benchFilterMaximalMoves("invalid-fen", 4), 0.0)
+    assertEquals(JsApi.benchFilterMaximalMoves(budgetDfen, 0), 0.0)
+    assertEquals(JsApi.benchFilterMaximalMoves(budgetDfen, -3), 0.0)
+  }
