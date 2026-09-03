@@ -215,7 +215,6 @@ object GameFlags:
     inline def withHalfMoveClock(clock: Int): GameFlags =
       (flags & ~(0x7f << 22)) | (clampHalfMoveClock(clock) << 22)
 
-    /** Returns `true` if this [[GameFlags]] instance is valid (non-negative). */
     inline def isValid: Boolean = flags >= 0
 
     /** Consumes the dice required to execute `move` by a piece of `moverType`.
