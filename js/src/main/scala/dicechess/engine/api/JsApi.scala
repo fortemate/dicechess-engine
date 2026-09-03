@@ -72,6 +72,103 @@ object JsApi:
           val allMoves = LegalMovesFilter.filterMaximalMoves(state)
           allMoves.map(_.toUci).toJSArray
 
+  /** Counts the number of leaf nodes at a given depth for a DFEN position.
+    *
+    * If the DFEN does not contain a dice pool, standard chess move generation is used.
+    *
+    * @param dfen
+    *   The position in DFEN notation.
+    * @param depth
+    *   Search depth (0 or greater).
+    * @return
+    *   Total number of leaf nodes as a Double.
+    */
+  @JSExport
+  @JSExportTopLevel("perft")
+  def perft(dfen: String, depth: Int): Double =
+    if Option(dfen).isEmpty || depth < 0 then 0.0
+    else
+      FenParser.parse(dfen) match
+        case Left(_)      => 0.0
+        case Right(state) => dicechess.engine.movegen.Perft.countNodes(state, depth).toDouble
+
+  /** Generates pseudo-legal moves for the active color and current dice pool.
+    *
+    * If no dice pool is present in the DFEN, generates all pseudo-legal moves for all piece types.
+    *
+    * @param dfen
+    *   The position in DFEN notation.
+    * @return
+    *   An array of UCI move strings.
+    */
+  @JSExport
+  @JSExportTopLevel("generateMoves")
+  def generateMoves(dfen: String): js.Array[String] =
+    if Option(dfen).isEmpty then js.Array()
+    else
+      FenParser.parse(dfen) match
+        case Left(_)      => js.Array()
+        case Right(state) =>
+          val moves =
+            if state.dicePool.isEmpty then dicechess.engine.movegen.MoveGenerator.generateAllMoves(state)
+            else dicechess.engine.movegen.MoveGenerator.generateMoves(state)
+          moves.map(_.toUci).toJSArray
+
+  /** Executes [[dicechess.engine.movegen.MoveGenerator.generateMoves]] in a tight loop for benchmarking, isolating the
+    * hot path from repeated FEN parsing.
+    *
+    * @param dfen
+    *   The position in DFEN notation.
+    * @param iterations
+    *   Number of iterations to run.
+    * @return
+    *   Total move count generated across all iterations.
+    */
+  @JSExport
+  @JSExportTopLevel("benchGenerateMoves")
+  def benchGenerateMoves(dfen: String, iterations: Int): Double =
+    if Option(dfen).isEmpty || iterations <= 0 then 0.0
+    else
+      FenParser.parse(dfen) match
+        case Left(_)      => 0.0
+        case Right(state) =>
+          val useAll     = state.dicePool.isEmpty
+          var totalMoves = 0L
+          var i          = 0
+          while i < iterations do
+            val moves =
+              if useAll then dicechess.engine.movegen.MoveGenerator.generateAllMoves(state)
+              else dicechess.engine.movegen.MoveGenerator.generateMoves(state)
+            totalMoves += moves.length.toLong
+            i += 1
+          totalMoves.toDouble
+
+  /** Executes [[dicechess.engine.movegen.LegalMovesFilter.filterMaximalMoves]] in a tight loop for benchmarking,
+    * isolating the hot path from repeated FEN parsing.
+    *
+    * @param dfen
+    *   The position in DFEN notation.
+    * @param iterations
+    *   Number of iterations to run.
+    * @return
+    *   Total move count generated across all iterations.
+    */
+  @JSExport
+  @JSExportTopLevel("benchFilterMaximalMoves")
+  def benchFilterMaximalMoves(dfen: String, iterations: Int): Double =
+    if Option(dfen).isEmpty || iterations <= 0 then 0.0
+    else
+      FenParser.parse(dfen) match
+        case Left(_)      => 0.0
+        case Right(state) =>
+          var totalMoves = 0L
+          var i          = 0
+          while i < iterations do
+            val moves = LegalMovesFilter.filterMaximalMoves(state)
+            totalMoves += moves.length.toLong
+            i += 1
+          totalMoves.toDouble
+
   /** Returns the piece type associated with a dice roll.
     *
     * @param dice

@@ -43,3 +43,41 @@ class PerftSpec extends FunSuite:
       val actualNodes = Perft.countNodes(state.withDicePool(List(tc.diceRoll)), tc.depth)
       assertEquals(actualNodes, tc.expectedNodes)
     }
+
+  test("Perft: classical initial position without dice pool") {
+    val state = FenParser.parse(FenParser.InitialPosition).toOption.get
+    assertEquals(Perft.countNodes(state, 0), 1L)
+    assertEquals(Perft.countNodes(state, 1), 20L)
+    assertEquals(Perft.countNodes(state, 2), 400L)
+  }
+
+  test("Perft: divide returns move breakdown matching countNodes") {
+    val state = FenParser.parse(FenParser.InitialPosition).toOption.get
+    val div1  = Perft.divide(state, 1)
+    assertEquals(div1.values.sum, 20L)
+    assertEquals(div1("e2e4"), 1L)
+
+    val div2 = Perft.divide(state, 2)
+    assertEquals(div2.values.sum, 400L)
+    assertEquals(div2("e2e4"), 20L)
+  }
+
+  test("Perft: divide correctly differentiates promotion variants and matches countNodes") {
+    // White pawn on e7 about to promote with rolled Pawn
+    val fen   = "k7/4P3/8/8/8/8/8/4K3 w - - 0 1 P"
+    val state = FenParser.parse(fen).toOption.get
+    val div   = Perft.divide(state, 1)
+    assertEquals(div.size, 4)
+    assert(div.contains("e7e8q"))
+    assert(div.contains("e7e8r"))
+    assert(div.contains("e7e8b"))
+    assert(div.contains("e7e8n"))
+    assertEquals(div.values.sum, Perft.countNodes(state, 1))
+  }
+
+  test("Perft: divide rejects depth < 1") {
+    val state = FenParser.parse(FenParser.InitialPosition).toOption.get
+    intercept[IllegalArgumentException] {
+      Perft.divide(state, 0)
+    }
+  }

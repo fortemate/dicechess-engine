@@ -67,6 +67,36 @@ export interface DiceChessApi {
     getLegalUciMoves(dfen: string): string[];
 
     /**
+     * Executes perft (performance test) counting leaf nodes at given depth.
+     * @param dfen The position in DFEN notation.
+     * @param depth Search depth (0 or greater).
+     */
+    perft(dfen: string, depth: number): number;
+
+    /**
+     * Generates all pseudo-legal moves for the active color and dice pool (or all moves if dice pool is empty).
+     * @param dfen The position in DFEN notation.
+     */
+    generateMoves(dfen: string): string[];
+
+    /**
+     * Benchmarks MoveGenerator.generateMoves in a tight loop without repeated FEN parsing.
+     * Returns total move count generated across all iterations.
+     * @param dfen The position in DFEN notation.
+     * @param iterations Number of iterations to execute.
+     */
+    benchGenerateMoves(dfen: string, iterations: number): number;
+
+    /**
+     * Benchmarks LegalMovesFilter.filterMaximalMoves in a tight loop without repeated FEN parsing.
+     * Returns total move count generated across all iterations.
+     * @param dfen The position in DFEN notation.
+     * @param iterations Number of iterations to execute.
+     */
+    benchFilterMaximalMoves(dfen: string, iterations: number): number;
+
+
+    /**
      * Returns the piece type associated with a dice roll.
      */
     getPieceFromDice(dice: number): string | null;
