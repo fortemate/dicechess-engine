@@ -54,8 +54,26 @@ function parseArgs(args) {
     }
   }
 
+  const validTargets = ['js', 'wasm', 'all'];
+  if (!validTargets.includes(options.target)) {
+    console.error(`❌ Invalid --target '${options.target}'. Supported values: ${validTargets.join(', ')}`);
+    process.exit(1);
+  }
+
+  const validFormats = ['table', 'markdown', 'json'];
+  if (!validFormats.includes(options.format)) {
+    console.error(`❌ Invalid --format '${options.format}'. Supported values: ${validFormats.join(', ')}`);
+    process.exit(1);
+  }
+
+  if (options.target === 'all' && options.bundle) {
+    console.error(`❌ Cannot specify a single --bundle when --target is 'all'. Use --target js or --target wasm with --bundle, or omit --bundle for auto-discovery.`);
+    process.exit(1);
+  }
+
   return options;
 }
+
 
 function printHelp() {
   console.log(`

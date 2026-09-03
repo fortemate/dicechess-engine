@@ -22,14 +22,15 @@ object Perft:
   def countNodes(state: GameState, depth: Int): Long =
     if depth <= 0 then 1L
     else
-      val moves =
-        if state.dicePool.isEmpty then MoveGenerator.generateAllMoves(state)
+      val dicePool = state.dicePool
+      val moves    =
+        if dicePool.isEmpty then MoveGenerator.generateAllMoves(state)
         else MoveGenerator.generateMoves(state)
       if depth == 1 then moves.length.toLong
       else
         var nodes = 0L
         for mv <- moves do
-          val nextState = state.makeMove(mv).endTurn().withDicePool(state.dicePool)
+          val nextState = state.makeMove(mv).endTurn().withDicePool(dicePool)
           nodes += countNodes(nextState, depth - 1)
         nodes
 
@@ -43,12 +44,14 @@ object Perft:
     *   A map from move notation to leaf node count.
     */
   def divide(state: GameState, depth: Int): Map[String, Long] =
-    val moves =
-      if state.dicePool.isEmpty then MoveGenerator.generateAllMoves(state)
+    require(depth >= 1, s"divide depth must be >= 1, got $depth")
+    val dicePool = state.dicePool
+    val moves    =
+      if dicePool.isEmpty then MoveGenerator.generateAllMoves(state)
       else MoveGenerator.generateMoves(state)
     moves.map { mv =>
-      val notation  = s"${mv.fromSquare.toNotation}${mv.toSquare.toNotation}"
-      val nextState = state.makeMove(mv).endTurn().withDicePool(state.dicePool)
+      val notation  = mv.toUci
+      val nextState = state.makeMove(mv).endTurn().withDicePool(dicePool)
       val count     = if depth > 1 then countNodes(nextState, depth - 1) else 1L
       notation -> count
     }.toMap

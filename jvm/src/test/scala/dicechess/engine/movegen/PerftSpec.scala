@@ -61,3 +61,23 @@ class PerftSpec extends FunSuite:
     assertEquals(div2.values.sum, 400L)
     assertEquals(div2("e2e4"), 20L)
   }
+
+  test("Perft: divide correctly differentiates promotion variants and matches countNodes") {
+    // White pawn on e7 about to promote with rolled Pawn
+    val fen   = "k7/4P3/8/8/8/8/8/4K3 w - - 0 1 P"
+    val state = FenParser.parse(fen).toOption.get
+    val div   = Perft.divide(state, 1)
+    assertEquals(div.size, 4)
+    assert(div.contains("e7e8q"))
+    assert(div.contains("e7e8r"))
+    assert(div.contains("e7e8b"))
+    assert(div.contains("e7e8n"))
+    assertEquals(div.values.sum, Perft.countNodes(state, 1))
+  }
+
+  test("Perft: divide rejects depth < 1") {
+    val state = FenParser.parse(FenParser.InitialPosition).toOption.get
+    intercept[IllegalArgumentException] {
+      Perft.divide(state, 0)
+    }
+  }
