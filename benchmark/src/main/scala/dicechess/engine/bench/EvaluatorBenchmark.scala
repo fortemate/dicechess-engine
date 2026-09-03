@@ -31,3 +31,11 @@ class EvaluatorBenchmark:
   @Benchmark
   def evaluateMaterialBlack(): Int =
     Evaluator.evaluateMaterial(state, Color.Black)
+
+  @Benchmark
+  def evaluateAggressiveWhite(): Int =
+    Evaluator.evaluateAggressive(state, Color.White)
+
+  @Benchmark
+  def evaluateAggressiveBlack(): Int =
+    Evaluator.evaluateAggressive(state, Color.Black)
