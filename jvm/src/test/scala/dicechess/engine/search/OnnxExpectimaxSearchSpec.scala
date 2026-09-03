@@ -60,10 +60,12 @@ class OnnxExpectimaxSearchSpec extends FunSuite:
       modelPath,
       ExpectimaxConfig(),
       OnnxFeatures.extract,
-      Some(RootRescoreModel("unused", OnnxFeatures.extract, weight = 0.0)),
-      preRankWithModel = false,
-      ExpectimaxSearch.NoStats,
-      tt = None,
+      OnnxSearchOptions(
+        rootRescore = Some(RootRescoreModel("unused", OnnxFeatures.extract, weight = 0.0)),
+        preRankWithModel = false,
+        statsSink = ExpectimaxSearch.NoStats,
+        tt = None
+      ),
       sessionFactory = sessionFactory
     )
     try
@@ -102,10 +104,12 @@ class OnnxExpectimaxSearchSpec extends FunSuite:
           modelPath,
           ExpectimaxConfig(),
           OnnxFeatures.extract,
-          Some(RootRescoreModel("unused", OnnxFeatures.extract, weight = 0.5)),
-          preRankWithModel = false,
-          ExpectimaxSearch.NoStats,
-          tt = None,
+          OnnxSearchOptions(
+            rootRescore = Some(RootRescoreModel("unused", OnnxFeatures.extract, weight = 0.5)),
+            preRankWithModel = false,
+            statsSink = ExpectimaxSearch.NoStats,
+            tt = None
+          ),
           sessionFactory = sessionFactory
         )
       assert(thrown eq creationFailure)

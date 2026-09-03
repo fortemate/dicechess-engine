@@ -6,9 +6,7 @@ import dicechess.engine.search.{
   ExpectimaxConfig,
   OnnxEvalSearch,
   OnnxExpectimaxSearch,
-  RootRescoreModel,
-  TranspositionTable,
-  RootSearchStats
+  OnnxSearchOptions
 }
 
 /** Makes an ONNX model playable by the arena, by giving it a [[BotRegistry]] id.
@@ -27,43 +25,58 @@ import dicechess.engine.search.{
   */
 private[bench] object OnnxArenaBot:
 
+  /** Specification for an ONNX model asset and its feature extractor identifier.
+    *
+    * @param path
+    *   file system path to the serialized ONNX model
+    * @param featureSet
+    *   identifier of the feature extractor used by the model
+    */
+  final case class ModelSpec(path: String, featureSet: String)
+
   /** Builds and registers an ONNX bot.
     *
+    * @param id
+    *   registry identifier for the custom bot
+    * @param model
+    *   model specification (path and feature set)
+    * @param searchKind
+    *   one-ply or expectimax lookahead
     * @param config
     *   expectimax configuration; unused at one ply, where there is no candidate pre-ranking to limit. Callers that
     *   expose a `--candidate-limit` flag should reject it for one ply rather than let it be silently dropped here.
     * @param difficulty
     *   registry presentation metadata only — the arena never reads it when running a match.
+    * @param description
+    *   human-readable description for the registry
+    * @param options
+    *   search-tuning options (stats sink, root rescoring, pre-ranking, transposition table)
     */
   def register(
       id: String,
-      modelPath: String,
-      featureSet: String,
+      model: ModelSpec,
       searchKind: SearchKind,
       config: ExpectimaxConfig,
       difficulty: Int,
       description: String,
-      statsSink: RootSearchStats => Unit = _ => (),
-      rootRescore: Option[RootRescoreModel] = None,
-      preRankWithModel: Boolean = false,
-      tt: Option[TranspositionTable] = None
+      options: OnnxSearchOptions = OnnxSearchOptions()
   ): BotRegistry.Registration =
-    val extract     = ArenaOptions.extractFeatures(featureSet)
+    val extract     = ArenaOptions.extractFeatures(model.featureSet)
     val (bot, name) = searchKind match
       case SearchKind.OnePly =>
-        (new OnnxEvalSearch(modelPath, extract), s"ONNX One-Ply ($featureSet)")
+        (new OnnxEvalSearch(model.path, extract), s"ONNX One-Ply (${model.featureSet})")
       case SearchKind.Expectimax =>
         (
           new OnnxExpectimaxSearch(
-            modelPath,
+            model.path,
             config,
             extract,
-            rootRescore = rootRescore,
-            preRankWithModel = preRankWithModel,
-            statsSink = statsSink,
-            tt = tt
+            rootRescore = options.rootRescore,
+            preRankWithModel = options.preRankWithModel,
+            statsSink = options.statsSink,
+            tt = options.tt
           ),
-          s"ONNX Expectimax ($featureSet, K=${config.candidateLimit})"
+          s"ONNX Expectimax (${model.featureSet}, K=${config.candidateLimit})"
         )
 
     BotRegistry.registerCustomBot(

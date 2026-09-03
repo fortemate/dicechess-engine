@@ -5,7 +5,7 @@ import scala.util.Using
 import cats.implicits.*
 import com.monovore.decline.*
 
-import dicechess.engine.search.{ExpectimaxConfig, RootRescoreModel, TranspositionTable}
+import dicechess.engine.search.{ExpectimaxConfig, OnnxSearchOptions, RootRescoreModel, TranspositionTable}
 
 /** Deterministic scenario-suite evaluator comparing two ONNX leaf models under identical expectimax search.
   *
@@ -82,15 +82,16 @@ object OnnxModelScenarioRunner:
     def registerSide(id: String, modelPath: String, featureSet: String, role: String) =
       OnnxArenaBot.register(
         id = id,
-        modelPath = modelPath,
-        featureSet = featureSet,
+        model = OnnxArenaBot.ModelSpec(modelPath, featureSet),
         searchKind = SearchKind.Expectimax,
         config = searchConfig,
         difficulty = ArenaDifficulty,
         description = s"deterministic model scenario $role over $modelPath",
-        rootRescore = rootRescore,
-        preRankWithModel = preRankWithModel,
-        tt = table
+        options = OnnxSearchOptions(
+          rootRescore = rootRescore,
+          preRankWithModel = preRankWithModel,
+          tt = table
+        )
       )
 
     Using.resource(

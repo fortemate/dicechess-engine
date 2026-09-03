@@ -23,6 +23,24 @@ final case class RootRescoreModel(
 ):
   require(weight >= 0.0 && weight <= 1.0, s"weight must be in [0, 1], got $weight")
 
+/** Search-tuning options for ONNX-backed expectimax search.
+  *
+  * @param statsSink
+  *   sink function receiving root search statistics per decision node
+  * @param rootRescore
+  *   optional second ONNX model used to rescore root candidate moves
+  * @param preRankWithModel
+  *   whether to pre-rank root candidates using the main model instead of material
+  * @param tt
+  *   optional transposition table for caching evaluated search states
+  */
+final case class OnnxSearchOptions(
+    statsSink: RootSearchStats => Unit = _ => (),
+    rootRescore: Option[RootRescoreModel] = None,
+    preRankWithModel: Boolean = false,
+    tt: Option[TranspositionTable] = None
+)
+
 /** A configurable two- or three-ply expectimax bot whose leaf evaluator is an externally-trained model (LightGBM, via
   * ONNX).
   *
@@ -60,10 +78,12 @@ final class OnnxExpectimaxSearch(
     modelPath,
     config,
     extractFeatures,
-    rootRescore,
-    preRankWithModel,
-    statsSink,
-    tt
+    OnnxSearchOptions(
+      statsSink = statsSink,
+      rootRescore = rootRescore,
+      preRankWithModel = preRankWithModel,
+      tt = tt
+    )
   )
 
   override def findBestMove(state: GameState): Option[ScoredSequence] =
@@ -90,14 +110,11 @@ private[search] object OnnxExpectimaxSearchInitialization:
       modelPath: String,
       config: ExpectimaxConfig,
       extractFeatures: (GameState, Color) => Array[Float],
-      rootRescore: Option[RootRescoreModel],
-      preRankWithModel: Boolean,
-      statsSink: RootSearchStats => Unit,
-      tt: Option[TranspositionTable] = None,
+      options: OnnxSearchOptions = OnnxSearchOptions(),
       sessionFactory: SessionFactory = DefaultSessionFactory
   ): (OnnxEvalSearch, Option[OnnxEvalSearch], ExpectimaxSearch) =
     val onnx              = sessionFactory(modelPath, extractFeatures)
-    val activeRootRescore = rootRescore.filter(_.weight > 0.0)
+    val activeRootRescore = options.rootRescore.filter(_.weight > 0.0)
     var rescoreOnnx       = Option.empty[OnnxEvalSearch]
     try
       rescoreOnnx = activeRootRescore.map(r => sessionFactory(r.modelPath, r.extractFeatures))
@@ -108,10 +125,10 @@ private[search] object OnnxExpectimaxSearchInitialization:
           session <- rescoreOnnx
           r       <- activeRootRescore
         yield RootRescore((states, color) => session.onnxEvalBatch(states, color), r.weight),
-        if preRankWithModel then (states, color) => onnx.onnxEvalBatch(states, color)
+        if options.preRankWithModel then (states, color) => onnx.onnxEvalBatch(states, color)
         else ExpectimaxSearch.materialBatch,
-        statsSink,
-        tt
+        options.statsSink,
+        options.tt
       )
       (onnx, rescoreOnnx, expectimax)
     catch

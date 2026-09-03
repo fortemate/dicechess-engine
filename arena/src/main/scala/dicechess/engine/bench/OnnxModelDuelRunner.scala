@@ -7,6 +7,7 @@ import cats.implicits.*
 
 import dicechess.engine.search.{
   ExpectimaxConfig,
+  OnnxSearchOptions,
   RootRescoreModel,
   RootSearchStats,
   TimeManager,
@@ -140,31 +141,33 @@ object OnnxModelDuelRunner:
       Using.resource(
         OnnxArenaBot.register(
           id = ChallengerId,
-          modelPath = challengerModel,
-          featureSet = challengerFeatures,
+          model = OnnxArenaBot.ModelSpec(challengerModel, challengerFeatures),
           searchKind = searchKind,
           config = configObj,
           difficulty = ArenaDifficulty,
           description = s"clock-aware model duel over $challengerModel",
-          statsSink = sink("challenger"),
-          rootRescore = rootRescore,
-          preRankWithModel = preRankWithModel,
-          tt = table
+          options = OnnxSearchOptions(
+            statsSink = sink("challenger"),
+            rootRescore = rootRescore,
+            preRankWithModel = preRankWithModel,
+            tt = table
+          )
         )
       ) { _ =>
         Using.resource(
           OnnxArenaBot.register(
             id = DefenderId,
-            modelPath = defenderModel,
-            featureSet = defenderFeatures,
+            model = OnnxArenaBot.ModelSpec(defenderModel, defenderFeatures),
             searchKind = searchKind,
             config = configObj,
             difficulty = ArenaDifficulty,
             description = s"clock-aware model duel over $defenderModel",
-            statsSink = sink("defender"),
-            rootRescore = rootRescore,
-            preRankWithModel = preRankWithModel,
-            tt = table
+            options = OnnxSearchOptions(
+              statsSink = sink("defender"),
+              rootRescore = rootRescore,
+              preRankWithModel = preRankWithModel,
+              tt = table
+            )
           )
         ) { _ =>
           val results = controls.map { tc =>
