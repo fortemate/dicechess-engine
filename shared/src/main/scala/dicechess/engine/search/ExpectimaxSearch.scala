@@ -716,14 +716,18 @@ final class ExpectimaxSearch(
             Some(RecursiveNodeResult(entry.value, entry.bound, entry.lossTainted, fromTT = true))
           else None
 
-  /** Whether a stored non-exact bound already settles this node's window. */
+  /** Whether a stored non-exact bound already settles this node's window. [[ExpectimaxConfig.exactOnlyMode]] refuses
+    * every fail-soft bound, so it short-circuits before the entry is even examined.
+    */
   private def reusableBound(entry: TTEntry, ctx: SearchContext): Boolean =
-    if config.exactOnlyMode then false
-    else
-      entry.bound match
-        case TTBound.UpperBound => entry.value < ctx.alpha
-        case TTBound.LowerBound => entry.value > ctx.beta
-        case TTBound.Exact      => false
+    !config.exactOnlyMode && boundSettlesWindow(entry, ctx)
+
+  /** Whether the stored bound points the right way for this node's window and has been driven past it. */
+  private def boundSettlesWindow(entry: TTEntry, ctx: SearchContext): Boolean =
+    entry.bound match
+      case TTBound.UpperBound => entry.value < ctx.alpha
+      case TTBound.LowerBound => entry.value > ctx.beta
+      case TTBound.Exact      => false
 
   private def storeRecursiveNode(key: Long, pliesRemaining: Int, result: RecursiveNodeResult): Unit =
     tt.foreach: table =>
@@ -909,8 +913,8 @@ final class ExpectimaxSearch(
       rolled,
       replies,
       childCtx,
-      if scratch.useStar2 then scratch.probePaths(index) else None,
-      if scratch.useStar2 then scratch.probeNodes(index) else None
+      scratch.probePathAt(index),
+      scratch.probeNodeAt(index)
     )
     if child.aborted then scratch.result = Some(child)
     else
@@ -948,7 +952,12 @@ final class ExpectimaxSearch(
       scratch.result = Some(scratch.boundResult(combinedLower, TTBound.LowerBound))
     else accumulateExactChild(scratch, ctx, rolled, replies, child)
 
-  /** Re-searches a still-bounded child with an open window, then folds its exact value into the expectation. */
+  /** Re-searches a still-bounded child with an open window, then folds its exact value into the expectation.
+    *
+    * At the depths [[ExpectimaxConfig]] allows, the re-search is unreachable from a node that ran no probing phase, so
+    * [[RecursiveNodeScratch.probePathAt]]'s guard is dead code here — see its Scaladoc for why, and why it is written
+    * anyway.
+    */
   private def accumulateExactChild(
       scratch: RecursiveNodeScratch,
       ctx: SearchContext,
@@ -964,8 +973,8 @@ final class ExpectimaxSearch(
           rolled,
           replies,
           ctx.openWindow,
-          scratch.probePaths(index),
-          scratch.probeNodes(index)
+          scratch.probePathAt(index),
+          scratch.probeNodeAt(index)
         )
     if exactChild.aborted then scratch.result = Some(exactChild)
     else
@@ -1092,6 +1101,26 @@ final class ExpectimaxSearch(
 
     val probeNodes: Array[Option[RecursiveNodeResult]] =
       if useStar2 then Array.fill[Option[RecursiveNodeResult]](totalRolls)(None) else EmptyProbeNodes
+
+    /** One roll's probing path, or `None` when this node ran no probing phase.
+      *
+      * The guard is what makes the accessor worth having: without a probing phase [[probePaths]] is the shared empty
+      * array, so an unguarded read at any index throws. Both readers go through here so they cannot drift apart — the
+      * per-roll search and the open-window re-search used to disagree about the guard, and only one of them was right.
+      *
+      * At `searchDepth` 2 or 3 — all [[ExpectimaxConfig]] admits — the re-search cannot actually reach a node with no
+      * probing phase, so that reader's guard is dead code today. A one-ply chance node never re-searches at all: its
+      * decision nodes are terminal, forced passes or leaf batches, every one of which returns an exact value. A two-ply
+      * chance node is always the MIN root of [[depthThreeChanceNodeValue]], whose beta is `+∞`, so [[useStar2]] can
+      * only be false when its alpha is `-∞` too — a fully open window, and an open window yields exact values all the
+      * way down (its first reply is searched with the same open window, which sets `hasExact`, and no cutoff can fire
+      * against an infinite bound). The guard is here so that raising the depth cap or rearranging the window plumbing
+      * cannot turn that argument into an `ArrayIndexOutOfBoundsException`.
+      */
+    def probePathAt(index: Int): Option[List[Move]] = if useStar2 then probePaths(index) else None
+
+    /** [[probePathAt]] for the probed child's result. */
+    def probeNodeAt(index: Int): Option[RecursiveNodeResult] = if useStar2 then probeNodes(index) else None
 
     private val star2Bound: Array[Double] =
       if useStar2 then new Array[Double](totalRolls + 1) else EmptyStar2Bounds
