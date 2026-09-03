@@ -331,60 +331,117 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
 
   test("C1: King Capture instantly legal (No follow-up)") {
     /*
-     * Input: Knight can capture King. Dice = [Knight, Bishop, Bishop]. Bishop is trapped.
-     * Expected: Knight capture is legal.
-     * Reasoning: Winning moves (King captures) are exempt from maximum length rule.
+     * Input: Knight on d6 attacks Black King on e8. Dice = [Knight, Bishop, Bishop].
+     * White has no Bishops on the board.
+     * Expected: King capture Nd6xe8 is legal as an immediate 1-move win, even though
+     * remaining Bishop dice cannot be played.
      */
-    val state = parse("4k3/5N2/8/8/8/8/8/4K3 w - - 0 1")
+    val state = parse("4k3/8/3N4/8/8/8/8/4K3 w - - 0 1")
     val dice  = List(Knight, Bishop, Bishop)
     val legal = filterMoves(state, dice)
 
-    // Nxf7 captures the king (if king was on f7)
-    val capturesKing = legal.exists(m => m.fromSquare == Square('f', 7) && m.toSquare == Square('e', 8))
-    assert(capturesKing || true) // Structuring check
+    val kingCapture = legal.find(m => m.fromSquare == Square('d', 6) && m.toSquare == Square('e', 8))
+    assert(kingCapture.isDefined, "Knight capture of King (Nd6xe8) must be legal")
+    assert(state.isKingCapture(kingCapture.get), "Nd6xe8 must be recognized as a King capture")
+    assertEquals(
+      legal.map(_.toUci).toSet,
+      Set("d6e8", "d6c8", "d6b7", "d6f7", "d6b5", "d6f5", "d6c4", "d6e4")
+    )
   }
 
   test("C2: King Capture instantly legal (Multiple options)") {
     /*
-     * Input: Both Knight and Bishop can capture King. Dice = [Knight, Bishop, Queen]
-     * Expected: Both captures are instantly legal.
+     * Input: White Knight on d6 and White Bishop on a4 both attack Black King on e8.
+     * Dice = [Knight, Bishop, Queen].
+     * Expected: Both Nd6xe8 and Ba4xe8 are immediately legal King captures.
      */
-    val state = parse("4k3/5N2/8/8/8/8/8/4K3 w - - 0 1")
+    val state = parse("4k3/8/3N4/8/B7/8/8/4K3 w - - 0 1")
     val dice  = List(Knight, Bishop, Queen)
     val legal = filterMoves(state, dice)
-    assert(legal.nonEmpty)
+
+    val knightCap = legal.find(m => m.fromSquare == Square('d', 6) && m.toSquare == Square('e', 8))
+    val bishopCap = legal.find(m => m.fromSquare == Square('a', 4) && m.toSquare == Square('e', 8))
+
+    assert(knightCap.isDefined, "Knight King-capture (Nd6xe8) must be legal")
+    assert(bishopCap.isDefined, "Bishop King-capture (Ba4xe8) must be legal")
+    assert(state.isKingCapture(knightCap.get), "Nd6xe8 must be recognized as King capture")
+    assert(state.isKingCapture(bishopCap.get), "Ba4xe8 must be recognized as King capture")
   }
 
   test("C3: King Capture inside sequence") {
     /*
-     * Input: Pawn moves, freeing Knight to capture King. Dice = [Pawn, Knight, Rook]
-     * Expected: Pawn move is legal since it leads to a King capture.
+     * Input: White Pawn on b5 blocks White Bishop on a4 from attacking Black King on e8.
+     * White King on e1. Dice = [Bishop, Pawn, King].
+     *
+     * Scenarios:
+     * - No immediate King capture on move 1 (Bishop path to e8 is blocked by b5).
+     * - b5-b6 opens the diagonal: Ba4xe8 can capture the King on micro-move 2 (length 2)
+     *   or micro-move 3 (e.g. b5-b6 -> Ke1-d1 -> Ba4xe8, length 3).
+     * - King moves (e.g. Ke1-d1) followed by b5-b6 enable Ba4xe8 on micro-move 3.
+     * - All candidate first moves achieve a 3-move sequence, so all are legal.
      */
-    val state = parse("4k3/4N3/4P3/8/8/8/8/4K3 w - - 0 1")
-    val dice  = List(Pawn, Knight, Rook)
+    val state = parse("4k3/8/8/1P6/B7/8/8/4K3 w - - 0 1")
+    val dice  = List(Bishop, Pawn, King)
     val legal = filterMoves(state, dice)
-    assert(legal.nonEmpty)
+
+    assert(!legal.exists(state.isKingCapture), "No immediate King capture is possible on move 1")
+
+    val pawnPush = legal.find(m => m.fromSquare == Square('b', 5) && m.toSquare == Square('b', 6))
+    assert(pawnPush.isDefined, "Pawn push b5-b6 must be legal")
+
+    // After b5-b6, Bishop line to e8 is unblocked; Ba4xe8 is legal on the continuation
+    val afterPawn         = state.makeMove(pawnPush.get).withDicePool(List(Bishop, King))
+    val legalContinuation = LegalMovesFilter.filterMaximalMoves(afterPawn)
+    val bishopCap         = legalContinuation.find(m => m.fromSquare == Square('a', 4) && m.toSquare == Square('e', 8))
+    assert(bishopCap.isDefined, "Ba4xe8 must be legal on continuation after b5-b6 unblocks diagonal")
+    assert(afterPawn.isKingCapture(bishopCap.get), "Ba4xe8 must be recognized as King capture")
+
+    // King moves are also legal first moves
+    assert(legal.exists(m => m.fromSquare == Square('e', 1)), "King moves must be legal first moves")
   }
 
   test("C4: King Capture blocks opponent next turn") {
     /*
-     * Input: Instant win condition verification.
+     * Input: White Knight on d6 attacks Black King on e8. White King on e1.
+     * Dice = [Knight, Knight, Knight].
+     * Expected: King capture Nd6xe8 terminates the turn immediately (game over).
+     * Despite 3 Knight dice rolled, Nd6xe8 does not allow subsequent micro-moves,
+     * but remains legal as a winning move.
      */
-    val state = parse("4k3/4N3/8/8/8/8/8/4K3 w - - 0 1")
+    val state = parse("4k3/8/3N4/8/8/8/8/4K3 w - - 0 1")
     val dice  = List(Knight, Knight, Knight)
     val legal = filterMoves(state, dice)
-    assert(legal.nonEmpty)
+
+    val kingCapture = legal.find(m => m.fromSquare == Square('d', 6) && m.toSquare == Square('e', 8))
+    assert(kingCapture.isDefined, "Nd6xe8 must be legal under [Knight, Knight, Knight]")
+    assert(state.isKingCapture(kingCapture.get), "Nd6xe8 must be recognized as King capture")
   }
 
   test("C5: Long path vs. short King capture") {
     /*
-     * Input: 3-move quiet sequence vs. 1-move King capture.
-     * Expected: 1-move King capture is legal.
+     * Input: White Knight on b3 attacks Black King on c5. White Pawn on c2, White King on a1.
+     * Dice = [Knight, Pawn, Pawn].
+     *
+     * Expected:
+     * - The quiet pawn path achieves length 3 (c2-c3 -> c3-c4 -> Nb3 quiet move).
+     * - The 1-move King capture Nb3xc5 has length 1 (< maxLen = 3).
+     * - Under Rule #1 (King Capture Exemption), Nb3xc5 MUST be legal despite shorter length!
+     *
+     * Removing `state.isKingCapture(move) ||` from filterMaximalMoves drops Nb3xc5 and fails this test.
      */
-    val state = parse("4k3/4N3/8/8/8/8/8/4K3 w - - 0 1")
+    val state = parse("8/8/8/2k5/8/1N6/2P5/K7 w - - 0 1")
     val dice  = List(Knight, Pawn, Pawn)
     val legal = filterMoves(state, dice)
-    assert(legal.nonEmpty)
+
+    val kingCapture = legal.find(m => m.fromSquare == Square('b', 3) && m.toSquare == Square('c', 5))
+    assert(
+      kingCapture.isDefined,
+      "1-move King capture (Nb3xc5) must survive maximum-length filter due to King-capture exemption"
+    )
+    assert(state.isKingCapture(kingCapture.get), "Nb3xc5 must be recognized as a King capture")
+
+    // Pawn moves achieving maxLen = 3 must also be legal
+    assert(legal.exists(m => m.fromSquare == Square('c', 2)), "Pawn paths achieving maxLen 3 must also be legal")
   }
 
   // ── AREA D: PROPERTY-BASED TESTS (SCALACHECK) ─────────────────────────────
