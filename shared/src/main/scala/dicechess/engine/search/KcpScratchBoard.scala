@@ -104,16 +104,11 @@ final private[search] class KcpScratchBoard(
   private inline def clearEpIfPassed(ep: Long, passedIdx: Int): Long =
     if passedIdx >= 0 && passedIdx < 64 then ep & ~(1L << passedIdx) else ep
 
-  private inline def applyDoublePawnPush(
-      fromIdx: Int,
-      toIdx: Int,
-      fromBB: Long,
-      toBB: Long,
-      color: Color,
-      isWhite: Boolean,
-      rankOffset: Int,
-      ep: Long
-  ): Long =
+  private inline def applyDoublePawnPush(fromIdx: Int, toIdx: Int, color: Color, ep: Long): Long =
+    val fromBB     = 1L << fromIdx
+    val toBB       = 1L << toIdx
+    val isWhite    = color.isWhite
+    val rankOffset = if isWhite then -8 else 8
     mailbox(fromIdx) = Piece.Empty
     mailbox(toIdx) = Piece(color, PieceType.Pawn)
     pawns ^= (fromBB | toBB)
@@ -177,22 +172,16 @@ final private[search] class KcpScratchBoard(
     mailbox(rFromIdx) = Piece.Empty
     mailbox(rToIdx) = Piece(color, PieceType.Rook)
 
-  private inline def applyStandard(
-      mv: Move,
-      mover: Piece,
-      color: Color,
-      isWhite: Boolean,
-      fromIdx: Int,
-      toIdx: Int,
-      fromBB: Long,
-      toBB: Long,
-      rankOffset: Int,
-      target: Piece,
-      ep: Long
-  ): Long =
-    var newEp    = ep
-    val isPromo  = mv.isPromotion
-    val destType = if isPromo then promotionPieceType(mv.flags) else mover.pieceType
+  private inline def applyStandard(mv: Move, mover: Piece, color: Color, target: Piece, ep: Long): Long =
+    val fromIdx    = mv.fromSquare.index
+    val toIdx      = mv.toSquare.index
+    val fromBB     = 1L << fromIdx
+    val toBB       = 1L << toIdx
+    val isWhite    = color.isWhite
+    val rankOffset = if isWhite then -8 else 8
+    var newEp      = ep
+    val isPromo    = mv.isPromotion
+    val destType   = if isPromo then promotionPieceType(mv.flags) else mover.pieceType
     mailbox(fromIdx) = Piece.Empty
     mailbox(toIdx) = Piece(color, destType)
     if isPromo then
@@ -232,7 +221,7 @@ final private[search] class KcpScratchBoard(
 
     mv.flags match
       case Move.DoublePawnPush =>
-        newEnPassant = applyDoublePawnPush(fromIdx, toIdx, fromBB, toBB, color, isWhite, rankOffset, newEnPassant)
+        newEnPassant = applyDoublePawnPush(fromIdx, toIdx, color, newEnPassant)
 
       case Move.EnPassantCapture =>
         capturedPiece = applyEnPassant(fromIdx, toIdx, fromBB, toBB, color, isWhite, rankOffset)
@@ -245,19 +234,7 @@ final private[search] class KcpScratchBoard(
 
       case _ =>
         capturedPiece = mailbox(toIdx)
-        newEnPassant = applyStandard(
-          mv,
-          mover,
-          color,
-          isWhite,
-          fromIdx,
-          toIdx,
-          fromBB,
-          toBB,
-          rankOffset,
-          capturedPiece,
-          newEnPassant
-        )
+        newEnPassant = applyStandard(mv, mover, color, capturedPiece, newEnPassant)
 
     val newCastlingRights = updatedCastlingRights(flags.castlingRights, mover, from, capturedPiece, to, isWhite)
     val isCap             = !capturedPiece.isEmpty || mv.flags == Move.EnPassantCapture
@@ -295,18 +272,13 @@ final private[search] class KcpScratchBoard(
     mailbox(fromIdx) = Piece(activeColor, PieceType.Pawn)
     mailbox(toIdx) = Piece.Empty
 
-  private inline def revertEnPassant(
-      fromIdx: Int,
-      toIdx: Int,
-      fromBB: Long,
-      toBB: Long,
-      activeColor: Color,
-      isWhite: Boolean,
-      rankOffset: Int,
-      capturedPiece: Piece
-  ): Unit =
-    val victimIdx = toIdx + rankOffset
-    val victimBB  = 1L << victimIdx
+  private inline def revertEnPassant(fromIdx: Int, toIdx: Int, activeColor: Color, capturedPiece: Piece): Unit =
+    val fromBB     = 1L << fromIdx
+    val toBB       = 1L << toIdx
+    val isWhite    = activeColor.isWhite
+    val rankOffset = if isWhite then -8 else 8
+    val victimIdx  = toIdx + rankOffset
+    val victimBB   = 1L << victimIdx
     mailbox(fromIdx) = Piece(activeColor, PieceType.Pawn)
     mailbox(toIdx) = Piece.Empty
     mailbox(victimIdx) = capturedPiece
@@ -355,16 +327,12 @@ final private[search] class KcpScratchBoard(
     mailbox(rFromIdx) = Piece(activeColor, PieceType.Rook)
     mailbox(rToIdx) = Piece.Empty
 
-  private inline def revertStandard(
-      mv: Move,
-      fromIdx: Int,
-      toIdx: Int,
-      fromBB: Long,
-      toBB: Long,
-      activeColor: Color,
-      isWhite: Boolean,
-      capturedPiece: Piece
-  ): Unit =
+  private inline def revertStandard(mv: Move, activeColor: Color, capturedPiece: Piece): Unit =
+    val fromIdx = mv.fromSquare.index
+    val toIdx   = mv.toSquare.index
+    val fromBB  = 1L << fromIdx
+    val toBB    = 1L << toIdx
+    val isWhite = activeColor.isWhite
     val isPromo = mv.isPromotion
     if isPromo then
       val promType = promotionPieceType(mv.flags)
@@ -393,14 +361,13 @@ final private[search] class KcpScratchBoard(
     val isWhite     = activeColor.isWhite
     val fromBB      = 1L << fromIdx
     val toBB        = 1L << toIdx
-    val rankOffset  = if isWhite then -8 else 8
 
     mv.flags match
       case Move.DoublePawnPush =>
         revertDoublePawnPush(fromIdx, toIdx, fromBB, toBB, activeColor, isWhite)
 
       case Move.EnPassantCapture =>
-        revertEnPassant(fromIdx, toIdx, fromBB, toBB, activeColor, isWhite, rankOffset, undo.capturedPiece)
+        revertEnPassant(fromIdx, toIdx, activeColor, undo.capturedPiece)
 
       case Move.KingCastle =>
         revertKingCastle(fromIdx, toIdx, fromBB, toBB, activeColor, isWhite)
@@ -409,7 +376,7 @@ final private[search] class KcpScratchBoard(
         revertQueenCastle(fromIdx, toIdx, fromBB, toBB, activeColor, isWhite)
 
       case _ =>
-        revertStandard(mv, fromIdx, toIdx, fromBB, toBB, activeColor, isWhite, undo.capturedPiece)
+        revertStandard(mv, activeColor, undo.capturedPiece)
 
     flags = undo.prevFlags
     enPassant = undo.prevEnPassant
