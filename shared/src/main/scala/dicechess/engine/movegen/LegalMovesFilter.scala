@@ -36,19 +36,12 @@ object LegalMovesFilter:
     * Returns `-1` if `move` is castling but the required dice (King and Rook) are not both available in the dice pool.
     */
   private def continuationLength(state: GameState, move: Move): Int =
-    if move.isCastling then
-      if state.flags.containsDie(PieceType.King.diceValue) && state.flags.containsDie(PieceType.Rook.diceValue)
-      then
-        val survived = state.flags.removeDie(PieceType.King.diceValue).removeDie(PieceType.Rook.diceValue)
-        val next     = state.makeMove(move).withDiceSlotsOf(survived)
-        2 + maxSequenceLength(next)
-      else -1
+    val survived = state.diceAfter(move)
+    if !survived.isValid then -1
     else
-      val moverType = state.mailbox(move.fromSquare).pieceType
-      require(moverType.diceValue != 0, s"Move generated from an empty square: $move")
-      val survived = state.flags.removeDie(moverType.diceValue)
-      val next     = state.makeMove(move).withDiceSlotsOf(survived)
-      1 + maxSequenceLength(next)
+      val diceConsumed = if move.isCastling then 2 else 1
+      val next         = state.makeMove(move).withDiceSlotsOf(survived)
+      diceConsumed + maxSequenceLength(next)
 
   /** Recursively computes the maximum achievable micro-move sequence length from `state`.
     *

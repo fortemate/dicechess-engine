@@ -269,3 +269,48 @@ class ModelsSpec extends FunSuite:
     assert(!seen.add(transposed(h3, a3)), "the transposed twin must be recognised as already seen")
     assertEquals(seen.size, 1)
   }
+
+  test("GameState.diceAfter consumes die matching mover piece") {
+    val state = FenParser.parse(FenParser.InitialPosition).toOption.get.withDicePool(List(1, 2, 3))
+    val e4    = Move(Square('e', 2), Square('e', 4), Move.DoublePawnPush)
+
+    val survived = state.diceAfter(e4)
+    assert(survived.isValid)
+    assertEquals(survived.dicePool, List(2, 3))
+  }
+
+  test("GameState.diceAfter returns Invalid when required die is not in pool") {
+    val state = FenParser.parse(FenParser.InitialPosition).toOption.get.withDicePool(List(2, 3, 4))
+    val e4    = Move(Square('e', 2), Square('e', 4), Move.DoublePawnPush)
+
+    val survived = state.diceAfter(e4)
+    assert(!survived.isValid)
+    assertEquals(survived, GameFlags.Invalid)
+  }
+
+  test("GameState.diceAfter consumes King and Rook dice for castling") {
+    val state  = FenParser.parse("4k3/8/8/8/8/8/8/4K2R w K - 0 1").toOption.get.withDicePool(List(6, 4, 1))
+    val castle = Move(Square('e', 1), Square('g', 1), Move.KingCastle)
+
+    val survived = state.diceAfter(castle)
+    assert(survived.isValid)
+    assertEquals(survived.dicePool, List(1))
+  }
+
+  test("GameState.diceAfter returns Invalid for castling when Rook die is missing") {
+    val state  = FenParser.parse("4k3/8/8/8/8/8/8/4K2R w K - 0 1").toOption.get.withDicePool(List(6, 2, 1))
+    val castle = Move(Square('e', 1), Square('g', 1), Move.KingCastle)
+
+    val survived = state.diceAfter(castle)
+    assert(!survived.isValid)
+    assertEquals(survived, GameFlags.Invalid)
+  }
+
+  test("GameState.diceAfter throws defense-in-depth exception when move is from an empty square") {
+    val state     = FenParser.parse(FenParser.InitialPosition).toOption.get.withDicePool(List(1, 2, 3))
+    val emptyMove = Move(Square('e', 3), Square('e', 4), Move.QuietMove)
+
+    intercept[IllegalArgumentException] {
+      state.diceAfter(emptyMove)
+    }
+  }

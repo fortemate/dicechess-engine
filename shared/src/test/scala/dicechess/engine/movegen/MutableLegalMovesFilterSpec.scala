@@ -441,17 +441,12 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
           result.result()
 
   private def continuationLengthRef(state: GameState, move: Move): Int =
-    if move.isCastling then
-      if state.flags.containsDie(PieceType.King.diceValue) && state.flags.containsDie(PieceType.Rook.diceValue) then
-        val survived = state.flags.removeDie(PieceType.King.diceValue).removeDie(PieceType.Rook.diceValue)
-        val next     = state.makeMove(move).withDiceSlotsOf(survived)
-        2 + maxSequenceLengthRef(next)
-      else -1
+    val survived = state.diceAfter(move)
+    if !survived.isValid then -1
     else
-      val moverType = state.mailbox(move.fromSquare).pieceType
-      val survived  = state.flags.removeDie(moverType.diceValue)
-      val next      = state.makeMove(move).withDiceSlotsOf(survived)
-      1 + maxSequenceLengthRef(next)
+      val diceConsumed = if move.isCastling then 2 else 1
+      val next         = state.makeMove(move).withDiceSlotsOf(survived)
+      diceConsumed + maxSequenceLengthRef(next)
 
   private def maxSequenceLengthRef(state: GameState): Int =
     if state.flags.isDicePoolEmpty then 0

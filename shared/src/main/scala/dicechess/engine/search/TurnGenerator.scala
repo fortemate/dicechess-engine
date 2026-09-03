@@ -161,8 +161,7 @@ object TurnGenerator:
       move: Move
   ): Unit =
     if state.isKingCapture(move) then handleKingCapture(currentPath, depth, diceConsumedSoFar, ctx, move)
-    else if move.isCastling then handleCastling(state, currentPath, depth, diceConsumedSoFar, ctx, move)
-    else handleNormalMove(state, currentPath, depth, diceConsumedSoFar, ctx, move)
+    else handleNonCapture(state, currentPath, depth, diceConsumedSoFar, ctx, move)
 
   private inline def handleKingCapture(
       currentPath: Array[Move],
@@ -175,7 +174,7 @@ object TurnGenerator:
     val packed   = packPath(currentPath, depth + 1, consumed)
     ctx.addKingCapture(packed)
 
-  private inline def handleCastling(
+  private inline def handleNonCapture(
       state: GameState,
       currentPath: Array[Move],
       depth: Int,
@@ -183,49 +182,19 @@ object TurnGenerator:
       ctx: TurnGenContext,
       move: Move
   ): Unit =
-    if state.flags.containsDie(PieceType.King.diceValue) && state.flags.containsDie(PieceType.Rook.diceValue) then
-      val survived = state.flags.removeDie(PieceType.King.diceValue).removeDie(PieceType.Rook.diceValue)
-      val next     = state.makeMove(move).withDiceSlotsOf(survived)
-      val subMoves = MoveGenerator.generateMoves(next)
+    val survived = state.diceAfter(move)
+    if survived.isValid then
+      val diceConsumed = if move.isCastling then 2 else 1
+      val next         = state.makeMove(move).withDiceSlotsOf(survived)
+      val subMoves     = MoveGenerator.generateMoves(next)
+      val consumed     = diceConsumedSoFar + diceConsumed
       if subMoves.isEmpty then
-        val consumed = diceConsumedSoFar + 2
-        val packed   = packPath(currentPath, depth + 1, consumed)
+        val packed = packPath(currentPath, depth + 1, consumed)
         ctx.addNormal(packed)
       else
         val normalBefore = ctx.normalCount
         val kingBefore   = ctx.kingCaptureCount
-        generatePathsSinglePass(next, currentPath, depth + 1, diceConsumedSoFar + 2, ctx, subMoves)
+        generatePathsSinglePass(next, currentPath, depth + 1, consumed, ctx, subMoves)
         if ctx.normalCount == normalBefore && ctx.kingCaptureCount == kingBefore then
-          val consumed = diceConsumedSoFar + 2
-          val packed   = packPath(currentPath, depth + 1, consumed)
+          val packed = packPath(currentPath, depth + 1, consumed)
           ctx.addNormal(packed)
-
-  private inline def handleNormalMove(
-      state: GameState,
-      currentPath: Array[Move],
-      depth: Int,
-      diceConsumedSoFar: Int,
-      ctx: TurnGenContext,
-      move: Move
-  ): Unit =
-    val moverType = state.mailbox(move.fromSquare).pieceType
-    val dieValue  = moverType.diceValue
-    require(
-      state.flags.containsDie(dieValue),
-      s"CRITICAL: Dice pool ${state.dicePool} does not contain die $dieValue! moverType=$moverType, move=${move.fromSquare.toNotation}${move.toSquare.toNotation}, state.activeColor=${state.activeColor}, state.mailbox(move.fromSquare)=${state.mailbox(move.fromSquare)}"
-    )
-    val survived = state.flags.removeDie(dieValue)
-    val next     = state.makeMove(move).withDiceSlotsOf(survived)
-    val subMoves = MoveGenerator.generateMoves(next)
-    if subMoves.isEmpty then
-      val consumed = diceConsumedSoFar + 1
-      val packed   = packPath(currentPath, depth + 1, consumed)
-      ctx.addNormal(packed)
-    else
-      val normalBefore = ctx.normalCount
-      val kingBefore   = ctx.kingCaptureCount
-      generatePathsSinglePass(next, currentPath, depth + 1, diceConsumedSoFar + 1, ctx, subMoves)
-      if ctx.normalCount == normalBefore && ctx.kingCaptureCount == kingBefore then
-        val consumed = diceConsumedSoFar + 1
-        val packed   = packPath(currentPath, depth + 1, consumed)
-        ctx.addNormal(packed)

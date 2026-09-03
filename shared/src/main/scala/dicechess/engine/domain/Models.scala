@@ -485,3 +485,12 @@ case class GameState(
     val nextFlags = flags.withDiceSlotsOf(src)
     val key       = zobristHash ^ Zobrist.dicePoolKey(flags) ^ Zobrist.dicePoolKey(nextFlags)
     copy(flags = nextFlags, zobristKey = key)
+
+  /** Consumes the dice required for `move` from this state's dice pool.
+    *
+    * Resolves the mover piece type from the mailbox and delegates to [[GameFlags.consumeDiceFor]]. Returns
+    * [[GameFlags.Invalid]] if the required dice are not available in this state's pool.
+    */
+  inline def diceAfter(move: Move): GameFlags =
+    val moverType = mailbox(move.fromSquare).pieceType
+    flags.consumeDiceFor(move, moverType)
