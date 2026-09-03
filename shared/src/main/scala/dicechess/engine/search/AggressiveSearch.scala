@@ -51,11 +51,3 @@ object AggressiveSearch extends SearchAlgorithm:
   override def shouldAcceptDouble(state: GameState, currentStake: Int): Boolean =
     val _ = currentStake
     estimateWinProbability(state) > 0.22
-
-  override def shouldOfferDraw(state: GameState): Boolean =
-    val _ = state
-    false
-
-  override def shouldAcceptDraw(state: GameState): Boolean =
-    val _ = state
-    false
