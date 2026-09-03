@@ -300,6 +300,54 @@ object BotMatchRunner:
     val elapsedMs = (System.nanoTime() - startNanos) / 1_000_000L
     (turn, elapsedMs)
 
+  final private class TimedGameLoop(
+      val whitePlayer: TimedPlayer,
+      val blackPlayer: TimedPlayer,
+      val tc: TimeControl
+  ):
+    var whiteRemaining: Long = tc.initialMs
+    var blackRemaining: Long = tc.initialMs
+    val latencies            = scala.collection.mutable.ListBuffer.empty[(Color, Long)]
+
+    def player(color: Color): TimedPlayer =
+      if color.isWhite then whitePlayer else blackPlayer
+
+    def remaining(color: Color): Long =
+      if color.isWhite then whiteRemaining else blackRemaining
+
+    def updateClock(color: Color, timeMs: Long): Unit =
+      if color.isWhite then whiteRemaining = timeMs else blackRemaining = timeMs
+
+    def recordLatency(color: Color, elapsedMs: Long, player: TimedPlayer): Unit =
+      if isTimedBot(player.algorithm) then latencies += ((color, elapsedMs))
+
+    def toResult(outcome: GameOutcome, flaggedColor: Option[Color]): TimedGameResult =
+      TimedGameResult(outcome, flaggedColor, latencies.toList)
+
+  private def resolveTurn(
+      loop: TimedGameLoop,
+      state: GameState,
+      mover: Color,
+      turn: Either[String, Option[ScoredSequence]],
+      elapsedMs: Long,
+      tc: TimeControl,
+      gameId: String
+  ): Either[TimedGameResult, GameState] =
+    turn match
+      case Left(reason) =>
+        val side = if mover.isWhite then "White" else "Black"
+        System.err.println(s"[arena] $gameId: $side webhook delivery failed — forfeits on time ($reason)")
+        Left(loop.toResult(GameOutcome.Win(mover.opponent), Some(mover)))
+      case Right(scored) =>
+        val (newRemaining, flagged) = tickClock(loop.remaining(mover), elapsedMs, tc.incrementMs)
+        loop.updateClock(mover, newRemaining)
+        if flagged then Left(loop.toResult(GameOutcome.Win(mover.opponent), Some(mover)))
+        else
+          val (next, winner) = playTurn(state, scored)
+          winner match
+            case Some(color) => Left(loop.toResult(GameOutcome.Win(color), None))
+            case None        => Right(next)
+
   private[bench] def simulateTimedGame(
       whitePlayer: TimedPlayer,
       blackPlayer: TimedPlayer,
@@ -309,43 +357,28 @@ object BotMatchRunner:
       startState: GameState = FenParser.parse(StartFen).toOption.get,
       gameId: String = "arena"
   ): TimedGameResult =
+    val loop                            = new TimedGameLoop(whitePlayer, blackPlayer, tc)
     var state                           = startState
-    var whiteRemaining                  = tc.initialMs
-    var blackRemaining                  = tc.initialMs
-    val latencies                       = scala.collection.mutable.ListBuffer.empty[(Color, Long)]
     var result: Option[TimedGameResult] = None
 
     while result.isEmpty && state.halfMoveClock < 100 do
       val dice          = List.fill(3)(diceRandom.nextInt(6) + 1)
       val stateWithDice = state.withDicePool(dice)
       val mover         = state.activeColor
-      val isWhite       = mover.isWhite
-      val player        = if isWhite then whitePlayer else blackPlayer
-      val remaining     = if isWhite then whiteRemaining else blackRemaining
-      val oppRemaining  = if isWhite then blackRemaining else whiteRemaining
+      val player        = loop.player(mover)
+      val remaining     = loop.remaining(mover)
+      val oppRemaining  = loop.remaining(mover.opponent)
 
       val (turn, elapsedMs) =
         executeTimedTurn(player, stateWithDice, remaining, oppRemaining, tc, botRandom, gameId)
 
-      if isTimedBot(player.algorithm) then latencies += ((mover, elapsedMs))
+      loop.recordLatency(mover, elapsedMs, player)
 
-      turn match
-        case Left(reason) =>
-          val side = if isWhite then "White" else "Black"
-          System.err.println(s"[arena] $gameId: $side webhook delivery failed — forfeits on time ($reason)")
-          result = Some(TimedGameResult(GameOutcome.Win(mover.opponent), Some(mover), latencies.toList))
-        case Right(scored) =>
-          val (newRemaining, flagged) = tickClock(remaining, elapsedMs, tc.incrementMs)
-          if isWhite then whiteRemaining = newRemaining else blackRemaining = newRemaining
+      resolveTurn(loop, state, mover, turn, elapsedMs, tc, gameId) match
+        case Left(terminal) => result = Some(terminal)
+        case Right(next)    => state = next
 
-          if flagged then result = Some(TimedGameResult(GameOutcome.Win(mover.opponent), Some(mover), latencies.toList))
-          else
-            val (next, winner) = playTurn(state, scored)
-            winner match
-              case Some(color) => result = Some(TimedGameResult(GameOutcome.Win(color), None, latencies.toList))
-              case None        => state = next
-
-    result.getOrElse(TimedGameResult(GameOutcome.Draw, None, latencies.toList))
+    result.getOrElse(loop.toResult(GameOutcome.Draw, None))
 
   private[bench] def simulateTimedGame(
       whiteBot: SearchAlgorithm,

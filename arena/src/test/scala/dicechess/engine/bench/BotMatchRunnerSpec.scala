@@ -596,6 +596,29 @@ class BotMatchRunnerSpec extends FunSuite:
     assert(result.outcome == GameOutcome.Draw || result.outcome.isInstanceOf[GameOutcome.Win])
   }
 
+  test("simulateTimedGame: deterministic fixed seeds pin outcome, flaggedColor, and latenciesByColorMs") {
+    val result = BotMatchRunner.simulateTimedGame(
+      GreedySearch,
+      GreedySearch,
+      new Random(42),
+      new Random(1000),
+      TimeControl.ofSeconds(60, 0)
+    )
+    assertEquals(result, TimedGameResult(GameOutcome.Win(Color.White), None, Nil))
+
+    val timedResult = BotMatchRunner.simulateTimedGame(
+      MonteCarloSearch,
+      GreedySearch,
+      new Random(1),
+      new Random(2),
+      TimeControl(5L, 0L)
+    )
+    assertEquals(timedResult.outcome, GameOutcome.Win(Color.Black))
+    assertEquals(timedResult.flaggedColor, Some(Color.White))
+    assertEquals(timedResult.latenciesByColorMs.map(_._1), List(Color.White))
+    assertEquals(timedResult.latenciesByColorMs.size, 1)
+  }
+
   test("verifySyncInternal: passes on valid state and detects mailbox vs bitboard desync") {
     val validState = FenParser.parse("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1").toOption.get
     BotMatchRunner.verifySyncInternal(validState, "init")
