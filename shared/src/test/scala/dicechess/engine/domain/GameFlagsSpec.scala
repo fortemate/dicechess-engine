@@ -150,4 +150,84 @@ class GameFlagsSpec extends FunSuite {
     assert(!out.containsDie(4))
     assert(GameFlags.empty.isDicePoolEmpty)
   }
+
+  test("GameFlags.Invalid sentinel and isValid") {
+    assertEquals(GameFlags.Invalid.value, -1)
+    assert(!GameFlags.Invalid.isValid)
+    assert(GameFlags.empty.isValid)
+    assert(GameFlags.fromList(Color.White, 0, 0, List(1, 2, 3), 0).isValid)
+  }
+
+  test("consumeDiceFor: standard move consumes one matching die") {
+    val flags = GameFlags.empty.withDicePool(List(1, 2, 3))
+    val move  = Move(Square('e', 2), Square('e', 4), Move.DoublePawnPush)
+
+    val next = flags.consumeDiceFor(move, PieceType.Pawn)
+    assert(next.isValid)
+    assertEquals(next.dicePool, List(2, 3))
+  }
+
+  test("consumeDiceFor: standard move with duplicate dice consumes only one occurrence") {
+    val flags = GameFlags.empty.withDicePool(List(2, 2, 5))
+    val move  = Move(Square('b', 1), Square('c', 3), Move.QuietMove)
+
+    val next = flags.consumeDiceFor(move, PieceType.Knight)
+    assert(next.isValid)
+    assertEquals(next.dicePool, List(2, 5))
+  }
+
+  test("consumeDiceFor: standard move returns Invalid when mover die is missing") {
+    val flags = GameFlags.empty.withDicePool(List(1, 2, 3))
+    val move  = Move(Square('d', 1), Square('h', 5), Move.QuietMove)
+
+    val next = flags.consumeDiceFor(move, PieceType.Queen)
+    assert(!next.isValid)
+    assertEquals(next, GameFlags.Invalid)
+  }
+
+  test("consumeDiceFor: castling consumes both King and Rook dice") {
+    val flags = GameFlags.empty.withDicePool(List(6, 4, 2))
+    val move  = Move(Square('e', 1), Square('g', 1), Move.KingCastle)
+
+    val next = flags.consumeDiceFor(move, PieceType.King)
+    assert(next.isValid)
+    assertEquals(next.dicePool, List(2))
+  }
+
+  test("consumeDiceFor: castling returns Invalid when King die is missing") {
+    val flags = GameFlags.empty.withDicePool(List(4, 2, 1))
+    val move  = Move(Square('e', 1), Square('g', 1), Move.KingCastle)
+
+    val next = flags.consumeDiceFor(move, PieceType.King)
+    assert(!next.isValid)
+    assertEquals(next, GameFlags.Invalid)
+  }
+
+  test("consumeDiceFor: castling returns Invalid when Rook die is missing") {
+    val flags = GameFlags.empty.withDicePool(List(6, 2, 1))
+    val move  = Move(Square('e', 1), Square('g', 1), Move.KingCastle)
+
+    val next = flags.consumeDiceFor(move, PieceType.King)
+    assert(!next.isValid)
+    assertEquals(next, GameFlags.Invalid)
+  }
+
+  test("consumeDiceFor: castling returns Invalid when both King and Rook dice are missing") {
+    val flags = GameFlags.empty.withDicePool(List(1, 2, 3))
+    val move  = Move(Square('e', 1), Square('g', 1), Move.KingCastle)
+
+    val next = flags.consumeDiceFor(move, PieceType.King)
+    assert(!next.isValid)
+    assertEquals(next, GameFlags.Invalid)
+  }
+
+  test("consumeDiceFor: defense-in-depth throws on empty square moverType (diceValue == 0)") {
+    val flags     = GameFlags.empty.withDicePool(List(1, 2, 3))
+    val move      = Move(Square('e', 2), Square('e', 4), Move.QuietMove)
+    val emptyType = Piece.Empty.pieceType
+
+    intercept[IllegalArgumentException] {
+      flags.consumeDiceFor(move, emptyType)
+    }
+  }
 }

@@ -21,6 +21,13 @@ object GameFlags:
     */
   val empty: GameFlags = 0
 
+  /** Sentinel value indicating an invalid [[GameFlags]] representation.
+    *
+    * Valid [[GameFlags]] instances occupy bits 0–28, so their packed 32-bit signed integer value is always
+    * non-negative. Negative values (specifically `-1`) serve as an allocation-free error sentinel on hot paths.
+    */
+  val Invalid: GameFlags = -1
+
   /** How many dice the layout can hold: three 3-bit slots at bits 13-21, matching the three dice a turn rolls.
     *
     * Published because the packing is lossy in one direction only — [[fromList]] keeps the first `DiceSlots` values and
@@ -207,6 +214,35 @@ object GameFlags:
       */
     inline def withHalfMoveClock(clock: Int): GameFlags =
       (flags & ~(0x7f << 22)) | (clampHalfMoveClock(clock) << 22)
+
+    inline def isValid: Boolean = flags >= 0
+
+    /** Consumes the dice required to execute `move` by a piece of `moverType`.
+      *
+      * Under Dice Chess rules:
+      *   - Castling requires and consumes both a King (6) and a Rook (4) die.
+      *   - Standard moves consume one die matching the mover's piece type.
+      *
+      * Returns [[GameFlags.Invalid]] if the required dice are not available in this flags' dice pool. Enforces
+      * `require(moverType.diceValue != 0)` defense-in-depth against moves from empty squares.
+      *
+      * @param move
+      *   the move being executed
+      * @param moverType
+      *   the piece type of the moving piece
+      * @return
+      *   the updated [[GameFlags]] with consumed dice removed, or [[GameFlags.Invalid]] if required dice are missing
+      */
+    inline def consumeDiceFor(move: Move, moverType: PieceType): GameFlags =
+      val dieValue = moverType.diceValue
+      require(dieValue != 0, s"Move generated from an empty square: $move")
+      if move.isCastling then
+        if flags.containsDie(PieceType.King.diceValue) && flags.containsDie(PieceType.Rook.diceValue) then
+          flags.removeDie(PieceType.King.diceValue).removeDie(PieceType.Rook.diceValue)
+        else GameFlags.Invalid
+      else
+        val survived = flags.removeDie(dieValue)
+        if survived == flags then GameFlags.Invalid else survived
 
     /** Exposes the underlying integer. */
     inline def value: Int = flags

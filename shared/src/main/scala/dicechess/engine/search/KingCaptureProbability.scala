@@ -144,25 +144,17 @@ object KingCaptureProbability:
     val moves = MoveGenerator.generatePieceMoves(readOnlyState, PieceType(die))
     var i     = 0
     while i < moves.length do
-      val move = moves(i)
+      val move      = moves(i)
+      val moverType = scratch.mailbox(move.fromSquare.index).pieceType
+      val survived  = flags.consumeDiceFor(move, moverType)
 
-      // Recurse — the dice the move consumes depend on whether it is castling. makeMove(Move) clears the pool, so the
-      // surviving dice are re-installed via an int-slot transplant (no List or Option allocation on this hot path).
-      if move.isCastling then
-        // Direct capture of a target piece
-        if !(targets & Bitboard.fromSquare(move.toSquare)).isEmpty then break(true)
-        if flags.containsDie(PieceType.King.diceValue) && flags.containsDie(PieceType.Rook.diceValue) then
-          val survived = flags.removeDie(PieceType.King.diceValue).removeDie(PieceType.Rook.diceValue)
-          if recurse(scratch, targets, move, survived, remainingDice - 2) then break(true)
-      else
-        // Validated before the direct-capture check below: a move generated from an empty square (the mailbox/bitboard
-        // desync this method guards against) must never be allowed to register as a capture just because its
-        // `toSquare` happens to coincide with a target.
-        val dieValue = scratch.mailbox(move.fromSquare.index).pieceType.diceValue
-        require(dieValue != 0, s"Move generated from an empty square: $move")
-        if !(targets & Bitboard.fromSquare(move.toSquare)).isEmpty then break(true)
-        val survived = flags.removeDie(dieValue)
-        if recurse(scratch, targets, move, survived, remainingDice - 1) then break(true)
+      // Direct capture of a target piece
+      if !(targets & Bitboard.fromSquare(move.toSquare)).isEmpty then break(true)
+
+      // Recurse with surviving dice if required dice were available.
+      if survived.isValid then
+        val diceConsumed = if move.isCastling then 2 else 1
+        if recurse(scratch, targets, move, survived, remainingDice - diceConsumed) then break(true)
 
       i += 1
     false
