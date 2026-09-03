@@ -596,27 +596,44 @@ class BotMatchRunnerSpec extends FunSuite:
     assert(result.outcome == GameOutcome.Draw || result.outcome.isInstanceOf[GameOutcome.Win])
   }
 
-  test("simulateTimedGame: deterministic fixed seeds pin outcome, flaggedColor, and latenciesByColorMs") {
-    val result = BotMatchRunner.simulateTimedGame(
+  test("simulateTimedGame: fixed seeds make the result reproducible and only timed bots record latencies") {
+    // Both bots are untimed, so the latency list must stay empty regardless of how long the game runs.
+    val untimed = BotMatchRunner.simulateTimedGame(
       GreedySearch,
       GreedySearch,
       new Random(42),
       new Random(1000),
       TimeControl.ofSeconds(60, 0)
     )
-    assertEquals(result, TimedGameResult(GameOutcome.Win(Color.White), None, Nil))
+    assertEquals(untimed, TimedGameResult(GameOutcome.Win(Color.White), None, Nil))
 
-    val timedResult = BotMatchRunner.simulateTimedGame(
-      MonteCarloSearch,
+    // A TimeBudgetedSearch stub that never looks at the clock: it counts as a timed bot (so its moves are recorded)
+    // without racing a real search against the wall clock, which is what makes the case deterministic (#144).
+    final class FirstLegalTimedBot extends TimeBudgetedSearch:
+      override def findBestMove(state: GameState): Option[ScoredSequence] =
+        TurnGenerator.generateAllLegalTurnPaths(state).headOption.map(ScoredSequence(_, 0))
+
+      override def findBestMove(
+          state: GameState,
+          _deadlineNanos: Long,
+          _random: Random
+      ): Option[ScoredSequence] = findBestMove(state)
+
+    def play() = BotMatchRunner.simulateTimedGame(
+      new FirstLegalTimedBot,
       GreedySearch,
       new Random(1),
       new Random(2),
-      TimeControl(5L, 0L)
+      TimeControl.ofSeconds(60, 0)
     )
-    assertEquals(timedResult.outcome, GameOutcome.Win(Color.Black))
-    assertEquals(timedResult.flaggedColor, Some(Color.White))
-    assertEquals(timedResult.latenciesByColorMs.map(_._1), List(Color.White))
-    assertEquals(timedResult.latenciesByColorMs.size, 1)
+    val first  = play()
+    val replay = play()
+
+    assertEquals(replay.outcome, first.outcome, "same seeds must replay the same outcome")
+    assertEquals(replay.latenciesByColorMs.length, first.latenciesByColorMs.length, "same seeds, same move count")
+    assertEquals(first.flaggedColor, None, "a 60 s clock cannot flag on microsecond moves")
+    assert(first.latenciesByColorMs.nonEmpty, "the timed bot must record at least one move")
+    assert(first.latenciesByColorMs.forall(_._1 == Color.White), "only the timed (White) bot records latencies")
   }
 
   test("verifySyncInternal: passes on valid state and detects mailbox vs bitboard desync") {
