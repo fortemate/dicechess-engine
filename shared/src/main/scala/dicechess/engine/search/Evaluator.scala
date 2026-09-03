@@ -139,7 +139,6 @@ object Evaluator:
         + kingProximityBonus(state, myPieces, enemyKing)
         + kingRingPressure(state, enemyKing, color)
 
-  /** Pawn Storm Heuristic: 15 centipawns per rank each friendly pawn has advanced from its starting rank. */
   private def pawnStormBonus(state: GameState, myPieces: Bitboard, color: Color): Int =
     var bonus = 0
     var pw    = (state.pawns & myPieces).value
@@ -151,9 +150,6 @@ object Evaluator:
     }
     bonus
 
-  /** King Proximity Heuristic: rewards friendly Knights, Bishops, Rooks and Queens by how close they stand to the enemy
-    * King (Chebyshev distance), weighted 40 / 25 / 15 for Queen / Rook / minor piece.
-    */
   private def kingProximityBonus(state: GameState, myPieces: Bitboard, enemyKing: Square): Int =
     val ekRank    = enemyKing.rank
     val ekFile    = enemyKing.file.toInt
@@ -171,9 +167,6 @@ object Evaluator:
     }
     bonus
 
-  /** King Ring Pressure Heuristic: [[RingWeight]] centipawns per friendly attacker of each square adjacent to the enemy
-    * King.
-    */
   private def kingRingPressure(state: GameState, enemyKing: Square, color: Color): Int =
     val ekRank = enemyKing.rank
     val ekFile = enemyKing.file.toInt
