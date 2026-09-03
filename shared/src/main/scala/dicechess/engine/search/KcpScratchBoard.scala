@@ -65,6 +65,31 @@ final private[search] class KcpScratchBoard(
     case Move.RookPromotion | Move.RookPromoCapture     => PieceType.Rook
     case _                                              => PieceType.Queen
 
+  private inline def capturedPieceCastlingRights(rights: Int, target: Piece, to: Square): Int =
+    if target.isEmpty then rights
+    else if target.pieceType == PieceType.Rook then
+      if to == Square('a', 8) then rights & ~8
+      else if to == Square('h', 8) then rights & ~4
+      else if to == Square('a', 1) then rights & ~2
+      else if to == Square('h', 1) then rights & ~1
+      else rights
+    else if target.pieceType == PieceType.King then if target.color.isWhite then rights & ~3 else rights & ~12
+    else rights
+
+  private inline def moverCastlingRights(rights: Int, mover: Piece, from: Square, isWhite: Boolean): Int =
+    mover.pieceType match
+      case PieceType.King =>
+        if isWhite then rights & ~3 else rights & ~12
+      case PieceType.Rook =>
+        if isWhite then
+          if from == Square('a', 1) then rights & ~2
+          else if from == Square('h', 1) then rights & ~1
+          else rights
+        else if from == Square('a', 8) then rights & ~8
+        else if from == Square('h', 8) then rights & ~4
+        else rights
+      case _ => rights
+
   private def updatedCastlingRights(
       rights: Int,
       mover: Piece,
@@ -73,26 +98,104 @@ final private[search] class KcpScratchBoard(
       to: Square,
       isWhite: Boolean
   ): Int =
-    var r = rights
-    if !target.isEmpty then
-      if target.pieceType == PieceType.Rook then
-        if to == Square('a', 8) then r &= ~8
-        else if to == Square('h', 8) then r &= ~4
-        else if to == Square('a', 1) then r &= ~2
-        else if to == Square('h', 1) then r &= ~1
-      else if target.pieceType == PieceType.King then if target.color.isWhite then r &= ~3 else r &= ~12
+    val r1 = capturedPieceCastlingRights(rights, target, to)
+    moverCastlingRights(r1, mover, from, isWhite)
 
-    mover.pieceType match
-      case PieceType.King =>
-        if isWhite then r &= ~3 else r &= ~12
-      case PieceType.Rook =>
-        if isWhite then
-          if from == Square('a', 1) then r &= ~2
-          else if from == Square('h', 1) then r &= ~1
-        else if from == Square('a', 8) then r &= ~8
-        else if from == Square('h', 8) then r &= ~4
-      case _ => ()
-    r
+  private inline def clearEpIfPassed(ep: Long, passedIdx: Int): Long =
+    if passedIdx >= 0 && passedIdx < 64 then ep & ~(1L << passedIdx) else ep
+
+  private inline def applyDoublePawnPush(fromIdx: Int, toIdx: Int, color: Color, ep: Long): Long =
+    val fromBB     = 1L << fromIdx
+    val toBB       = 1L << toIdx
+    val isWhite    = color.isWhite
+    val rankOffset = if isWhite then -8 else 8
+    mailbox(fromIdx) = Piece.Empty
+    mailbox(toIdx) = Piece(color, PieceType.Pawn)
+    pawns ^= (fromBB | toBB)
+    if isWhite then whitePieces ^= (fromBB | toBB) else blackPieces ^= (fromBB | toBB)
+    ep | (1L << (toIdx + rankOffset))
+
+  private inline def applyEnPassant(
+      fromIdx: Int,
+      toIdx: Int,
+      fromBB: Long,
+      toBB: Long,
+      color: Color,
+      isWhite: Boolean,
+      rankOffset: Int
+  ): Piece =
+    val victimIdx = toIdx + rankOffset
+    val victimBB  = 1L << victimIdx
+    val captured  = mailbox(victimIdx)
+    mailbox(fromIdx) = Piece.Empty
+    mailbox(toIdx) = Piece(color, PieceType.Pawn)
+    mailbox(victimIdx) = Piece.Empty
+    pawns = (pawns & ~fromBB & ~victimBB) | toBB
+    val moverBB = fromBB | toBB
+    if isWhite then
+      whitePieces ^= moverBB
+      blackPieces &= ~victimBB
+    else
+      blackPieces ^= moverBB
+      whitePieces &= ~victimBB
+    captured
+
+  private inline def applyKingCastle(
+      fromIdx: Int,
+      toIdx: Int,
+      fromBB: Long,
+      toBB: Long,
+      color: Color,
+      isWhite: Boolean
+  ): Unit =
+    val rFromIdx = if isWhite then 7 else 63
+    val rToIdx   = if isWhite then 5 else 61
+    toggleCastle(rFromIdx, rToIdx, fromBB | toBB, isWhite)
+    mailbox(fromIdx) = Piece.Empty
+    mailbox(toIdx) = Piece(color, PieceType.King)
+    mailbox(rFromIdx) = Piece.Empty
+    mailbox(rToIdx) = Piece(color, PieceType.Rook)
+
+  private inline def applyQueenCastle(
+      fromIdx: Int,
+      toIdx: Int,
+      fromBB: Long,
+      toBB: Long,
+      color: Color,
+      isWhite: Boolean
+  ): Unit =
+    val rFromIdx = if isWhite then 0 else 56
+    val rToIdx   = if isWhite then 3 else 59
+    toggleCastle(rFromIdx, rToIdx, fromBB | toBB, isWhite)
+    mailbox(fromIdx) = Piece.Empty
+    mailbox(toIdx) = Piece(color, PieceType.King)
+    mailbox(rFromIdx) = Piece.Empty
+    mailbox(rToIdx) = Piece(color, PieceType.Rook)
+
+  private inline def applyStandard(mv: Move, mover: Piece, color: Color, target: Piece, ep: Long): Long =
+    val fromIdx    = mv.fromSquare.index
+    val toIdx      = mv.toSquare.index
+    val fromBB     = 1L << fromIdx
+    val toBB       = 1L << toIdx
+    val isWhite    = color.isWhite
+    val rankOffset = if isWhite then -8 else 8
+    var newEp      = ep
+    val isPromo    = mv.isPromotion
+    val destType   = if isPromo then promotionPieceType(mv.flags) else mover.pieceType
+    mailbox(fromIdx) = Piece.Empty
+    mailbox(toIdx) = Piece(color, destType)
+    if isPromo then
+      pawns ^= fromBB
+      togglePiece(destType, toBB)
+    else togglePiece(destType, fromBB | toBB)
+    if isWhite then whitePieces ^= (fromBB | toBB) else blackPieces ^= (fromBB | toBB)
+    if mover.pieceType == PieceType.Pawn then newEp = clearEpIfPassed(newEp, fromIdx + rankOffset)
+    if !target.isEmpty then
+      val capBB = toBB
+      if isWhite then blackPieces ^= capBB else whitePieces ^= capBB
+      togglePiece(target.pieceType, capBB)
+      if target.pieceType == PieceType.Pawn then newEp = clearEpIfPassed(newEp, toIdx - rankOffset)
+    newEp
 
   /** Applies a pseudo-legal move in place, returning the [[KcpUndoInfo]] needed to revert it.
     *
@@ -118,68 +221,20 @@ final private[search] class KcpScratchBoard(
 
     mv.flags match
       case Move.DoublePawnPush =>
-        mailbox(fromIdx) = Piece.Empty
-        mailbox(toIdx) = Piece(color, PieceType.Pawn)
-        pawns ^= (fromBB | toBB)
-        if isWhite then whitePieces ^= (fromBB | toBB) else blackPieces ^= (fromBB | toBB)
-        newEnPassant = newEnPassant | (1L << (toIdx + rankOffset))
+        newEnPassant = applyDoublePawnPush(fromIdx, toIdx, color, newEnPassant)
 
       case Move.EnPassantCapture =>
-        val victimIdx = toIdx + rankOffset
-        val victimBB  = 1L << victimIdx
-        capturedPiece = mailbox(victimIdx)
-        mailbox(fromIdx) = Piece.Empty
-        mailbox(toIdx) = Piece(color, PieceType.Pawn)
-        mailbox(victimIdx) = Piece.Empty
-        pawns = (pawns & ~fromBB & ~victimBB) | toBB
-        val moverBB = fromBB | toBB
-        if isWhite then
-          whitePieces ^= moverBB
-          blackPieces &= ~victimBB
-        else
-          blackPieces ^= moverBB
-          whitePieces &= ~victimBB
+        capturedPiece = applyEnPassant(fromIdx, toIdx, fromBB, toBB, color, isWhite, rankOffset)
 
       case Move.KingCastle =>
-        val rFromIdx = if isWhite then 7 else 63
-        val rToIdx   = if isWhite then 5 else 61
-        toggleCastle(rFromIdx, rToIdx, fromBB | toBB, isWhite)
-        mailbox(fromIdx) = Piece.Empty
-        mailbox(toIdx) = Piece(color, PieceType.King)
-        mailbox(rFromIdx) = Piece.Empty
-        mailbox(rToIdx) = Piece(color, PieceType.Rook)
+        applyKingCastle(fromIdx, toIdx, fromBB, toBB, color, isWhite)
 
       case Move.QueenCastle =>
-        val rFromIdx = if isWhite then 0 else 56
-        val rToIdx   = if isWhite then 3 else 59
-        toggleCastle(rFromIdx, rToIdx, fromBB | toBB, isWhite)
-        mailbox(fromIdx) = Piece.Empty
-        mailbox(toIdx) = Piece(color, PieceType.King)
-        mailbox(rFromIdx) = Piece.Empty
-        mailbox(rToIdx) = Piece(color, PieceType.Rook)
+        applyQueenCastle(fromIdx, toIdx, fromBB, toBB, color, isWhite)
 
       case _ =>
-        val isPromo  = mv.isPromotion
-        val destType = if isPromo then promotionPieceType(mv.flags) else mover.pieceType
-        val target   = mailbox(toIdx)
-        mailbox(fromIdx) = Piece.Empty
-        mailbox(toIdx) = Piece(color, destType)
-        if isPromo then
-          pawns ^= fromBB
-          togglePiece(destType, toBB)
-        else togglePiece(destType, fromBB | toBB)
-        if isWhite then whitePieces ^= (fromBB | toBB) else blackPieces ^= (fromBB | toBB)
-        if mover.pieceType == PieceType.Pawn then
-          val passedIdx = fromIdx + rankOffset
-          if passedIdx >= 0 && passedIdx < 64 then newEnPassant &= ~(1L << passedIdx)
-        if !target.isEmpty then
-          capturedPiece = target
-          val capBB = toBB
-          if isWhite then blackPieces ^= capBB else whitePieces ^= capBB
-          togglePiece(target.pieceType, capBB)
-          if target.pieceType == PieceType.Pawn then
-            val victimPassedIdx = toIdx - rankOffset
-            if victimPassedIdx >= 0 && victimPassedIdx < 64 then newEnPassant &= ~(1L << victimPassedIdx)
+        capturedPiece = mailbox(toIdx)
+        newEnPassant = applyStandard(mv, mover, color, capturedPiece, newEnPassant)
 
     val newCastlingRights = updatedCastlingRights(flags.castlingRights, mover, from, capturedPiece, to, isWhite)
     val isCap             = !capturedPiece.isEmpty || mv.flags == Move.EnPassantCapture
@@ -204,79 +259,124 @@ final private[search] class KcpScratchBoard(
 
     KcpUndoInfo(capturedPiece, prevFlags, prevEnPassant)
 
-  /** Reverts an in-place move using the recorded [[KcpUndoInfo]]. */
-  def undoMove(mv: Move, undo: KcpUndoInfo): Unit =
-    val from       = mv.fromSquare
-    val to         = mv.toSquare
-    val fromIdx    = from.index
-    val toIdx      = to.index
-    val isWhite    = undo.prevFlags.activeColor.isWhite
+  private inline def revertDoublePawnPush(
+      fromIdx: Int,
+      toIdx: Int,
+      fromBB: Long,
+      toBB: Long,
+      activeColor: Color,
+      isWhite: Boolean
+  ): Unit =
+    pawns ^= (fromBB | toBB)
+    if isWhite then whitePieces ^= (fromBB | toBB) else blackPieces ^= (fromBB | toBB)
+    mailbox(fromIdx) = Piece(activeColor, PieceType.Pawn)
+    mailbox(toIdx) = Piece.Empty
+
+  private inline def revertEnPassant(fromIdx: Int, toIdx: Int, activeColor: Color, capturedPiece: Piece): Unit =
     val fromBB     = 1L << fromIdx
     val toBB       = 1L << toIdx
+    val isWhite    = activeColor.isWhite
     val rankOffset = if isWhite then -8 else 8
+    val victimIdx  = toIdx + rankOffset
+    val victimBB   = 1L << victimIdx
+    mailbox(fromIdx) = Piece(activeColor, PieceType.Pawn)
+    mailbox(toIdx) = Piece.Empty
+    mailbox(victimIdx) = capturedPiece
+    pawns = (pawns & ~toBB) | fromBB
+    val moverBB = fromBB | toBB
+    if isWhite then
+      whitePieces ^= moverBB
+      if !capturedPiece.isEmpty then
+        blackPieces |= victimBB
+        pawns |= victimBB
+    else
+      blackPieces ^= moverBB
+      if !capturedPiece.isEmpty then
+        whitePieces |= victimBB
+        pawns |= victimBB
+
+  private inline def revertKingCastle(
+      fromIdx: Int,
+      toIdx: Int,
+      fromBB: Long,
+      toBB: Long,
+      activeColor: Color,
+      isWhite: Boolean
+  ): Unit =
+    val rFromIdx = if isWhite then 7 else 63
+    val rToIdx   = if isWhite then 5 else 61
+    toggleCastle(rFromIdx, rToIdx, fromBB | toBB, isWhite)
+    mailbox(fromIdx) = Piece(activeColor, PieceType.King)
+    mailbox(toIdx) = Piece.Empty
+    mailbox(rFromIdx) = Piece(activeColor, PieceType.Rook)
+    mailbox(rToIdx) = Piece.Empty
+
+  private inline def revertQueenCastle(
+      fromIdx: Int,
+      toIdx: Int,
+      fromBB: Long,
+      toBB: Long,
+      activeColor: Color,
+      isWhite: Boolean
+  ): Unit =
+    val rFromIdx = if isWhite then 0 else 56
+    val rToIdx   = if isWhite then 3 else 59
+    toggleCastle(rFromIdx, rToIdx, fromBB | toBB, isWhite)
+    mailbox(fromIdx) = Piece(activeColor, PieceType.King)
+    mailbox(toIdx) = Piece.Empty
+    mailbox(rFromIdx) = Piece(activeColor, PieceType.Rook)
+    mailbox(rToIdx) = Piece.Empty
+
+  private inline def revertStandard(mv: Move, activeColor: Color, capturedPiece: Piece): Unit =
+    val fromIdx = mv.fromSquare.index
+    val toIdx   = mv.toSquare.index
+    val fromBB  = 1L << fromIdx
+    val toBB    = 1L << toIdx
+    val isWhite = activeColor.isWhite
+    val isPromo = mv.isPromotion
+    if isPromo then
+      val promType = promotionPieceType(mv.flags)
+      pawns ^= fromBB
+      togglePiece(promType, toBB)
+      mailbox(fromIdx) = Piece(activeColor, PieceType.Pawn)
+    else
+      val mover = mailbox(toIdx)
+      togglePiece(mover.pieceType, fromBB | toBB)
+      mailbox(fromIdx) = mover
+
+    if isWhite then whitePieces ^= (fromBB | toBB) else blackPieces ^= (fromBB | toBB)
+    if !capturedPiece.isEmpty then
+      val capBB = toBB
+      if isWhite then blackPieces ^= capBB else whitePieces ^= capBB
+      togglePiece(capturedPiece.pieceType, capBB)
+    mailbox(toIdx) = capturedPiece
+
+  /** Reverts an in-place move using the recorded [[KcpUndoInfo]]. */
+  def undoMove(mv: Move, undo: KcpUndoInfo): Unit =
+    val from        = mv.fromSquare
+    val to          = mv.toSquare
+    val fromIdx     = from.index
+    val toIdx       = to.index
+    val activeColor = undo.prevFlags.activeColor
+    val isWhite     = activeColor.isWhite
+    val fromBB      = 1L << fromIdx
+    val toBB        = 1L << toIdx
 
     mv.flags match
       case Move.DoublePawnPush =>
-        pawns ^= (fromBB | toBB)
-        if isWhite then whitePieces ^= (fromBB | toBB) else blackPieces ^= (fromBB | toBB)
-        mailbox(fromIdx) = Piece(undo.prevFlags.activeColor, PieceType.Pawn)
-        mailbox(toIdx) = Piece.Empty
+        revertDoublePawnPush(fromIdx, toIdx, fromBB, toBB, activeColor, isWhite)
 
       case Move.EnPassantCapture =>
-        val victimIdx = toIdx + rankOffset
-        val victimBB  = 1L << victimIdx
-        mailbox(fromIdx) = Piece(undo.prevFlags.activeColor, PieceType.Pawn)
-        mailbox(toIdx) = Piece.Empty
-        mailbox(victimIdx) = undo.capturedPiece
-        pawns = (pawns & ~toBB) | fromBB
-        val moverBB = fromBB | toBB
-        if isWhite then
-          whitePieces ^= moverBB
-          if !undo.capturedPiece.isEmpty then
-            blackPieces |= victimBB
-            pawns |= victimBB
-        else
-          blackPieces ^= moverBB
-          if !undo.capturedPiece.isEmpty then
-            whitePieces |= victimBB
-            pawns |= victimBB
+        revertEnPassant(fromIdx, toIdx, activeColor, undo.capturedPiece)
 
       case Move.KingCastle =>
-        val rFromIdx = if isWhite then 7 else 63
-        val rToIdx   = if isWhite then 5 else 61
-        toggleCastle(rFromIdx, rToIdx, fromBB | toBB, isWhite)
-        mailbox(fromIdx) = Piece(undo.prevFlags.activeColor, PieceType.King)
-        mailbox(toIdx) = Piece.Empty
-        mailbox(rFromIdx) = Piece(undo.prevFlags.activeColor, PieceType.Rook)
-        mailbox(rToIdx) = Piece.Empty
+        revertKingCastle(fromIdx, toIdx, fromBB, toBB, activeColor, isWhite)
 
       case Move.QueenCastle =>
-        val rFromIdx = if isWhite then 0 else 56
-        val rToIdx   = if isWhite then 3 else 59
-        toggleCastle(rFromIdx, rToIdx, fromBB | toBB, isWhite)
-        mailbox(fromIdx) = Piece(undo.prevFlags.activeColor, PieceType.King)
-        mailbox(toIdx) = Piece.Empty
-        mailbox(rFromIdx) = Piece(undo.prevFlags.activeColor, PieceType.Rook)
-        mailbox(rToIdx) = Piece.Empty
+        revertQueenCastle(fromIdx, toIdx, fromBB, toBB, activeColor, isWhite)
 
       case _ =>
-        val isPromo = mv.isPromotion
-        if isPromo then
-          val promType = promotionPieceType(mv.flags)
-          pawns ^= fromBB
-          togglePiece(promType, toBB)
-          mailbox(fromIdx) = Piece(undo.prevFlags.activeColor, PieceType.Pawn)
-        else
-          val mover = mailbox(toIdx)
-          togglePiece(mover.pieceType, fromBB | toBB)
-          mailbox(fromIdx) = mover
-
-        if isWhite then whitePieces ^= (fromBB | toBB) else blackPieces ^= (fromBB | toBB)
-        if !undo.capturedPiece.isEmpty then
-          val capBB = toBB
-          if isWhite then blackPieces ^= capBB else whitePieces ^= capBB
-          togglePiece(undo.capturedPiece.pieceType, capBB)
-        mailbox(toIdx) = undo.capturedPiece
+        revertStandard(mv, activeColor, undo.capturedPiece)
 
     flags = undo.prevFlags
     enPassant = undo.prevEnPassant
