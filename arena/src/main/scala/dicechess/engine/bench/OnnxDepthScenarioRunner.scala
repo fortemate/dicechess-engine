@@ -83,8 +83,7 @@ object OnnxDepthScenarioRunner:
   ) =
     OnnxArenaBot.register(
       id,
-      modelPath,
-      featureSet,
+      OnnxArenaBot.ModelSpec(modelPath, featureSet),
       SearchKind.Expectimax,
       config,
       ArenaDifficulty,

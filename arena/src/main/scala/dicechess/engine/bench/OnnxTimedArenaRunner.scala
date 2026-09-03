@@ -5,7 +5,7 @@ import scala.util.Using
 import com.monovore.decline.*
 import cats.implicits.*
 
-import dicechess.engine.search.{BotRegistry, ExpectimaxConfig, TimeManager}
+import dicechess.engine.search.{BotRegistry, ExpectimaxConfig, OnnxSearchOptions, TimeManager}
 
 /** Time-controlled arena for the 2-ply ONNX expectimax bot — the clock-aware counterpart of
   * [[OnnxExpectimaxArenaRunner]], filling the one cell [[TimedArenaRunner]] cannot reach on its own: it resolves both
@@ -63,16 +63,15 @@ object OnnxTimedArenaRunner:
           s => statsWriter.foreach(w => w.println(s"$currentPreset\t$s"))
         try
           val bot = OnnxArenaBot.register(
-            botId,
-            modelPath,
-            featureSet,
+            id = botId,
+            model = OnnxArenaBot.ModelSpec(modelPath, featureSet),
             // This runner is the 2-ply counterpart of OnnxExpectimaxArenaRunner by definition; one ply is offered by
             // OnnxModelDuelRunner, where the choice is part of the question being asked (#610).
-            SearchKind.Expectimax,
-            ExpectimaxConfig(candidateLimit),
-            baselineInfo.difficulty,
-            s"clock-aware timed arena over $modelPath",
-            statsSink = sink
+            searchKind = SearchKind.Expectimax,
+            config = ExpectimaxConfig(candidateLimit),
+            difficulty = baselineInfo.difficulty,
+            description = s"clock-aware timed arena over $modelPath",
+            options = OnnxSearchOptions(statsSink = sink)
           )
           Using.resource(bot) { _ =>
             println(
