@@ -10,7 +10,7 @@ ThisBuild / organizationName     := "Fortemate"
 ThisBuild / organizationHomepage := Some(uri("https://fortemate.com"))
 ThisBuild / homepage             := Some(uri("https://fortemate.com"))
 ThisBuild / startYear            := Some(2026)
-ThisBuild / version              := "0.8.2-SNAPSHOT"
+ThisBuild / version              := "0.8.3-SNAPSHOT"
 ThisBuild / scalaVersion         := "3.9.0"
 
 ThisBuild / description   := "Cross-platform high-performance Dice Chess engine, move generator, and AI search."
