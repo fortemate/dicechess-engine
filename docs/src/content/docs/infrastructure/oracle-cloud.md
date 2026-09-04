@@ -27,7 +27,7 @@ Here is an objective evaluation of our hosting options.
 
 ### 1. Raspberry Pi 4 (4GB RAM)
 * **The Verdict:** **Too weak for Production Search.**
-* **Why:** While it runs 24/7, its Cortex-A72 cores have extremely weak floating-point performance and low clock speed compared to modern CPUs. Using an Expectimax search algorithm parallelized with Virtual Threads on this node would yield a very weak engine that takes too long to evaluate moves. 
+* **Why:** While it runs 24/7, its Cortex-A72 cores have extremely weak floating-point performance and low clock speed compared to modern CPUs. In practice this is where the ONNX expectimax bots ended up anyway, under a hard per-move cap. 
 * **Best Use:** A lightweight gateway, dev mock, or telemetry receiver.
 
 ### 2. Asus FX570UD (Ubuntu Server, 8GB RAM)
@@ -38,9 +38,9 @@ Here is an objective evaluation of our hosting options.
 
 ### 3. Oracle Cloud Free Tier (Ampere A1)
 * **The Verdict:** 🏆 **The Ultimate Champion.**
-* **Why:** Oracle's "Always Free" tier offers up to **4 ARM64 Ampere Cores** and up to **24 GB of RAM**. 
-  * **Transposition Tables (TT):** In chess engines, doubling the TT size often results in a massive boost in ELO. Having access to 24GB RAM lets you dedicate 4-8GB strictly to the engine cache!
-  * **Parallelism:** 4 dedicated cores perfectly complement the **Virtual Threads (Ox)** parallelized Expectimax search (implemented in v0.6).
+* **Why:** Oracle's "Always Free" tier used to offer up to **4 ARM64 Ampere Cores** and up to **24 GB of RAM**. Since June 2026 the grant is a tenancy-wide monthly pool instead of a machine shape, and a single 2-OCPU instance running continuously consumes almost all of it — so plan for one modest box, not a 4-core engine host.
+  * **Transposition Tables (TT):** In chess engines, doubling the TT size often results in a massive boost in ELO, and RAM is the one resource this tier is still generous with.
+  * **Parallelism:** Parallel chance-node evaluation with Virtual Threads (`Ox`) is **not implemented** — it is a gated proposal ([#61](https://github.com/fortemate/dicechess-engine/issues/61)), not a shipped feature. Do not size a host around it.
   * **Architecture Harmony:** Your dev machine is a Mac (Apple Silicon ARM64), and Oracle's Ampere is ARM64. This means your Docker containers will run natively on both without cross-compilation overhead.
   * **Public Access:** It gives you a public IP and stable egress so anyone can play against it without you exposing your home lab to the internet.
 * **Best Use:** Production engine hosting.

@@ -62,7 +62,6 @@ The 0.4.x line also absorbed deliverables originally slated for later milestones
   - Star1 pruning in `ExpectimaxSearch` chance nodes (weight-ordered rolls, fail-soft bounds, cutoff telemetry).
   - Star2 probing with batched top-1 opponent replies.
   - Configurable `searchDepth`; depth-3 implementation gated by paired SPRT duels.
-  - Structured concurrency with Virtual Threads (`Ox`) for parallel chance-node evaluation.
 
 ### 🚧 v0.7 - Fast Learned Evaluation (NNUE track)
 
@@ -85,4 +84,5 @@ The 0.4.x line also absorbed deliverables originally slated for later milestones
   - GraalVM Native Image compilation for fast startup.
   - Dockerfile optimization for containerized deployment.
   - CI/CD pipeline improvements (release automation, publishing).
-  - Deployment configurations for Oracle Cloud Free Tier (Ampere ARM64).
+  - Deployment configurations for Oracle Cloud (Ampere ARM64).
+  - Structured concurrency with Virtual Threads (`Ox`) for parallel chance-node evaluation ([#61](https://github.com/fortemate/dicechess-engine/issues/61)) — gated on a production width measurement, moved here from v0.6.
