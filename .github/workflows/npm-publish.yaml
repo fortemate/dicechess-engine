@@ -148,6 +148,8 @@ jobs:
         run: bash .mise/tasks/package/verify --bundle "$RUNNER_TEMP/npm-release"
 
       - name: Configure GitHub Packages read authentication
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm config set //npm.pkg.github.com/:_authToken "$NODE_AUTH_TOKEN" --location=user
 
       - name: Verify GitHub Packages mirror digests before canonical publication
