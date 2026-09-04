@@ -106,7 +106,7 @@ object LegalMovesFilter:
     var i      = 0
     var cur    = moves
 
-    // Keep King-capture paths (immediate or continuation) and non-capture paths that achieve maxLen.
+    // A King capture ends the game, so its path stays legal regardless of maxLen; otherwise require maxLen.
     while cur.nonEmpty do
       val move  = cur.head
       val depth = depths(i)
