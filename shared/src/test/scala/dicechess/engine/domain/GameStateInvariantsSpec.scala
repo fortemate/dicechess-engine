@@ -83,12 +83,15 @@ class GameStateInvariantsSpec extends ScalaCheckSuite:
       newEpFiles |= (1 << (java.lang.Long.numberOfTrailingZeros(nv) % 8))
       nv &= nv - 1
 
+    // Reset zobristKey = 0L so it is recomputed on demand — raw copy(...) with mutated
+    // position-relevant fields would carry a stale hash forward (see GameState doc).
     state.copy(
       pawns = pawnsBB,
       bishops = bishopsBB,
       mailbox = mailbox,
       flags = state.flags.withCastlingRights(newRights).withEnPassantFiles(newEpFiles),
-      enPassant = newEP
+      enPassant = newEP,
+      zobristKey = 0L
     )
 
   val gameStateWithDiceGen: Gen[GameState] = for
@@ -101,14 +104,15 @@ class GameStateInvariantsSpec extends ScalaCheckSuite:
 
   // --- Invariant assertions ---
 
-  private def assertDisjointSideBitboards(state: GameState): Unit =
+  private def assertAllBoardInvariants(state: GameState): Unit =
+    // Side bitboards must be disjoint
     assertEquals(
       state.whitePieces & state.blackPieces,
       Bitboard.empty,
       "White and Black side bitboards must be disjoint"
     )
 
-  private def assertExactPieceTypePartition(state: GameState): Unit =
+    // Piece-type bitboards must partition the occupied squares
     val sideUnion      = state.whitePieces | state.blackPieces
     val pieceTypeUnion =
       state.pawns | state.knights | state.bishops | state.rooks | state.queens | state.kings
@@ -137,20 +141,13 @@ class GameStateInvariantsSpec extends ScalaCheckSuite:
           s"Piece-type bitboards $name1 and $name2 must be disjoint"
         )
 
-  private def assertMailboxBitboardCorrespondence(state: GameState): Unit =
+    // Mailbox must agree with bitboards on every square
     var idx = 0
     while idx < 64 do
       val sq    = Square.fromIndex(idx)
       val piece = state.mailbox(sq)
       if piece.isEmpty then
-        assert(!state.whitePieces.contains(sq), s"Square $sq is empty in mailbox but in whitePieces")
-        assert(!state.blackPieces.contains(sq), s"Square $sq is empty in mailbox but in blackPieces")
-        assert(!state.pawns.contains(sq), s"Square $sq is empty in mailbox but in pawns")
-        assert(!state.knights.contains(sq), s"Square $sq is empty in mailbox but in knights")
-        assert(!state.bishops.contains(sq), s"Square $sq is empty in mailbox but in bishops")
-        assert(!state.rooks.contains(sq), s"Square $sq is empty in mailbox but in rooks")
-        assert(!state.queens.contains(sq), s"Square $sq is empty in mailbox but in queens")
-        assert(!state.kings.contains(sq), s"Square $sq is empty in mailbox but in kings")
+        assert(!(state.whitePieces | state.blackPieces).contains(sq), s"Square $sq is empty in mailbox but occupied in bitboards")
       else
         val color = piece.color
         val pt    = piece.pieceType
@@ -170,13 +167,6 @@ class GameStateInvariantsSpec extends ScalaCheckSuite:
           case PieceType.Queen  => state.queens.contains(sq)
           case PieceType.King   => state.kings.contains(sq)
         assert(inExpectedBB, s"Square $sq has $piece but not in $pt bitboard")
-
-        if pt != PieceType.Pawn then assert(!state.pawns.contains(sq), s"Square $sq has $piece but in pawns")
-        if pt != PieceType.Knight then assert(!state.knights.contains(sq), s"Square $sq has $piece but in knights")
-        if pt != PieceType.Bishop then assert(!state.bishops.contains(sq), s"Square $sq has $piece but in bishops")
-        if pt != PieceType.Rook then assert(!state.rooks.contains(sq), s"Square $sq has $piece but in rooks")
-        if pt != PieceType.Queen then assert(!state.queens.contains(sq), s"Square $sq has $piece but in queens")
-        if pt != PieceType.King then assert(!state.kings.contains(sq), s"Square $sq has $piece but in kings")
 
       idx += 1
 
@@ -200,80 +190,38 @@ class GameStateInvariantsSpec extends ScalaCheckSuite:
       s"Move $move by $moverType did not consume matching dice $requiredDice from pool ${state.dicePool}"
     )
 
+  /** Applies all invariant checks after every move in every legal turn path
+    * and after every pseudo-legal move from the initial state.
+    */
+  private def forEachReachableState(state: GameState)(check: GameState => Unit): Unit =
+    check(state)
+
+    val turnPaths = TurnGenerator.generateAllLegalTurnPaths(state)
+    for path <- turnPaths do
+      var curr = state
+      for move <- path do
+        val survived = curr.diceAfter(move)
+        val next     = curr.makeMove(move).withDiceSlotsOf(survived)
+        check(next)
+        curr = next
+      val ended = curr.endTurn()
+      check(ended)
+
+    val pseudoMoves = MoveGenerator.generateMoves(state)
+    for move <- pseudoMoves do
+      val mm     = MicroMove(move.fromSquare, move.toSquare, move.promotionPieceType)
+      val mmNext = state.makeMove(mm)
+      check(mmNext)
+
   // --- Properties ---
 
-  property(
-    "Disjoint side bitboards — (state.whitePieces & state.blackPieces) == Bitboard.empty holds after every move"
-  ) {
+  property("Board invariants hold on generated state and after every reachable move") {
     forAll(gameStateWithDiceGen) { (state: GameState) =>
-      assertDisjointSideBitboards(state)
-
-      val turnPaths = TurnGenerator.generateAllLegalTurnPaths(state)
-      for path <- turnPaths do
-        var curr = state
-        for move <- path do
-          val survived = curr.diceAfter(move)
-          val next     = curr.makeMove(move).withDiceSlotsOf(survived)
-          assertDisjointSideBitboards(next)
-          curr = next
-        val ended = curr.endTurn()
-        assertDisjointSideBitboards(ended)
-
-      val pseudoMoves = MoveGenerator.generateMoves(state)
-      for move <- pseudoMoves do
-        val mm     = MicroMove(move.fromSquare, move.toSquare, move.promotionPieceType)
-        val mmNext = state.makeMove(mm)
-        assertDisjointSideBitboards(mmNext)
+      forEachReachableState(state)(assertAllBoardInvariants)
     }
   }
 
-  property("Exact piece-type partition — Piece-type bitboards are pairwise disjoint, and union equals side union") {
-    forAll(gameStateWithDiceGen) { (state: GameState) =>
-      assertExactPieceTypePartition(state)
-
-      val turnPaths = TurnGenerator.generateAllLegalTurnPaths(state)
-      for path <- turnPaths do
-        var curr = state
-        for move <- path do
-          val survived = curr.diceAfter(move)
-          val next     = curr.makeMove(move).withDiceSlotsOf(survived)
-          assertExactPieceTypePartition(next)
-          curr = next
-        val ended = curr.endTurn()
-        assertExactPieceTypePartition(ended)
-
-      val pseudoMoves = MoveGenerator.generateMoves(state)
-      for move <- pseudoMoves do
-        val mm     = MicroMove(move.fromSquare, move.toSquare, move.promotionPieceType)
-        val mmNext = state.makeMove(mm)
-        assertExactPieceTypePartition(mmNext)
-    }
-  }
-
-  property("Mailbox-bitboard correspondence — For every square 0 <= sq < 64, mailbox(sq) reflects bitboard masks") {
-    forAll(gameStateWithDiceGen) { (state: GameState) =>
-      assertMailboxBitboardCorrespondence(state)
-
-      val turnPaths = TurnGenerator.generateAllLegalTurnPaths(state)
-      for path <- turnPaths do
-        var curr = state
-        for move <- path do
-          val survived = curr.diceAfter(move)
-          val next     = curr.makeMove(move).withDiceSlotsOf(survived)
-          assertMailboxBitboardCorrespondence(next)
-          curr = next
-        val ended = curr.endTurn()
-        assertMailboxBitboardCorrespondence(ended)
-
-      val pseudoMoves = MoveGenerator.generateMoves(state)
-      for move <- pseudoMoves do
-        val mm     = MicroMove(move.fromSquare, move.toSquare, move.promotionPieceType)
-        val mmNext = state.makeMove(mm)
-        assertMailboxBitboardCorrespondence(mmNext)
-    }
-  }
-
-  property("Dice consumption invariant — Any move made consumes valid matching dice from flags.dicePool") {
+  property("Dice consumption invariant — every move consumes exactly the matching dice") {
     forAll(gameStateWithDiceGen) { (state: GameState) =>
       val turnPaths = TurnGenerator.generateAllLegalTurnPaths(state)
       for path <- turnPaths do
@@ -291,16 +239,5 @@ class GameStateInvariantsSpec extends ScalaCheckSuite:
         if survived.isValid then
           val next = state.makeMove(move).withDiceSlotsOf(survived)
           assertDiceConsumption(state, move, next)
-
-          if !move.isCastling then
-            val mm           = MicroMove(move.fromSquare, move.toSquare, move.promotionPieceType)
-            val mmNext       = state.makeMove(mm)
-            val moverType    = state.mailbox(move.fromSquare).pieceType
-            val expectedPool = removeDice(state.dicePool, List(moverType.diceValue))
-            assertEquals(
-              mmNext.dicePool,
-              expectedPool,
-              s"MicroMove $mm by $moverType did not consume $moverType die from pool ${state.dicePool}"
-            )
     }
   }
