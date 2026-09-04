@@ -130,7 +130,7 @@ description = "🔐 Test the immutable npm release artifact handoff"
 run = "bash .mise/lib/test-npm-release-handoff.sh"
 
 [tasks."docs:generate"]
-description = "📝 Generate visual test cases catalog from JSON files"
+description = "📝 Generate visual test cases catalog from MoveGenFixtures"
 run = "sbt 'project rootJVM; Test / runMain dicechess.engine.movegen.DocGenerator'"
 
 [tasks."docs:search:generate"]

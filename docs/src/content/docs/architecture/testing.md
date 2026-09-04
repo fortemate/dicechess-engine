@@ -130,6 +130,8 @@ val testCase = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
   .shouldYield("a2a3", "a2a4", "b2b3", "b2b4")
 ```
 
+`.withDice(...)` renders the pool as the piece letters the 7th FEN field is made of (`Pawn` → `P`, `(Pawn, King)` → `PK`), so the two forms are interchangeable: the fixtures in `MoveGenFixtures.scala` spell the dice directly into the FEN and chain `.titled(...)` straight off the string, while `.withDice(...)` is the readable choice when the base position is shared between scenarios.
+
 ### 3. Automated MUnit Integration
 
 MUnit executes these test cases across all three target platforms via `MoveGenGoldenSpec`. The test runner uses the custom titles and descriptions to name and document tests inside the console outputs, providing extremely readable test logs:

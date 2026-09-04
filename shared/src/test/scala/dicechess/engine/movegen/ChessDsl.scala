@@ -27,6 +27,24 @@ case class MoveGenTestCase(
   */
 object ChessDsl:
 
+  /** Renders a die value as the piece letter that [[dicechess.engine.domain.FenParser]] expects in the 7th FEN field.
+    *
+    * The dice pool is encoded as piece letters, not digits: `"PN"`, never `"12"`. Emitting the raw number produced a
+    * FEN that `FenParser` rejected with `Invalid dice-pool character '1'`, so every builder below goes through here.
+    *
+    * A value outside 1 to 6 is passed through unchanged rather than rejected here: `FenParser` already names it exactly
+    * — `Invalid dice-pool character '7'` — and a test DSL that fails at the assertion reads better than one that fails
+    * while building the fixture.
+    */
+  private def dieLetter(die: Int): String = die match
+    case 1     => "P"
+    case 2     => "N"
+    case 3     => "B"
+    case 4     => "R"
+    case 5     => "Q"
+    case 6     => "K"
+    case other => other.toString
+
   extension (move: Move)
     /** Converts a Move into its standard algebraic notation string (e.g., "e2e4" or "e7e8q").
       */
@@ -35,39 +53,41 @@ object ChessDsl:
   extension (fen: String)
     /** Appends a single die value as the 7th FEN field, returning a [[FenWithDice]] builder.
       *
-      * Example: `"rnbqkbnr/... w KQkq - 0 1".withDice(1)` → FEN `"rnbqkbnr/... w KQkq - 0 1 1"`
+      * Example: `"rnbqkbnr/... w KQkq - 0 1".withDice(1)` → FEN `"rnbqkbnr/... w KQkq - 0 1 P"`
       */
     def withDice(die: Int): FenWithDice =
-      FenWithDice(s"$fen $die")
+      FenWithDice(s"$fen ${dieLetter(die)}")
 
     @scala.annotation.targetName("withDicePiece")
     def withDice(die: PieceType): FenWithDice =
-      FenWithDice(s"$fen ${die.diceValue}")
+      FenWithDice(s"$fen ${dieLetter(die.diceValue)}")
 
     // 2-dice roll
     def withDice(dice: (Int, Int)): FenWithDice =
-      FenWithDice(s"$fen ${dice._1}${dice._2}")
+      FenWithDice(s"$fen ${dieLetter(dice._1)}${dieLetter(dice._2)}")
 
     @scala.annotation.targetName("withDicePiece2")
     def withDice(dice: (PieceType, PieceType)): FenWithDice =
-      FenWithDice(s"$fen ${dice._1.diceValue}${dice._2.diceValue}")
+      FenWithDice(s"$fen ${dieLetter(dice._1.diceValue)}${dieLetter(dice._2.diceValue)}")
 
     // 3-dice roll
     def withDice(dice: (Int, Int, Int)): FenWithDice =
-      FenWithDice(s"$fen ${dice._1}${dice._2}${dice._3}")
+      FenWithDice(s"$fen ${dieLetter(dice._1)}${dieLetter(dice._2)}${dieLetter(dice._3)}")
 
     @scala.annotation.targetName("withDicePiece3")
     def withDice(dice: (PieceType, PieceType, PieceType)): FenWithDice =
-      FenWithDice(s"$fen ${dice._1.diceValue}${dice._2.diceValue}${dice._3.diceValue}")
+      FenWithDice(
+        s"$fen ${dieLetter(dice._1.diceValue)}${dieLetter(dice._2.diceValue)}${dieLetter(dice._3.diceValue)}"
+      )
 
-    // General string dice representation (e.g. "P", "PN", "brk")
+    // General string dice representation, already in piece-letter form (e.g. "P", "PN", "brk")
     @scala.annotation.targetName("withDiceString")
     def withDice(diceStr: String): FenWithDice =
       FenWithDice(s"$fen $diceStr")
 
     // General list fallback
     def withDice(diceList: List[Int]): FenWithDice =
-      FenWithDice(s"$fen ${diceList.mkString}")
+      FenWithDice(s"$fen ${diceList.map(dieLetter).mkString}")
 
     /** Assigns a title when the FEN already includes the dice pool in its 7th field. */
     def titled(title: String): FenWithDiceAndTitle =

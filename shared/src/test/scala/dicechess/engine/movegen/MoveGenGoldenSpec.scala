@@ -30,6 +30,10 @@ class MoveGenGoldenSpec extends FunSuite:
           case Right(s)  => s
           case Left(err) => fail(s"Failed to parse FEN '${tc.fen}': $err")
 
+        // A fixture whose 7th FEN field went missing still parses — as an empty dice pool, which generates no
+        // moves. The one scenario that legitimately expects no moves would then pass for the wrong reason.
+        assert(state.dicePool.nonEmpty, s"Fixture FEN carries no dice pool: '${tc.fen}'")
+
         val actualMoves = filterMoves(state)
 
         import ChessDsl.toNotation
