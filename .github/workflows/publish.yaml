@@ -77,9 +77,11 @@ jobs:
             exit 1
           fi
 
-          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-          echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
-          echo "sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=$RELEASE_TAG"
+            echo "version=${RELEASE_TAG#v}"
+            echo "sha=$RELEASE_SHA"
+          } >> "$GITHUB_OUTPUT"
           echo "Publishing $RELEASE_TAG at $RELEASE_SHA"
 
       - name: Checkout repository
@@ -151,14 +153,18 @@ jobs:
               echo "::error::Manifest SHA-512 is not 128 lowercase hexadecimal characters"
               exit 1
             fi
-            echo "reuse=true" >> "$GITHUB_OUTPUT"
-            echo "source_run_id=$REQUESTED_RUN_ID" >> "$GITHUB_OUTPUT"
-            echo "name=$REQUESTED_ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
-            echo "manifest_sha512=$REQUESTED_MANIFEST_SHA512" >> "$GITHUB_OUTPUT"
+            {
+              echo "reuse=true"
+              echo "source_run_id=$REQUESTED_RUN_ID"
+              echo "name=$REQUESTED_ARTIFACT_NAME"
+              echo "manifest_sha512=$REQUESTED_MANIFEST_SHA512"
+            } >> "$GITHUB_OUTPUT"
           else
-            echo "reuse=false" >> "$GITHUB_OUTPUT"
-            echo "source_run_id=$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
-            echo "name=npm-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+            {
+              echo "reuse=false"
+              echo "source_run_id=$GITHUB_RUN_ID"
+              echo "name=npm-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            } >> "$GITHUB_OUTPUT"
           fi
           echo "path=$RUNNER_TEMP/npm-release" >> "$GITHUB_OUTPUT"
 

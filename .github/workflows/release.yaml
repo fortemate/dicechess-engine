@@ -98,7 +98,7 @@ jobs:
         run: |
           # Get the latest tag, or set to v0.0.0 if no tags exist
           latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          echo "latest_tag=$latest_tag" >> $GITHUB_OUTPUT
+          echo "latest_tag=$latest_tag" >> "$GITHUB_OUTPUT"
 
       - name: Bump version
         id: bump_version
@@ -292,9 +292,11 @@ jobs:
             "$RELEASE_SHA"
           bash .mise/tasks/package/verify --bundle "$BUNDLE_DIRECTORY"
           MANIFEST_SHA512=$(sha512sum "$BUNDLE_DIRECTORY/manifest.json" | awk '{print $1}')
-          echo "name=$BUNDLE_NAME" >> "$GITHUB_OUTPUT"
-          echo "path=$BUNDLE_DIRECTORY" >> "$GITHUB_OUTPUT"
-          echo "manifest_sha512=$MANIFEST_SHA512" >> "$GITHUB_OUTPUT"
+          {
+            echo "name=$BUNDLE_NAME"
+            echo "path=$BUNDLE_DIRECTORY"
+            echo "manifest_sha512=$MANIFEST_SHA512"
+          } >> "$GITHUB_OUTPUT"
           {
             echo "### Immutable npm release bundle"
             echo
