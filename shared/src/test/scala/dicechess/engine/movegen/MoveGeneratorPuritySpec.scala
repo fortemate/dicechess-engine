@@ -203,7 +203,7 @@ class MoveGeneratorPuritySpec extends ScalaCheckSuite:
       val st = state.withDicePool(dice)
 
       val zobristBefore   = st.zobristHash
-      val mailboxBefore   = st.mailbox
+      val mailboxBefore   = st.mailbox.toArray.toList
       val flagsBefore     = st.flags
       val enPassantBefore = st.enPassant
       val whiteBefore     = st.whitePieces
@@ -218,7 +218,7 @@ class MoveGeneratorPuritySpec extends ScalaCheckSuite:
 
       // Assert complete state immutability
       assertEquals(st.zobristHash, zobristBefore, "zobristHash must remain unchanged after move generation")
-      assertEquals(st.mailbox, mailboxBefore, "mailbox must remain unchanged after move generation")
+      assertEquals(st.mailbox.toArray.toList, mailboxBefore, "mailbox must remain unchanged after move generation")
       assertEquals(st.flags, flagsBefore, "flags must remain unchanged after move generation")
       assertEquals(st.enPassant, enPassantBefore, "enPassant must remain unchanged after move generation")
       assertEquals(st.whitePieces, whiteBefore, "whitePieces must remain unchanged after move generation")
