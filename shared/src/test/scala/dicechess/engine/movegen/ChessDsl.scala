@@ -21,7 +21,7 @@ case class MoveGenTestCase(
     expectedMoves: List[String],
     title: Option[String] = None,
     description: Option[String] = None
-)
+) derives CanEqual
 
 /** Custom DSL and utilities for writing elegant and compact move generator tests.
   */
@@ -60,9 +60,26 @@ object ChessDsl:
     def withDice(dice: (PieceType, PieceType, PieceType)): FenWithDice =
       FenWithDice(s"$fen ${dice._1.diceValue}${dice._2.diceValue}${dice._3.diceValue}")
 
+    // General string dice representation (e.g. "P", "PN", "brk")
+    @scala.annotation.targetName("withDiceString")
+    def withDice(diceStr: String): FenWithDice =
+      FenWithDice(s"$fen $diceStr")
+
     // General list fallback
     def withDice(diceList: List[Int]): FenWithDice =
       FenWithDice(s"$fen ${diceList.mkString}")
+
+    /** Assigns a title when the FEN already includes the dice pool in its 7th field. */
+    def titled(title: String): FenWithDiceAndTitle =
+      FenWithDiceAndTitle(fen, title)
+
+    /** Assigns a description when the FEN already includes the dice pool in its 7th field. */
+    def describedAs(desc: String): FenWithDiceAndDesc =
+      FenWithDiceAndDesc(fen, desc)
+
+    /** Directly specifies expected moves when the FEN already includes the dice pool in its 7th field. */
+    def shouldYield(moves: String*): MoveGenTestCase =
+      MoveGenTestCase(fen, moves.toList, None, None)
 
   /** Intermediate builder that holds an FEN string (with dice in the 7th field) before the expected moves are given. */
   case class FenWithDice(fen: String):
@@ -93,6 +110,11 @@ object ChessDsl:
       MoveGenTestCase(fen, moves.toList, Some(title), None)
 
   case class FenWithDiceAndDesc(fen: String, desc: String):
+    /** Assigns a title to this test case.
+      */
+    def titled(title: String): FenWithDiceAndTitleAndDesc =
+      FenWithDiceAndTitleAndDesc(fen, title, desc)
+
     /** Specifies the expected legal moves that the generator should produce.
       */
     def shouldYield(moves: String*): MoveGenTestCase =
