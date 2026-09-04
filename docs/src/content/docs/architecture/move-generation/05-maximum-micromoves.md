@@ -25,7 +25,7 @@ graph TD
     E --> F
     F --> G[Recursively calculate max sequence length for remaining dice]
     G --> H[Determine global maximum sequence length L*]
-    H --> I[Filter moves: Only keep moves that achieve L* or capture the King]
+    H --> I[Filter moves: Only keep moves that achieve L* or lead to a King capture]
 ```
 
 ---
@@ -283,9 +283,9 @@ function filterMaximalMoves(state: GameState, dice: List[Int]): List[Move] = {
     }
   }
   
-  // Step 4: Filter moves that achieve the maximum sequence length (or are king captures)
+  // Step 4: Filter moves that achieve the maximum sequence length (or lead to a King capture)
   val legalMoves = firstMoves.filter { m =>
-    isKingCapture(state, m) || (moveLengths(m) == maxSequenceLength && moveLengths(m) > 0)
+    hasKingCaptureContinuation(state, m) || (moveLengths(m) == maxSequenceLength && moveLengths(m) > 0)
   }
   
   return legalMoves
