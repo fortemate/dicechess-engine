@@ -120,6 +120,7 @@ jobs:
 
       - name: Verify npm supports Trusted Publishing
         run: |
+          # shellcheck disable=SC2016 # JavaScript template literal, not a shell expansion.
           node -e '
             const [major, minor, patch] = process.argv[1].split(".").map(Number);
             if (major < 11 || (major === 11 && (minor < 5 || (minor === 5 && patch < 1)))) {
@@ -147,7 +148,7 @@ jobs:
         run: bash .mise/tasks/package/verify --bundle "$RUNNER_TEMP/npm-release"
 
       - name: Configure GitHub Packages read authentication
-        run: npm config set //npm.pkg.github.com/:_authToken '${NODE_AUTH_TOKEN}' --location=user
+        run: npm config set //npm.pkg.github.com/:_authToken "$NODE_AUTH_TOKEN" --location=user
 
       - name: Verify GitHub Packages mirror digests before canonical publication
         run: bash .mise/lib/publish-npm-release-bundle.sh "$RUNNER_TEMP/npm-release" https://npm.pkg.github.com --verify-only

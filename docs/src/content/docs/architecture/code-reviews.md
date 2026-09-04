@@ -3,7 +3,7 @@ title: Automated Code Reviews
 description: How CodeRabbit is configured to provide domain-aware, automated PR reviews for the Dice Chess Engine.
 ---
 
-The Dice Chess Engine uses [CodeRabbit](https://coderabbit.ai) for automated pull request reviews. CodeRabbit analyzes every PR against `main` and provides inline feedback on correctness, performance, and style — with domain-specific awareness of our chess engine architecture.
+The Dice Chess Engine uses [CodeRabbit](https://coderabbit.ai) for on-demand automated pull request reviews. When requested, CodeRabbit provides inline feedback on correctness, performance, and style with domain-specific awareness of the engine architecture.
 
 ---
 
@@ -17,7 +17,7 @@ graph LR
         A["pre-commit hooks<br/>(betterleaks + scalafmt + actionlint)"] --> B["mise run check<br/>(full gate, before PR)"]
     end
     subgraph CI
-        C["sbt scalafmt + scalafix + MUnit"] --> D["SonarCloud"]
+        C["ShellCheck + actionlint<br/>sbt scalafmt + MUnit"] --> D["SonarCloud"]
         C --> E["CodeRabbit"]
     end
     B -.->|same checks| C
@@ -30,6 +30,7 @@ Hooks are managed by [lefthook](https://github.com/evilmartians/lefthook) (`left
 | Pre-commit | `betterleaks` | Intercept leaked secrets before they reach Git history |
 | Pre-commit | `scalafmt` | Format check on staged `.scala`/`.sbt` files |
 | Pre-commit | `actionlint` | Lint staged GitHub Actions workflow files |
+| CI | `ShellCheck` + `actionlint` | Check repository shell scripts and shell embedded in GitHub Actions workflows |
 | CI | `scalafmt` | Enforce consistent Scala code formatting |
 | CI | `scalafix` | Enforce strict syntax rules (ban null, throw, return) |
 | CI | `MUnit` + `scoverage` | Unit tests with coverage reporting (>85%) |

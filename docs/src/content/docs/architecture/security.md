@@ -14,10 +14,12 @@ Our codebase is continuously monitored using industry-standard static analysis a
 | Layer | Tool / Service | Security Focus |
 | :--- | :--- | :--- |
 | **Local Pre-commit** | `betterleaks` | Prevents API keys, credentials, and secrets from entering git history. |
-| **CI Static Analysis** | **CodeQL** | Analyzes the codebase for security flaws, syntax bugs, and common vulnerability patterns (SQL injections, path traversals). |
+| **CI Workflow Analysis** | `actionlint` + **ShellCheck** | Validates workflow structure and checks embedded shell plus repository release/build scripts. |
+| **CI Static Analysis** | **CodeQL** | Analyzes GitHub Actions and JavaScript/TypeScript sources. Scala is outside CodeQL's supported languages. |
 | **CI Secret Scan** | `betterleaks` (via CodeRabbit) | Double-checks all PR changes for secrets before merging to `main`. |
 | **Vulnerability Scanning** | **SonarCloud** | Automatically flags code smells, logic errors, and security issues. |
-| **Dependency Audits** | **Dependabot** | Regularly monitors and generates automated PRs for sbt (libraries, plugins, sbt version), NPM, GitHub Actions, and pre-commit dependencies. See [Dependency Updates](/dicechess-engine/architecture/dependency-updates/). |
+| **Dependency Graph** | Sbt Dependency Submission | Submits the resolved Scala/JVM graph so GitHub can monitor transitive dependencies that are not statically visible in `build.sbt`. |
+| **Dependency Audits** | **Dependabot** + Dependency Review | Opens version/security updates and blocks known high or critical dependency vulnerabilities in PR dependency changes GitHub can derive safely. See [Dependency Updates](/dicechess-engine/architecture/dependency-updates/). |
 | **Push Protection** | GitHub Secret Scanning | Rejects push events containing detected credentials. |
 
 ---
