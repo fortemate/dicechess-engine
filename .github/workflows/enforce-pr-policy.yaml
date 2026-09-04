@@ -19,7 +19,7 @@ name: "CI: PR Policy"
 
 on:
   pull_request:
-    types: [opened, edited, synchronize]
+    types: [opened, edited, reopened, synchronize]
 
 permissions:
   contents: read
