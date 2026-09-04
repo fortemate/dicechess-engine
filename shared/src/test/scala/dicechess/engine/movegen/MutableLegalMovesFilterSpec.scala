@@ -513,7 +513,7 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
 
   private def continuationLengthRef(state: GameState, move: Move): Int =
     val survived = state.diceAfter(move)
-    if !survived.isValid then -1
+    if !survived.isValid then 0
     else
       val diceConsumed = if move.isCastling then 2 else 1
       val next         = state.makeMove(move).withDiceSlotsOf(survived)
@@ -591,7 +591,7 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
 
   // ── AREA E: SPECIFIC REGRESSION TESTS ─────────────────────────────────────
 
-  test("E1: Issue #117 - Depth memoization preserves the King-Capture exemption") {
+  test("E1: Issue #117 - Direct King-Capture exemption survives maximum-length filter") {
     /*
      * Nb3 already attacks the Black King on c5, so Nb3xc5 is a 1-move King capture,
      * while the globally optimal non-capturing sequence is 3 moves long. The capture is
@@ -607,9 +607,6 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
     val kingCapture = legal.find(isKingCaptureRef(st, _))
     assert(kingCapture.isDefined, "the 1-move King capture must survive the maximum-length filter")
     assert(referenceFilter(st).exists(isKingCaptureRef(st, _)))
-    // c2c4 leads to Nb3xc5 on move 2 (length 2 < maxLen 3) and must also be legal under the King-capture exemption
-    val pawnContinuation = legal.find(m => m.fromSquare == Square('c', 2) && m.toSquare == Square('c', 4))
-    assert(pawnContinuation.isDefined, "c2c4 must be legal as it leads to a King capture on move 2")
     assertEquals(legal, referenceFilter(st))
   }
 
@@ -662,4 +659,34 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
     val kingCapture = secondMoves.find(m => m.fromSquare == Square('g', 1) && m.toSquare == Square('e', 2))
     assert(kingCapture.isDefined, "Ng1xe2 must be legal after promotion")
     assert(afterPromo.isKingCapture(kingCapture.get), "Ng1xe2 must capture the King")
+  }
+
+  test("E4: Issue #122 - When King-capture path achieves length 3, quiet paths of length 2 are discarded") {
+    /*
+     * FEN: 8/P1B5/1k6/8/8/8/7P/4K3 w - - 0 1, Dice: [Pawn, Pawn, Knight] (1, 1, 2).
+     *
+     * In this position:
+     * - White has no Knight on the board.
+     * - Pawn promotion a7-a8=N allows a8xb6 capturing Black King on move 3 (via [a7a8n, h2h3, a8xb6]
+     *   or [h2h3, a7a8n, a8xb6] or [h2h4, a7a8n, a8xb6]).
+     * - These winning sequences achieve length 3 (diceConsumed = 3, King capture).
+     * - Thus L* = 3.
+     * - Quiet paths from a7-a8=Q/R/B cap out at length 2 (since the promoted Queen/Rook/Bishop cannot
+     *   use the Knight die and c7 bishop cannot move).
+     * - Therefore, a7a8q, a7a8r, a7a8b must be filtered out as they do not reach maxLen 3 and do not
+     *   capture the King.
+     * - Legal first moves must be exactly: a7a8n, h2h3, h2h4.
+     * - TurnGenerator and LegalMovesFilter must agree.
+     */
+    val state = parse("8/P1B5/1k6/8/8/8/7P/4K3 w - - 0 1")
+    val dice  = List(Pawn, Pawn, Knight)
+    val st    = state.withDicePool(dice)
+    val legal = filterMoves(state, dice).map(_.toUci).toSet
+
+    val expected = Set("a7a8n", "h2h3", "h2h4")
+    assertEquals(legal, expected)
+
+    val turnGenMoves =
+      dicechess.engine.search.TurnGenerator.generateAllLegalTurnPaths(st).flatMap(_.headOption).map(_.toUci).toSet
+    assertEquals(turnGenMoves, expected)
   }

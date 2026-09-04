@@ -130,6 +130,8 @@ object TurnGenerator:
       normalCount += 1
 
     def addKingCapture(p: Long): Unit =
+      val dice = ((p >>> 56) & 0xffL).toInt
+      if dice > maxDice then maxDice = dice
       if kingCaptureCount >= kingCaptures.length then
         val next = new Array[Long](kingCaptures.length * 2)
         System.arraycopy(kingCaptures, 0, next, 0, kingCaptures.length)

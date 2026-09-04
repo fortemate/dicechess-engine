@@ -215,6 +215,41 @@ function canContinueAfterMove(state: GameState, remainingDice: List[Int], target
 }
 ```
 
+### Helper: `hasKingCaptureContinuation`
+
+Recursively checks if playing `move` immediately captures the opponent's King or enables any continuation sequence using the remaining dice that leads to capturing the opponent's King.
+
+```scala
+function hasKingCaptureContinuation(state: GameState, move: Move, remainingDice: List[Int]): Boolean = {
+  if (isKingCapture(state, move)) {
+    return true
+  }
+
+  val nextDice = if (move.isCastling) {
+    if (remainingDice.contains(6) && remainingDice.contains(4)) {
+      remainingDice.removeFirstOccurrence(6).removeFirstOccurrence(4)
+    } else {
+      return false
+    }
+  } else {
+    val d = getDieForMove(state, move, remainingDice)
+    remainingDice.removeFirstOccurrence(d)
+  }
+
+  val nextState = state.makeMove(move).copy(activeColor = state.activeColor)
+  for (die <- nextDice.distinct) {
+    val nextMoves = MoveGenerator.generateMoves(nextState, die)
+    for (m <- nextMoves) {
+      if (hasKingCaptureContinuation(nextState, m, nextDice)) {
+        return true
+      }
+    }
+  }
+
+  return false
+}
+```
+
 ### Main Filter: `filterMaximalMoves`
 
 Determines the maximum achievable turn length and filters the initial set of moves.
@@ -228,10 +263,7 @@ function filterMaximalMoves(state: GameState, dice: List[Int]): List[Move] = {
   // Step 1: Generate all possible first moves across all available dice
   val firstMoves = dice.distinct.flatMap(d => MoveGenerator.generateMoves(state, d))
   
-  // Step 2: Identify any immediate king captures (instantly legal)
-  val kingCaptures = firstMoves.filter(m => isKingCapture(state, m))
-  
-  // Step 3: Determine the maximum possible sequence length for all paths
+  // Step 2: Determine the maximum possible sequence length for all paths
   var maxSequenceLength = 0
   val moveLengths = Map[Move, Int]()
   
@@ -283,9 +315,9 @@ function filterMaximalMoves(state: GameState, dice: List[Int]): List[Move] = {
     }
   }
   
-  // Step 4: Filter moves that achieve the maximum sequence length (or lead to a King capture)
+  // Step 3: Filter moves that achieve the maximum sequence length or lead to a King capture
   val legalMoves = firstMoves.filter { m =>
-    hasKingCaptureContinuation(state, m) || (moveLengths(m) == maxSequenceLength && moveLengths(m) > 0)
+    hasKingCaptureContinuation(state, m, dice) || (moveLengths(m) == maxSequenceLength && moveLengths(m) > 0)
   }
   
   return legalMoves

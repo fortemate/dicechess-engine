@@ -40,11 +40,11 @@ object LegalMovesFilter:
   /** Computes the sequence length reachable by playing `move` from `state` when `move` is not a direct King-Capture.
     *
     * Assumes `move` is a pseudo-legal move generated from `state`, so the mover's die is present in the dice pool.
-    * Returns `-1` if `move` is castling but the required dice (King and Rook) are not both available in the dice pool.
+    * Returns `0` if `move` is castling but the required dice (King and Rook) are not both available in the dice pool.
     */
   private def continuationLength(state: GameState, move: Move): Int =
     val survived = state.diceAfter(move)
-    if !survived.isValid then -1
+    if !survived.isValid then 0
     else
       val diceConsumed = if move.isCastling then 2 else 1
       val next         = state.makeMove(move).withDiceSlotsOf(survived)
@@ -77,10 +77,9 @@ object LegalMovesFilter:
 
       for move <- MoveGenerator.generateMoves(state) do
         val depth = rootDepth(state, move)
-        if depth >= 0 then
-          val d = depth & DepthMask
-          if d > bestDepth then bestDepth = d
-          if (depth & KingCaptureMask) != 0 then anyKingCapture = true
+        val d     = depth & DepthMask
+        if d > bestDepth then bestDepth = d
+        if (depth & KingCaptureMask) != 0 then anyKingCapture = true
 
       bestDepth | (if anyKingCapture then KingCaptureMask else 0)
 
@@ -119,9 +118,8 @@ object LegalMovesFilter:
           val move  = cur.head
           val depth = rootDepth(state, move)
           depths(i) = depth
-          if depth >= 0 then
-            val d = depth & DepthMask
-            if d > maxLen then maxLen = d
+          val d = depth & DepthMask
+          if d > maxLen then maxLen = d
           i += 1
           cur = cur.tail
 
@@ -137,7 +135,7 @@ object LegalMovesFilter:
           while cur.nonEmpty do
             val move  = cur.head
             val depth = depths(i)
-            if depth >= 0 && (((depth & KingCaptureMask) != 0) || (depth & DepthMask) == maxLen) then result += move
+            if ((depth & KingCaptureMask) != 0) || (depth & DepthMask) == maxLen then result += move
             i += 1
             cur = cur.tail
 
