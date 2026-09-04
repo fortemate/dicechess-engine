@@ -625,6 +625,20 @@ object MoveGenFixtures:
         "a7a8b",
         "a7a8q",
         "a7a8r"
+      ),
+    "8/8/8/2k5/8/1N6/2P5/K7 w - - 0 1 PPN"
+      .titled("King-capture continuation with three dice")
+      .describedAs(
+        "Multi-move King capture path is legal under the King-capture exemption even when quiet paths of length 3 exist (c2-c4 enables Nb3xc5 on micro-move 2)."
+      )
+      .shouldYield(
+        "b3a5",
+        "b3c1",
+        "b3c5",
+        "b3d2",
+        "b3d4",
+        "c2c3",
+        "c2c4"
       )
   )
 
