@@ -55,6 +55,9 @@ class EvaluatorSymmetrySpec extends ScalaCheckSuite:
       fullMoveNumber = fullMoveNumber
     )
 
+  private def parseFen(fen: String): GameState =
+    FenParser.parse(fen).fold(e => fail(s"bad FEN '$fen': $e"), identity)
+
   private val colorGen: Gen[Color]                = Gen.oneOf(Color.White, Color.Black)
   private val nonKingPieceTypeGen: Gen[PieceType] = Gen.oneOf(
     PieceType.Pawn,
@@ -136,4 +139,88 @@ class EvaluatorSymmetrySpec extends ScalaCheckSuite:
         Evaluator.evaluateAggressive(Symmetry.horizontalMirror(state), color)
       )
     }
+  }
+
+  // --- Explicit Edge-Case Fixtures: Empty Board, Full Board, Pinned Pieces ---
+
+  test("Evaluator symmetry on empty board") {
+    val emptyState = buildState(Nil, Color.White, 0, 0, 1)
+    assertEquals(
+      Evaluator.evaluate(emptyState, Color.White),
+      Evaluator.evaluate(Symmetry.colorFlip(emptyState), Color.Black)
+    )
+    assertEquals(
+      Evaluator.evaluateAggressive(emptyState, Color.White),
+      Evaluator.evaluateAggressive(Symmetry.colorFlip(emptyState), Color.Black)
+    )
+    assertEquals(
+      Evaluator.evaluate(emptyState, Color.White),
+      Evaluator.evaluate(Symmetry.horizontalMirror(emptyState), Color.White)
+    )
+    assertEquals(
+      Evaluator.evaluateAggressive(emptyState, Color.White),
+      Evaluator.evaluateAggressive(Symmetry.horizontalMirror(emptyState), Color.White)
+    )
+  }
+
+  test("Evaluator symmetry on full board (initial position)") {
+    val fullState           = parseFen(FenParser.InitialPosition)
+    val fullStateNoCastling = fullState.copy(flags = fullState.flags.withCastlingRights(0))
+
+    assertEquals(
+      Evaluator.evaluate(fullState, Color.White),
+      Evaluator.evaluate(Symmetry.colorFlip(fullState), Color.Black)
+    )
+    assertEquals(
+      Evaluator.evaluateAggressive(fullState, Color.White),
+      Evaluator.evaluateAggressive(Symmetry.colorFlip(fullState), Color.Black)
+    )
+    assertEquals(
+      Evaluator.evaluate(fullStateNoCastling, Color.White),
+      Evaluator.evaluate(Symmetry.horizontalMirror(fullStateNoCastling), Color.White)
+    )
+    assertEquals(
+      Evaluator.evaluateAggressive(fullStateNoCastling, Color.White),
+      Evaluator.evaluateAggressive(Symmetry.horizontalMirror(fullStateNoCastling), Color.White)
+    )
+  }
+
+  test("Evaluator symmetry on pinned piece positions") {
+    // Position with a absolute pin along vertical e-file (White Rook on e2 pinned by Black Rook on e8)
+    val pinnedVertical = parseFen("4r3/8/8/8/8/8/4R3/4K3 w - - 0 1")
+    assertEquals(
+      Evaluator.evaluate(pinnedVertical, Color.White),
+      Evaluator.evaluate(Symmetry.colorFlip(pinnedVertical), Color.Black)
+    )
+    assertEquals(
+      Evaluator.evaluateAggressive(pinnedVertical, Color.White),
+      Evaluator.evaluateAggressive(Symmetry.colorFlip(pinnedVertical), Color.Black)
+    )
+    assertEquals(
+      Evaluator.evaluate(pinnedVertical, Color.White),
+      Evaluator.evaluate(Symmetry.horizontalMirror(pinnedVertical), Color.White)
+    )
+    assertEquals(
+      Evaluator.evaluateAggressive(pinnedVertical, Color.White),
+      Evaluator.evaluateAggressive(Symmetry.horizontalMirror(pinnedVertical), Color.White)
+    )
+
+    // Position with a diagonal pin (White Pawn d2 pinned to White King e1 by Black Bishop c3)
+    val pinnedDiagonal = parseFen("8/8/8/8/8/2b5/3P4/4K3 w - - 0 1")
+    assertEquals(
+      Evaluator.evaluate(pinnedDiagonal, Color.White),
+      Evaluator.evaluate(Symmetry.colorFlip(pinnedDiagonal), Color.Black)
+    )
+    assertEquals(
+      Evaluator.evaluateAggressive(pinnedDiagonal, Color.White),
+      Evaluator.evaluateAggressive(Symmetry.colorFlip(pinnedDiagonal), Color.Black)
+    )
+    assertEquals(
+      Evaluator.evaluate(pinnedDiagonal, Color.White),
+      Evaluator.evaluate(Symmetry.horizontalMirror(pinnedDiagonal), Color.White)
+    )
+    assertEquals(
+      Evaluator.evaluateAggressive(pinnedDiagonal, Color.White),
+      Evaluator.evaluateAggressive(Symmetry.horizontalMirror(pinnedDiagonal), Color.White)
+    )
   }
