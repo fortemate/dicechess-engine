@@ -1,5 +1,22 @@
 name: "CI: PR Policy"
 
+# Advisory, never blocking.
+#
+# This workflow used to fail a pull request whose branch name did not match a fixed
+# pattern. Every failure it ever produced across the organization was a false positive:
+# a dot in a version number (`chore/bump-dicechess-engine-0.7.2-…`), an uppercase word
+# in a release branch (`chore/bump-to-0.6.1-SNAPSHOT`), a branch type the project uses
+# but the pattern did not list (`bench/…`), a `fix/` prefix that AGENTS.md documents as
+# accepted but the pattern rejected, or a missing `Closes #n` that this workflow can add
+# by itself. It never caught a real defect, and since the default branch is not
+# protected it never blocked a merge either — it only produced red.
+#
+# A required-looking check that fails on cosmetics trains everyone to ignore red, which
+# devalues the checks that do catch real problems. So the branch convention is now
+# reported as a notice, and the one behaviour with a downstream effect is kept: writing
+# the closing directive into the body, which is what actually closes the issue on merge
+# and moves the card on the project board.
+
 on:
   pull_request:
     types: [opened, edited, synchronize]
@@ -9,62 +26,58 @@ permissions:
 
 jobs:
   check-pr:
+    name: PR policy
     runs-on: ubuntu-latest
-    # write needed for github.rest.pulls.update (auto-linking issues)
     permissions:
       contents: read
+      # write is needed for github.rest.pulls.update (auto-linking the issue)
       pull-requests: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Validate branch name and linked issue
+      - name: Link the branch's issue and note convention drift
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const actor = context.payload.pull_request.user.login;
             if (actor === 'dependabot[bot]' || actor === 'github-actions[bot]') {
-              console.log(`Skipping validation for automated PR by ${actor}.`);
+              console.log(`Nothing to do for an automated pull request by ${actor}.`);
               return;
             }
+
             const headRef = context.payload.pull_request.head.ref;
             const body = context.payload.pull_request.body || "";
-            // Allowed branch prefixes: task|feat|feature|bug|refactor|chore|docs|ci|test|perf
-            const pattern = /^(task|feat(ure)?|bug|refactor|chore|docs|ci|test|perf)\/((issue-)?([1-9]\d*)-)?[a-z0-9-]+$/;
-            const issuePattern = /(Closes|Resolves|Fixes)\s+#[1-9]\d*/i;
+
+            const conventionPattern = /^(task|feat(ure)?|fix|bug|refactor|chore|docs|ci|test|perf)\/((issue-)?[1-9]\d*-)?[a-z0-9-]+$/;
+            const closingPattern = /(Closes|Resolves|Fixes)\s+#[1-9]\d*/i;
             const templatePlaceholder = /Closes\s+#<issue-number>/;
 
-            const isConventional = pattern.test(headRef);
-            const hasIssueLink = issuePattern.test(body);
-
-            if (!isConventional) {
-              if (!hasIssueLink) {
-                core.setFailed(`Branch "${headRef}" does not follow the convention <type>/<short-desc> (or <type>/<id>-<short-desc>) and has no closing issue link. Tool-managed branches must include "Closes #<n>", "Fixes #<n>", or "Resolves #<n>" in the PR body.`);
-                return;
-              }
-              console.log('Tool-managed branch accepted with closing issue link.');
-              return;
+            if (!conventionPattern.test(headRef)) {
+              core.notice(`Branch "${headRef}" does not follow <type>/<short-desc>. That is fine — this is a note, not a failure. Tool-managed and release-automation branches routinely land here.`);
             }
 
             const issueIdMatch = headRef.match(/^[a-z]+\/(issue-)?([1-9]\d*)-/);
-            const hasIssueId = issueIdMatch !== null;
-            if (hasIssueId && !hasIssueLink) {
-              const issueNumber = issueIdMatch[2];
-              const directive = `Closes #${issueNumber}`;
-              let updatedBody;
-              if (templatePlaceholder.test(body)) {
-                updatedBody = body.replace(templatePlaceholder, directive);
-              } else {
-                updatedBody = body.trimEnd() + `\n\n${directive}`;
-              }
-              try {
-                await github.rest.pulls.update({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  pull_number: context.payload.pull_request.number,
-                  body: updatedBody,
-                });
-                core.notice(`Auto-linked issue: added "${directive}" to the PR description.`);
-              } catch (err) {
-                core.warning(`Could not auto-update PR body (${err.status ?? 'unknown'}): ${err.message}. Please add "${directive}" manually.`);
-              }
+            if (!issueIdMatch) {
+              console.log('Branch encodes no issue id; nothing to link.');
+              return;
             }
-            console.log('PR policy OK.');
+
+            if (closingPattern.test(body)) {
+              console.log('The pull request body already closes an issue.');
+              return;
+            }
+
+            const directive = `Closes #${issueIdMatch[2]}`;
+            const updatedBody = templatePlaceholder.test(body)
+              ? body.replace(templatePlaceholder, directive)
+              : `${body.trimEnd()}\n\n${directive}`;
+
+            try {
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                body: updatedBody,
+              });
+              core.notice(`Auto-linked issue: added "${directive}" to the pull request description.`);
+            } catch (err) {
+              core.warning(`Could not update the pull request body (${err.status ?? 'unknown'}): ${err.message}. Add "${directive}" manually if this pull request should close that issue.`);
+            }
