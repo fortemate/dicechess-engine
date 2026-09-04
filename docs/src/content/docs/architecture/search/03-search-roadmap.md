@@ -66,13 +66,22 @@ Traversing a deep expectimax tree scales exponentially. We must implement advanc
 
 ### Stage 3: Parallel Search with Ox Concurrency
 
-To utilize multi-core server processors (such as the 4-core ARM nodes on Oracle Cloud), we will parallelize the evaluation of chance-node subtrees:
+Nothing here is implemented, and the stage is gated rather than scheduled — see
+[#61](https://github.com/fortemate/dicechess-engine/issues/61) for the current scope and its preconditions.
+
+The idea is to parallelize the evaluation of chance-node subtrees on hosts that have spare cores:
 * Use **Java Virtual Threads** (via the `Ox` structured concurrency library) to spawn lightweight concurrent branch evaluations.
 * Ensure thread-safe read operations on transposition tables.
 * Implement structured cancellation to stop running threads immediately when a beta-cutoff is triggered or when search time expires.
 
+Two caveats that earlier revisions of this page got wrong. The stage was originally motivated by 4-core
+ARM nodes on Oracle Cloud; that Always Free shape was withdrawn in June 2026, and no such host runs the
+search today. And it was positioned as the step that makes depth 3 affordable, which Stage 2's depth-3
+gate has since ruled out on magnitude. Whether spare cores convert into completed candidates at all is
+an open measurement, not an assumption.
+
 **Milestone fit**:
-* primarily **v0.6 - Expectimax Search Engine**
+* **v1.0 - Production & Optimization** (moved out of v0.6, which shipped without it)
 
 ### Stage 4: Monte-Carlo Pre-Roll Equity
 
