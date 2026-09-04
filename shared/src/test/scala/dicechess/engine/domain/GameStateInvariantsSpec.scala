@@ -109,7 +109,7 @@ class GameStateInvariantsSpec extends ScalaCheckSuite:
     )
 
   private def assertExactPieceTypePartition(state: GameState): Unit =
-    val sideUnion = state.whitePieces | state.blackPieces
+    val sideUnion      = state.whitePieces | state.blackPieces
     val pieceTypeUnion =
       state.pawns | state.knights | state.bishops | state.rooks | state.queens | state.kings
     assertEquals(
@@ -188,7 +188,7 @@ class GameStateInvariantsSpec extends ScalaCheckSuite:
     }
 
   private def assertDiceConsumption(state: GameState, move: Move, nextState: GameState): Unit =
-    val moverType = state.mailbox(move.fromSquare).pieceType
+    val moverType    = state.mailbox(move.fromSquare).pieceType
     val requiredDice =
       if move.isCastling then List(PieceType.King.diceValue, PieceType.Rook.diceValue)
       else List(moverType.diceValue)
@@ -202,7 +202,9 @@ class GameStateInvariantsSpec extends ScalaCheckSuite:
 
   // --- Properties ---
 
-  property("Disjoint side bitboards — (state.whitePieces & state.blackPieces) == Bitboard.empty holds after every move") {
+  property(
+    "Disjoint side bitboards — (state.whitePieces & state.blackPieces) == Bitboard.empty holds after every move"
+  ) {
     forAll(gameStateWithDiceGen) { (state: GameState) =>
       assertDisjointSideBitboards(state)
 
