@@ -477,6 +477,19 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
       .get(move.toSquare)
       .exists(p => p.pieceType == PieceType.King && p.color != state.activeColor)
 
+  private def hasKingCaptureContinuationRef(state: GameState, move: Move): Boolean =
+    if isKingCaptureRef(state, move) then true
+    else
+      val survived = state.diceAfter(move)
+      if !survived.isValid then false
+      else
+        val next = state.makeMove(move).withDiceSlotsOf(survived)
+        if next.flags.isDicePoolEmpty then false
+        else
+          MoveGenerator.generateMoves(next).exists { nextMove =>
+            hasKingCaptureContinuationRef(next, nextMove)
+          }
+
   private def referenceFilter(state: GameState): List[Move] =
     if state.flags.isDicePoolEmpty then Nil
     else
@@ -494,7 +507,8 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
         else
           val result = List.newBuilder[Move]
           for move <- moves do
-            if isKingCaptureRef(state, move) || continuationLengthRef(state, move) == maxLen then result += move
+            if hasKingCaptureContinuationRef(state, move) || continuationLengthRef(state, move) == maxLen then
+              result += move
           result.result()
 
   private def continuationLengthRef(state: GameState, move: Move): Int =
@@ -526,12 +540,12 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
     }
   }
 
-  property("D2: Maximum sequence length condition is satisfied") {
+  property("D2: Maximum sequence length or King-capture condition is satisfied") {
     forAll(gameStateGen, diceGen) { (state, dice) =>
       val st     = state.withDicePool(dice)
       val maxLen = maxSequenceLengthRef(st)
       LegalMovesFilter.filterMaximalMoves(st).forall { m =>
-        isKingCaptureRef(st, m) || continuationLengthRef(st, m) == maxLen
+        hasKingCaptureContinuationRef(st, m) || continuationLengthRef(st, m) == maxLen
       }
     }
   }
@@ -565,6 +579,16 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
     }
   }
 
+  property("D6: Issue #122 - LegalMovesFilter legal first moves match TurnGenerator legal path prefixes") {
+    forAll(gameStateGen, diceGen) { (state, dice) =>
+      val st           = state.withDicePool(dice)
+      val filterMoves  = LegalMovesFilter.filterMaximalMoves(st).map(_.toUci).toSet
+      val turnGenMoves =
+        dicechess.engine.search.TurnGenerator.generateAllLegalTurnPaths(st).flatMap(_.headOption).map(_.toUci).toSet
+      assertEquals(filterMoves, turnGenMoves)
+    }
+  }
+
   // ── AREA E: SPECIFIC REGRESSION TESTS ─────────────────────────────────────
 
   test("E1: Issue #117 - Depth memoization preserves the King-Capture exemption") {
@@ -583,5 +607,59 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
     val kingCapture = legal.find(isKingCaptureRef(st, _))
     assert(kingCapture.isDefined, "the 1-move King capture must survive the maximum-length filter")
     assert(referenceFilter(st).exists(isKingCaptureRef(st, _)))
+    // c2c4 leads to Nb3xc5 on move 2 (length 2 < maxLen 3) and must also be legal under the King-capture exemption
+    val pawnContinuation = legal.find(m => m.fromSquare == Square('c', 2) && m.toSquare == Square('c', 4))
+    assert(pawnContinuation.isDefined, "c2c4 must be legal as it leads to a King capture on move 2")
     assertEquals(legal, referenceFilter(st))
+  }
+
+  test("E2: Issue #122 - Multi-move King capture path is legal when a longer quiet path exists") {
+    /*
+     * FEN: 8/8/8/2k5/8/1N6/2P5/K7 w - - 0 1, Dice: [Knight, Pawn, Pawn] (2, 1, 1).
+     *
+     * In this position:
+     * - c2-c3 -> c3-c4 -> Nb3 quiet move achieves length 3 (maxLen = 3).
+     * - c2-c4 cannot move pawn further (Black King on c5 blocks c5), but allows Nb3xc5
+     *   to capture the King on micro-move 2.
+     * - Total length of c2-c4 continuation is 2 (< maxLen 3).
+     * - Under the King-Capture exemption, c2-c4 MUST be legal!
+     */
+    val state = parse("8/8/8/2k5/8/1N6/2P5/K7 w - - 0 1")
+    val dice  = List(Knight, Pawn, Pawn)
+    val legal = filterMoves(state, dice)
+
+    val c2c4 = legal.find(m => m.fromSquare == Square('c', 2) && m.toSquare == Square('c', 4))
+    assert(c2c4.isDefined, "c2c4 must be legal because continuation Nb3xc5 captures the King")
+
+    // Verify continuation from c2c4 actually captures the king
+    val afterC2c4   = state.makeMove(c2c4.get).withDicePool(List(Knight, Pawn))
+    val secondMoves = LegalMovesFilter.filterMaximalMoves(afterC2c4)
+    val kingCapture = secondMoves.find(m => m.fromSquare == Square('b', 3) && m.toSquare == Square('c', 5))
+    assert(kingCapture.isDefined, "Nb3xc5 must be legal after c2c4")
+    assert(afterC2c4.isKingCapture(kingCapture.get), "Nb3xc5 must capture the King")
+  }
+
+  test("E3: Issue #122 - Promotion creating a piece that captures King on micro-move 2") {
+    /*
+     * FEN: n1n5/PPPk4/8/8/8/8/4Kppp/5N1N b - - 0 1, Dice: [Queen, Knight, Pawn] (5, 2, 1).
+     *
+     * Black to move:
+     * - g2-g1=N promotes to Knight on g1.
+     * - The new Knight attacks White King on e2.
+     * - On micro-move 2, Ng1xe2 captures the King.
+     * - g2g1n must be legal even if other 3-move paths exist.
+     */
+    val state = parse("n1n5/PPPk4/8/8/8/8/4Kppp/5N1N b - - 0 1")
+    val dice  = List(Queen, Knight, Pawn)
+    val legal = filterMoves(state, dice)
+
+    val g2g1n =
+      legal.find(m => m.fromSquare == Square('g', 2) && m.toSquare == Square('g', 1) && m.flags == Move.KnightPromotion)
+    assert(g2g1n.isDefined, "Promotion g2g1n must be legal because continuation Ng1xe2 captures the King")
+
+    val afterPromo  = state.makeMove(g2g1n.get).withDicePool(List(Queen, Knight))
+    val secondMoves = LegalMovesFilter.filterMaximalMoves(afterPromo)
+    val kingCapture = secondMoves.find(m => m.fromSquare == Square('g', 1) && m.toSquare == Square('e', 2))
+    assert(kingCapture.isDefined, "Ng1xe2 must be legal after promotion")
+    assert(afterPromo.isKingCapture(kingCapture.get), "Ng1xe2 must capture the King")
   }

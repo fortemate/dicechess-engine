@@ -23,14 +23,21 @@ import dicechess.engine.domain.*
   */
 object LegalMovesFilter:
 
+  final private val KingCaptureMask = 0x100
+  final private val DepthMask       = 0xff
+
   // ── Private helpers ──────────────────────────────────────────────────────────
 
-  /** Achievable sequence length for `move` played as a first move from `state`. */
+  /** Achievable sequence length and King-capture status for `move` played as a first move from `state`.
+    *
+    * The lower 8 bits encode the achievable depth (in dice consumed). Bit 8 (`0x100`, [[KingCaptureMask]]) is set if
+    * this move or any continuation from it captures the opponent's King (win condition).
+    */
   private inline def rootDepth(state: GameState, move: Move): Int =
-    if state.isKingCapture(move) then 1
+    if state.isKingCapture(move) then 1 | KingCaptureMask
     else continuationLength(state, move)
 
-  /** Computes the sequence length reachable by playing `move` from `state` when `move` is not a King-Capture.
+  /** Computes the sequence length reachable by playing `move` from `state` when `move` is not a direct King-Capture.
     *
     * Assumes `move` is a pseudo-legal move generated from `state`, so the mover's die is present in the dice pool.
     * Returns `-1` if `move` is castling but the required dice (King and Rook) are not both available in the dice pool.
@@ -41,9 +48,13 @@ object LegalMovesFilter:
     else
       val diceConsumed = if move.isCastling then 2 else 1
       val next         = state.makeMove(move).withDiceSlotsOf(survived)
-      diceConsumed + maxSequenceLength(next)
+      val nextResult   = maxSequenceLength(next)
+      val nextDepth    = nextResult & DepthMask
+      val nextKingCap  = nextResult & KingCaptureMask
+      (diceConsumed + nextDepth) | nextKingCap
 
-  /** Recursively computes the maximum achievable micro-move sequence length from `state`.
+  /** Recursively computes the maximum achievable micro-move sequence length from `state` and whether any branch reaches
+    * a King capture.
     *
     * The search is bounded by the depth of available dice in `state.flags` (at most 3), so it always terminates. The
     * `makeMove` method preserves the active color for micro-moves, meaning no color flipping occurs during the
@@ -56,18 +67,22 @@ object LegalMovesFilter:
     * @param state
     *   the board position and remaining dice pool to evaluate
     * @return
-    *   the maximum number of micro-moves reachable from `state` using its dice pool
+    *   the packed integer: lower 8 bits are maximum sequence length, bit 8 is set if any branch reaches a King capture
     */
   private def maxSequenceLength(state: GameState): Int =
     if state.flags.isDicePoolEmpty then 0
     else
-      var best = 0
+      var bestDepth      = 0
+      var anyKingCapture = false
 
       for move <- MoveGenerator.generateMoves(state) do
         val depth = rootDepth(state, move)
-        if depth > best then best = depth
+        if depth >= 0 then
+          val d = depth & DepthMask
+          if d > bestDepth then bestDepth = d
+          if (depth & KingCaptureMask) != 0 then anyKingCapture = true
 
-      best
+      bestDepth | (if anyKingCapture then KingCaptureMask else 0)
 
   // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -98,13 +113,15 @@ object LegalMovesFilter:
         var i      = 0
         var cur    = moves
 
-        // Pass 1: compute achievable sequence length for each candidate first move and record it.
+        // Pass 1: compute achievable sequence length and King-capture reachability for each candidate first move.
         // This considers ALL branches including King-capture paths without redundant re-traversal.
         while cur.nonEmpty do
           val move  = cur.head
           val depth = rootDepth(state, move)
           depths(i) = depth
-          if depth > maxLen then maxLen = depth
+          if depth >= 0 then
+            val d = depth & DepthMask
+            if d > maxLen then maxLen = d
           i += 1
           cur = cur.tail
 
@@ -112,14 +129,15 @@ object LegalMovesFilter:
         if maxLen == 0 then Nil
         else
           // Pass 2: collect legal first moves under both criteria using recorded depths:
-          //   (a) king-capture paths — always legal
+          //   (a) king-capture paths (immediate or continuation) — always legal
           //   (b) non-king-capture paths that achieve maxLen
           val result = List.newBuilder[Move]
           i = 0
           cur = moves
           while cur.nonEmpty do
-            val move = cur.head
-            if state.isKingCapture(move) || depths(i) == maxLen then result += move
+            val move  = cur.head
+            val depth = depths(i)
+            if depth >= 0 && (((depth & KingCaptureMask) != 0) || (depth & DepthMask) == maxLen) then result += move
             i += 1
             cur = cur.tail
 
