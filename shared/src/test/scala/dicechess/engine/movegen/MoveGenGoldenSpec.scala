@@ -14,6 +14,14 @@ class MoveGenGoldenSpec extends FunSuite:
   private def filterMoves(state: GameState): List[Move] =
     LegalMovesFilter.filterMaximalMoves(state)
 
+  // The suites below register whatever the catalog happens to hold, so a dropped suite or scenario would shrink
+  // the golden net in silence. Pin the shape the 39 expert-vetted cases are expected to arrive in.
+  test("the golden catalog carries every expert-vetted scenario") {
+    assertEquals(MoveGenFixtures.allSuites.map(_._1), List("1-Die Scenarios", "2-Dice Scenarios", "3-Dice Scenarios"))
+    assertEquals(MoveGenFixtures.allSuites.map(_._3.size), List(10, 19, 10))
+    assertEquals(MoveGenFixtures.allSuites.map(_._3.size).sum, 39)
+  }
+
   for (suiteName, _, cases) <- MoveGenFixtures.allSuites do
     for tc <- cases do
       val tcName = (tc.title, tc.description) match

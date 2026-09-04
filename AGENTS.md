@@ -243,7 +243,7 @@ failures cheaply. When in doubt, escalate one tier — reviewer time costs more 
 
 - Docs site: `docs/` (Astro + Starlight, mermaid + KaTeX), deployed together with Scaladoc to GitHub Pages by `deploy-docs.yaml` on pushes to `main` touching `docs/**`, `{shared,jvm,js}/src/main/scala/**`, the movegen fixture sources, the search test-resource fixtures, or the workflow itself. Local dev: `mise run docs:dev`.
 - Update-trigger map:
-  - Changed `MoveGenFixtures.scala` or the KCP JSON fixtures → catalog pages regenerate; preview with `mise run docs:generate:all`.
+  - Changed `MoveGenFixtures.scala`, `ChessDsl.scala` or the KCP JSON fixtures → catalog pages regenerate; preview with `mise run docs:generate:all`.
   - Changed the JS API → update `js/dicechess-engine.d.ts` and the README usage examples.
   - Changed DFEN semantics or turn rules → update the architecture pages under `docs/src/content/docs/architecture/`.
   - Touched Scaladoc → run `sbt rootJVM/doc` locally before pushing.

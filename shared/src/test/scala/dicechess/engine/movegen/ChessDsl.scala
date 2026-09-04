@@ -85,9 +85,10 @@ object ChessDsl:
     def withDice(diceStr: String): FenWithDice =
       FenWithDice(s"$fen $diceStr")
 
-    // General list fallback
+    // General list fallback. An empty pool is `-`, the encoding FenParser round-trips; interpolating the empty
+    // string instead left a trailing space, which `split(" ")` drops back to a six-field FEN.
     def withDice(diceList: List[Int]): FenWithDice =
-      FenWithDice(s"$fen ${diceList.map(dieLetter).mkString}")
+      FenWithDice(s"$fen ${if diceList.isEmpty then "-" else diceList.map(dieLetter).mkString}")
 
     /** Assigns a title when the FEN already includes the dice pool in its 7th field. */
     def titled(title: String): FenWithDiceAndTitle =

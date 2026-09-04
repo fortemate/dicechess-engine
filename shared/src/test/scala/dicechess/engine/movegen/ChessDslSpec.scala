@@ -50,6 +50,12 @@ class ChessDslSpec extends FunSuite:
     assertEquals(dicePoolOf(emptyBoard.withDice("PNB").fen), List(1, 2, 3))
   }
 
+  test("an empty dice list is encoded as the canonical empty pool") {
+    val fen = emptyBoard.withDice(List.empty[Int]).fen
+    assert(fen.endsWith(" -"), s"expected the canonical empty pool, got '$fen'")
+    assertEquals(dicePoolOf(fen), List.empty[Int])
+  }
+
   test("a die outside 1 to 6 is reported by name rather than encoded as some other die") {
     assertEquals(parseErrorOf(emptyBoard.withDice(7).fen), "Invalid dice-pool character '7'")
     assertEquals(parseErrorOf(emptyBoard.withDice(0).fen), "Invalid dice-pool character '0'")

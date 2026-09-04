@@ -106,6 +106,7 @@ Each test case is expert-vetted and contains:
 * `description`: A clear explanation of the expected chess mechanics.
 
 Example entry:
+
 ```scala
 "rnbqkbnr/ppp1pppp/8/3pP3/2B5/5Q2/PPPP1PPP/RNB1K1NR w KQkq d6 0 1 P"
   .titled("En Passant and Path Blockage")
