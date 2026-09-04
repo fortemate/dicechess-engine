@@ -31,30 +31,30 @@ class FenParserRobustnessSpec extends ScalaCheckSuite:
     Gen.asciiStr,
     Gen.alphaNumStr,
     Gen.listOf(Gen.choose(0.toChar, 255.toChar)).map(_.mkString),
-    Gen.listOfN(2000, Gen.asciiChar).map(_.mkString), // Giant ASCII string (~2KB)
+    Gen.listOfN(2000, Gen.asciiChar).map(_.mkString),   // Giant ASCII string (~2KB)
     Gen.listOfN(5000, printableCharGen).map(_.mkString) // Giant string (~5KB)
   )
 
   // Mutator for FEN strings
   private val mutatedFenGen: Gen[String] = for
-    base <- validFenGen
+    base         <- validFenGen
     mutationType <- Gen.choose(0, 5)
-    mutated <- mutationType match
+    mutated      <- mutationType match
       case 0 => // Single character insertion, deletion, or substitution
         for
-          idx <- Gen.choose(0, math.max(0, base.length - 1))
-          c   <- printableCharGen
+          idx    <- Gen.choose(0, math.max(0, base.length - 1))
+          c      <- printableCharGen
           action <- Gen.oneOf("delete", "insert", "substitute")
         yield action match
-          case "delete" if base.nonEmpty => base.patch(idx, "", 1)
-          case "insert"                 => base.patch(idx, c.toString, 0)
+          case "delete" if base.nonEmpty     => base.patch(idx, "", 1)
+          case "insert"                      => base.patch(idx, c.toString, 0)
           case "substitute" if base.nonEmpty => base.patch(idx, c.toString, 1)
-          case _                        => base
+          case _                             => base
 
       case 1 => // Drop or append fields
         val parts = base.split(" ").toList
         for
-          action <- Gen.oneOf("drop", "append", "duplicate")
+          action    <- Gen.oneOf("drop", "append", "duplicate")
           dropCount <- if parts.length > 1 then Gen.choose(1, parts.length - 1) else Gen.const(1)
         yield action match
           case "drop" if parts.length > 1 =>
@@ -96,8 +96,7 @@ class FenParserRobustnessSpec extends ScalaCheckSuite:
           for pool <- Gen.oneOf("PPPP", "xyz", "123", "pnbq", "PPPN") yield
             parts(6) = pool
             parts.mkString(" ")
-        else if parts.length == 6 then
-          Gen.const((parts :+ "PPPP").mkString(" "))
+        else if parts.length == 6 then Gen.const((parts :+ "PPPP").mkString(" "))
         else Gen.const(base)
 
       case _ => // Random character swapping
@@ -139,7 +138,7 @@ class FenParserRobustnessSpec extends ScalaCheckSuite:
 
   test("Property 3a: Half-move clock boundary and overflow inputs return informative Left") {
     val invalidClocks = List("-1", "128", "200", "2147483648", "99999999999999999999")
-    val base = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -"
+    val base          = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -"
 
     for clock <- invalidClocks do
       val fen = s"$base $clock 1"
@@ -153,7 +152,7 @@ class FenParserRobustnessSpec extends ScalaCheckSuite:
 
   test("Property 3b: Full-move number boundary and overflow inputs return informative Left") {
     val invalidClocks = List("0", "-1", "-100", "2147483648", "99999999999999999999")
-    val base = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0"
+    val base          = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0"
 
     for clock <- invalidClocks do
       val fen = s"$base $clock"
@@ -261,12 +260,12 @@ class FenParserRobustnessSpec extends ScalaCheckSuite:
 
   test("Property 3h: Boards without kings and max-piece boards parse safely without throwing") {
     val emptyBoardFen = "8/8/8/8/8/8/8/8 w - - 0 1"
-    val emptyParsed = FenParser.parse(emptyBoardFen)
+    val emptyParsed   = FenParser.parse(emptyBoardFen)
     assert(emptyParsed.isRight)
     assertEquals(FenParser.serialize(emptyParsed.toOption.get), emptyBoardFen)
 
     val maxPieceFen = "rnbqkbnr/pppppppp/rnbqkbnr/pppppppp/PPPPPPPP/RNBQKBNR/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-    val maxParsed = FenParser.parse(maxPieceFen)
+    val maxParsed   = FenParser.parse(maxPieceFen)
     assert(maxParsed.isRight)
     assertEquals(maxParsed.toOption.get.mailbox.toArray.count(!_.isEmpty), 64)
   }
