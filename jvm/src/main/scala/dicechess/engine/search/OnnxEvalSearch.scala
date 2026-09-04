@@ -18,10 +18,18 @@ import scala.util.Random
   * [[OnnxEvalSearch.BatchSize]]-sized chunks, checking the clock between chunks rather than only across the whole
   * candidate set — see
   * [[findBestMove(state:dicechess\.engine\.domain\.GameState,deadlineNanos:Long,random:scala\.util\.Random)*]].
+  *
+  * @param modelPath
+  *   filesystem path to the ONNX model file
+  * @param extractFeatures
+  *   feature extraction function converting a position and mover perspective to an input row for the model
+  * @param clock
+  *   nanosecond time source (defaults to [[java.lang.System.nanoTime]]); injectable for deterministic deadline testing
   */
 class OnnxEvalSearch(
     modelPath: String,
-    extractFeatures: (GameState, Color) => Array[Float] = OnnxFeatures.extract
+    extractFeatures: (GameState, Color) => Array[Float] = OnnxFeatures.extract,
+    clock: () => Long = () => System.nanoTime()
 ) extends TimeBudgetedSearch
     with AutoCloseable:
 
@@ -127,7 +135,7 @@ class OnnxEvalSearch(
     var bestScore = Int.MinValue
     var bestPaths = List.empty[List[Move]]
     var i         = 0
-    while i < finalStates.length && System.nanoTime() < deadlineNanos do
+    while i < finalStates.length && clock() < deadlineNanos do
       val end    = math.min(i + OnnxEvalSearch.BatchSize, finalStates.length)
       val scores = onnxEvalBatch(finalStates.slice(i, end), myColor)
       var j      = 0
