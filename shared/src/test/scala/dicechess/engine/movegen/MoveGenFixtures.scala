@@ -474,9 +474,9 @@ object MoveGenFixtures:
         "a1a8"
       ),
     "rnbqkbnr/pppppppp/8/8/1P6/8/P1PPPPPP/RNBQKBNR w KQkq - 0 1 PR"
-      .titled("en passant is not possible on own pawn")
+      .titled("Pawn and rook: unblocking trapped rooks")
       .describedAs(
-        "In this position, the white pawn on b4 has just moved two squares forward from b2 to b4. However, the en passant capture is not possible for the white pawn on a2 because it cannot capture its own piece. Therefore, the legal moves for the white player are limited to moving the pawns on a2 and h2."
+        "In this position, no en-passant target is available (the FEN en-passant field is '-'). With rolled dice Pawn (1) and Rook (4), the white rooks on a1 and h1 are trapped behind friendly pawns. To achieve the maximal two-move sequence, White must play a pawn move that opens a file for a rook. Only pawn moves on the a- and h-files (a2a3, a2a4, h2h3, h2h4) unblock a rook, while all other pawn moves leave the rooks immobilized and are filtered out."
       )
       .shouldYield(
         "a2a3",
