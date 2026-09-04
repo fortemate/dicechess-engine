@@ -88,31 +88,32 @@ test("Rook attacks with blockers") {
 
 ## Dice Chess Move Generator Testing
 
-For complex, multi-move path-optimization rules under Dice Chess mechanics, standard unit tests can quickly become verbose and difficult for humans to review. To solve this, we use a structured **JSON-based testing framework** paired with an **automatic visual catalog compiler** that bridges the gap between bitwise engine logic and human verification.
+For complex, multi-move path-optimization rules under Dice Chess mechanics, standard unit tests can quickly become verbose and difficult for humans to review. To solve this, we use a structured **ChessDsl testing framework** paired with an **automatic visual catalog compiler** that bridges the gap between bitwise engine logic and human verification.
 
-### 1. JSON Test Suites
+### 1. Golden Test Suites via ChessDsl
 
-All move generator test cases are structured in JSON files under `shared/src/test/resources/movegen/` and categorized by the number of dice rolled:
-* `movegen_1_dice.json` — 1-die fundamental leaper/slider moves.
-* `movegen_2_dice.json` — 2-dice micro-move sequences.
-* `movegen_3_dice.json` — 3-dice full turn path optimizations.
+All move generator golden test cases are structured directly in Scala in `shared/src/test/scala/dicechess/engine/movegen/MoveGenFixtures.scala` using our fluent DSL, categorized by the number of dice rolled:
+* `1-Die Scenarios` — 1-die fundamental leaper/slider moves.
+* `2-Dice Scenarios` — 2-dice micro-move sequences.
+* `3-Dice Scenarios` — 3-dice full turn path optimizations.
+
+Defining test fixtures in shared Scala code compiles them natively into JVM bytecode, Scala.js JavaScript, and WebAssembly without runtime I/O or platform-dependent resource loading, ensuring discriminating cross-platform test coverage (#123).
 
 Each test case is expert-vetted and contains:
-* `fen`: The board position in standard FEN notation.
-* `dice`: An array of rolled dice values (1 = Pawn, 2 = Knight, 3 = Bishop, 4 = Rook, 5 = Queen, 6 = King).
+* `fen`: The board position in standard FEN notation (with dice pool in the 7th field).
 * `expectedMoves`: A list of all legal UCI move sequences (e.g., `"e2e4"`, `"g1f3"`).
 * `title`: A short, descriptive scenario title.
 * `description`: A clear explanation of the expected chess mechanics.
 
-Example JSON entry:
-```json
-{
-  "fen": "rnbqkbnr/ppp1pppp/8/3pP3/2B5/5Q2/PPPP1PPP/RNB1K1NR w KQkq d6 0 1",
-  "dice": [1],
-  "expectedMoves": ["e5e6", "e5d6", "c2c3", "d2d3", "d2d4", "h2h4"],
-  "title": "En Passant and Path Blockage",
-  "description": "A complex pawn scenario: the pawn on e5 can capture the black d5 pawn en passant (exd6). The c2 pawn's two-square advance is blocked..."
-}
+Example entry:
+
+```scala
+"rnbqkbnr/ppp1pppp/8/3pP3/2B5/5Q2/PPPP1PPP/RNB1K1NR w KQkq d6 0 1 P"
+  .titled("En Passant and Path Blockage")
+  .describedAs(
+    "A complex pawn scenario: the pawn on e5 can capture the black d5 pawn en passant (exd6). The c2 pawn's two-square advance is blocked..."
+  )
+  .shouldYield("e5e6", "e5d6", "c2c3", "d2d3", "d2d4", "h2h4")
 ```
 
 ### 2. The Movegen Test DSL
@@ -130,12 +131,14 @@ val testCase = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
   .shouldYield("a2a3", "a2a4", "b2b3", "b2b4")
 ```
 
+`.withDice(...)` renders the pool as the piece letters the 7th FEN field is made of (`Pawn` → `P`, `(Pawn, King)` → `PK`), so the two forms are interchangeable: the fixtures in `MoveGenFixtures.scala` spell the dice directly into the FEN and chain `.titled(...)` straight off the string, while `.withDice(...)` is the readable choice when the base position is shared between scenarios.
+
 ### 3. Automated MUnit Integration
 
-MUnit dynamically parses these JSON files and registers each entry as an isolated test case. The test runner uses the custom titles and descriptions from the JSON entries to name and document tests inside the console outputs, providing extremely readable test logs:
+MUnit executes these test cases across all three target platforms via `MoveGenGoldenSpec`. The test runner uses the custom titles and descriptions to name and document tests inside the console outputs, providing extremely readable test logs:
 
 ```bash
-==> i dicechess.engine.movegen.MoveGenJsonSpec.1-Die Scenarios: En Passant and Path Blockage (A complex pawn scenario...) | Dice: [1]
+==> i dicechess.engine.movegen.MoveGenGoldenSpec.1-Die Scenarios: En Passant and Path Blockage (A complex pawn scenario...)
 ```
 
 ### 4. Dynamic Visual Documentation Pipeline
@@ -148,7 +151,7 @@ mise run docs:build
 ```
 
 The build task executes our documentation compiler `DocGenerator.scala` which:
-1. **Parses the JSON suites**: Reads all active test cases from sbt resources.
+1. **Reads the Golden Suites**: Directly iterates over `MoveGenFixtures.allSuites` in memory.
 2. **Extracts FEN Metadata**: Dynamically parses each FEN string to display Active Color, Castling Rights, and En Passant targets.
 3. **Flips the Board**: Generates a dynamic graphical chess board using Lichess GIF exports, automatically setting `color=black` for black-active positions so they render from the player's perspective.
 4. **Applies Responsive HTML Grid**: Wraps each scenario in a premium two-column CSS grid that automatically adapts to mobile screens.
@@ -156,10 +159,10 @@ The build task executes our documentation compiler `DocGenerator.scala` which:
 
 ## Shared vs. Platform-Specific Tests
 
-Because our engine is a cross-compiled Scala project targetting both **JVM (Java)** and **JS (Scala.js)**, we categorize our test suite files based on their runtime environment constraints:
+Because our engine is a cross-compiled Scala project targetting **JVM**, **JS (Scala.js)**, and **Wasm (WebAssembly)**, we categorize our test suite files based on their runtime environment constraints:
 
-* **Shared Tests (`shared/src/test/`)**: Programmatic unit tests (such as `MutableLegalMovesFilterSpec.scala` and `MakeMoveSpec.scala`) that construct states in-memory without external I/O. These compile and execute on both JVM and JS environments to ensure identical behavior across server (JVM) and client/browser (JS).
-* **Platform-Specific Tests (`jvm/src/test/`)**: Tests that rely on Java-specific runtime APIs. A key example is `MoveGenJsonSpec.scala`, which uses ClassLoader classpath resource loading (`getClass.getClassLoader.getResourceAsStream`) and runtime generic derivation via `Circe`. Since JavaScript lacks Java ClassLoader capabilities, keeping these in the JVM module prevents Scala.js compilation errors.
+* **Shared Tests (`shared/src/test/`)**: Programmatic unit and golden tests (such as `MoveGenGoldenSpec.scala`, `MutableLegalMovesFilterSpec.scala`, and `MakeMoveSpec.scala`) that construct states in-memory without external I/O. These compile and execute on JVM, JS, and Wasm environments to ensure identical behavior across server, web client, and WebAssembly runtimes.
+* **Platform-Specific Tests (`jvm/src/test/`)**: Tests that rely on Java-specific runtime APIs or heavy dependencies. Examples include `PerftSpec.scala` (which loads large perft suites from JVM resources) and ONNX model evaluation suites (which require the Java ONNX runtime).
 
 ---
 

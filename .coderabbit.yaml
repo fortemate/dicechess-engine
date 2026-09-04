@@ -107,8 +107,8 @@ reviews:
         When reviewing:
         - Ensure test names are descriptive and follow the existing naming style.
         - Verify that edge cases are covered (empty boards, full boards, pins).
-        - Check JSON test fixtures in resources/ for valid FEN and correct
-          expected move lists.
+        - Check the movegen golden fixtures in `MoveGenFixtures.scala` for valid FEN
+          (including the 7th dice-pool field) and correct expected move lists.
 
     - path: ".github/workflows/**"
       instructions: |

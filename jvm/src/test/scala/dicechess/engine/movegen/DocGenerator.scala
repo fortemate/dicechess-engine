@@ -1,30 +1,17 @@
 package dicechess.engine.movegen
 
-import io.circe.generic.auto.*
-import io.circe.parser.decode
 import java.io.File
 import java.net.URLEncoder
 import java.nio.file.Files
-import scala.io.Source
 import dicechess.engine.domain.{FenParser, Square}
 
-/** Generates the visual Markdown catalog of move-generator test cases from JSON fixtures.
+/** Generates the visual Markdown catalog of move-generator test cases from [[MoveGenFixtures]].
   *
   * This generator bridges test fixtures with published documentation: it ensures the Astro documentation site reflects
   * the exact test positions, dice rolls, and legal moves vetted by automated regression tests without manual copy-paste
   * drift.
   */
 object DocGenerator:
-
-  private def loadTestCases(resourcePath: String): List[MoveGenTestCase] =
-    val source = Option(getClass.getClassLoader.getResourceAsStream(resourcePath))
-      .map(Source.fromInputStream)
-      .getOrElse(sys.error(s"Resource not found: $resourcePath"))
-    val jsonStr = try source.mkString
-    finally source.close()
-    decode[List[MoveGenTestCase]](jsonStr) match
-      case Right(cases) => cases
-      case Left(error)  => sys.error(s"Failed to parse $resourcePath: $error")
 
   private def diceToSymbol(die: Int): String = die match
     case 1 => "⚀ Pawn (1)"
@@ -37,24 +24,6 @@ object DocGenerator:
 
   def main(args: Array[String]): Unit =
     println("Starting documentation generation for Dice Chess Test Cases...")
-
-    val suites = List(
-      (
-        "1-Die Scenarios",
-        "movegen/movegen_1_dice.json",
-        "Move generator tests with a single die rolled. These represent the fundamental building blocks of legal move filtering."
-      ),
-      (
-        "2-Dice Scenarios",
-        "movegen/movegen_2_dice.json",
-        "Move generator tests with two dice rolled. These evaluate intermediate micro-move sequences."
-      ),
-      (
-        "3-Dice Scenarios",
-        "movegen/movegen_3_dice.json",
-        "Move generator tests with all three dice rolled. These verify full turn execution and complete path optimization."
-      )
-    )
 
     val sb = new StringBuilder()
     sb.append("---\n")
@@ -74,15 +43,9 @@ object DocGenerator:
     )
     sb.append(":::\n\n")
 
-    for (title, resourcePath, description) <- suites do
+    for (title, description, cases) <- MoveGenFixtures.allSuites do
       sb.append(s"## $title\n\n")
       sb.append(s"$description\n\n")
-
-      val cases = try loadTestCases(resourcePath)
-      catch
-        case e: Exception =>
-          println(s"Error loading $resourcePath: ${e.getMessage}")
-          Nil
 
       if cases.isEmpty then sb.append("*No test cases loaded.*\n\n")
       else

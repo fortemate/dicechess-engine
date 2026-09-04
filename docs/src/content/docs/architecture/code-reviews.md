@@ -106,7 +106,7 @@ CodeRabbit supports **path-based review instructions** — targeted guidance tha
 | :--- | :--- |
 | `shared/**/domain/**` | Opaque type contracts, zero-cost abstraction, bitwise correctness |
 | `shared/**/movegen/**` | Magic Bitboards, GC-free hot paths, Dice Chess rule enforcement |
-| `shared/src/test/**` | Test DSL usage, edge case coverage, JSON fixture validity |
+| `shared/src/test/**` | Test DSL usage, edge case coverage, golden fixture validity |
 | `.github/workflows/**` | Pinned action SHAs, consistent Java/Node versions, no redundant tool installs |
 | `docs/**` | Starlight frontmatter, Mermaid syntax, internal link integrity |
 | `build.sbt` | Cross-compilation consistency, plugin configuration |

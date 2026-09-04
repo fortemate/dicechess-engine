@@ -98,8 +98,9 @@ Common failure signatures:
 ## Testing conventions
 
 - MUnit `FunSuite` + `munit-scalacheck` for properties. Suites named `*Suite`/`*Spec`; sentence-style test names; regression suites cite the issue number in the Scaladoc header.
-- Two accepted ways to build positions: most suites use `FenParser.parse` + `.withDicePool(...)` directly; the JSON-fixture specs use the `ChessDsl` test DSL (`shared/src/test/scala/dicechess/engine/movegen/ChessDsl.scala`: `"<fen>".withDice(...)` builders taking a die or a tuple, `Move.toNotation`). Both patterns are fine.
-- JSON fixture catalogs live in `shared/src/test/resources/movegen/` (`perft_suite.json`, `movegen_{1,2,3}_dice.json`) and `jvm/src/test/resources/search/king_capture_probabilities.json`. They double as docs-site content via the DocGenerators — changing them changes the published docs.
+- Two accepted ways to build positions: most suites use `FenParser.parse` + `.withDicePool(...)` directly; the movegen golden fixtures use the `ChessDsl` test DSL (`shared/src/test/scala/dicechess/engine/movegen/ChessDsl.scala`: `"<fen>".withDice(...)` builders taking a die or a tuple, or a FEN that already carries its dice pool in the 7th field, plus `Move.toNotation`). Both patterns are fine.
+- The movegen golden catalog is Scala, not JSON: `shared/src/test/scala/dicechess/engine/movegen/MoveGenFixtures.scala`. It compiles into the JVM, JS and Wasm test runs, so the golden net is cross-platform (#123). It doubles as docs-site content via `DocGenerator` — changing it changes the published docs.
+- JSON fixtures that remain are JVM-only: `shared/src/test/resources/movegen/perft_suite.json` (`PerftSpec`) and `jvm/src/test/resources/search/king_capture_probabilities.json`, the latter also feeding `KingCaptureDocGenerator`.
 - Single suite: `sbt "rootJVM/testOnly dicechess.engine.search.TurnGeneratorSuite"` (JVM-only, fastest loop). Beware: a non-matching FQCN exits 0 with zero tests run — confirm the suite actually executed.
 - Shared-code tests also run on the JS/Wasm Node runner, which is slower — avoid tight time budgets in tests or they will flake there (a MonteCarlo test already timed out once).
 - No Docker is needed for any test in this repo.
@@ -240,9 +241,9 @@ failures cheaply. When in doubt, escalate one tier — reviewer time costs more 
 
 ## Documentation
 
-- Docs site: `docs/` (Astro + Starlight, mermaid + KaTeX), deployed together with Scaladoc to GitHub Pages by `deploy-docs.yaml` on pushes to `main` touching `docs/**`, `{shared,jvm,js}/src/main/scala/**`, the movegen/search test-resource fixtures, or the workflow itself. Local dev: `mise run docs:dev`.
+- Docs site: `docs/` (Astro + Starlight, mermaid + KaTeX), deployed together with Scaladoc to GitHub Pages by `deploy-docs.yaml` on pushes to `main` touching `docs/**`, `{shared,jvm,js}/src/main/scala/**`, the movegen fixture sources, the search test-resource fixtures, or the workflow itself. Local dev: `mise run docs:dev`.
 - Update-trigger map:
-  - Changed movegen/KCP JSON fixtures → catalog pages regenerate; preview with `mise run docs:generate:all`.
+  - Changed `MoveGenFixtures.scala`, `ChessDsl.scala` or the KCP JSON fixtures → catalog pages regenerate; preview with `mise run docs:generate:all`.
   - Changed the JS API → update `js/dicechess-engine.d.ts` and the README usage examples.
   - Changed DFEN semantics or turn rules → update the architecture pages under `docs/src/content/docs/architecture/`.
   - Touched Scaladoc → run `sbt rootJVM/doc` locally before pushing.
