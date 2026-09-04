@@ -83,6 +83,39 @@ object LegalMovesFilter:
 
       bestDepth | (if anyKingCapture then KingCaptureMask else 0)
 
+  private inline def recordDepths(state: GameState, moves: List[Move], depths: Array[Int]): Int =
+    var maxLen = 0
+    var i      = 0
+    var cur    = moves
+
+    // Compute achievable sequence length and King-capture reachability for every candidate first move.
+    // This considers all branches, including King-capture paths, without redundant re-traversal.
+    while cur.nonEmpty do
+      val move  = cur.head
+      val depth = rootDepth(state, move)
+      depths(i) = depth
+      val d = depth & DepthMask
+      if d > maxLen then maxLen = d
+      i += 1
+      cur = cur.tail
+
+    maxLen
+
+  private inline def collectLegal(moves: List[Move], depths: Array[Int], maxLen: Int): List[Move] =
+    val result = List.newBuilder[Move]
+    var i      = 0
+    var cur    = moves
+
+    // Keep King-capture paths (immediate or continuation) and non-capture paths that achieve maxLen.
+    while cur.nonEmpty do
+      val move  = cur.head
+      val depth = depths(i)
+      if ((depth & KingCaptureMask) != 0) || (depth & DepthMask) == maxLen then result += move
+      i += 1
+      cur = cur.tail
+
+    result.result()
+
   // ── Public API ────────────────────────────────────────────────────────────────
 
   /** Filters and returns the legal first moves for a given game state (position and rolled dice).
@@ -108,35 +141,8 @@ object LegalMovesFilter:
       if moves.isEmpty then Nil
       else
         val depths = new Array[Int](moves.length)
-        var maxLen = 0
-        var i      = 0
-        var cur    = moves
-
-        // Pass 1: compute achievable sequence length and King-capture reachability for each candidate first move.
-        // This considers ALL branches including King-capture paths without redundant re-traversal.
-        while cur.nonEmpty do
-          val move  = cur.head
-          val depth = rootDepth(state, move)
-          depths(i) = depth
-          val d = depth & DepthMask
-          if d > maxLen then maxLen = d
-          i += 1
-          cur = cur.tail
+        val maxLen = recordDepths(state, moves, depths)
 
         // If no sequence is achievable (all dice unplayable), the player passes
         if maxLen == 0 then Nil
-        else
-          // Pass 2: collect legal first moves under both criteria using recorded depths:
-          //   (a) king-capture paths (immediate or continuation) — always legal
-          //   (b) non-king-capture paths that achieve maxLen
-          val result = List.newBuilder[Move]
-          i = 0
-          cur = moves
-          while cur.nonEmpty do
-            val move  = cur.head
-            val depth = depths(i)
-            if ((depth & KingCaptureMask) != 0) || (depth & DepthMask) == maxLen then result += move
-            i += 1
-            cur = cur.tail
-
-          result.result()
+        else collectLegal(moves, depths, maxLen)
