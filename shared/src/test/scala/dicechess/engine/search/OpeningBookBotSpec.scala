@@ -108,10 +108,11 @@ class OpeningBookBotSpec extends FunSuite:
 
     // 1. DrawOfferLogic underlying
     val withLogic = new SearchAlgorithm with DrawOfferLogic:
-      def findBestMove(state: GameState): Option[ScoredSequence]                            = None
-      override def shouldOfferDouble(state: GameState, stake: Int): Boolean                 = stake == 10
-      override def shouldAcceptDouble(state: GameState, stake: Int): Boolean                = stake == 20
-      override def shouldAcceptDouble(state: GameState, stake: Int, responder: Color): Boolean = stake == 30 && responder == Color.White
+      def findBestMove(state: GameState): Option[ScoredSequence]                               = None
+      override def shouldOfferDouble(state: GameState, stake: Int): Boolean                    = stake == 10
+      override def shouldAcceptDouble(state: GameState, stake: Int): Boolean                   = stake == 20
+      override def shouldAcceptDouble(state: GameState, stake: Int, responder: Color): Boolean =
+        stake == 30 && responder == Color.White
     val bookedLogic = new OpeningBookBot(withLogic, Map.empty)
     assert(bookedLogic.shouldOfferDouble(state, 10))
     assert(!bookedLogic.shouldOfferDouble(state, 5))

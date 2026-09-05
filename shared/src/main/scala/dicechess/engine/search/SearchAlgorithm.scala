@@ -23,7 +23,7 @@ case class ScoredSequence(moves: List[Move], score: Int)
   *
   * Implementations are expected to be thread-safe singletons (e.g., Scala `object`).
   *
-  * == Resignation ==
+  * ==Resignation==
   * No `shouldResign` hook exists on [[SearchAlgorithm]] by design. Resignation is an operational decision handled by
   * the bot runtime / host application layer rather than the search strategy.
   */
@@ -76,7 +76,8 @@ trait SearchAlgorithm:
 
   /** Determines whether the bot should accept (Take) or decline (Drop) a double from the opponent.
     *
-    * @note Perspective hazard: This two-argument overload evaluates win probability from `state.activeColor`. In a double
+    * @note
+    *   Perspective hazard: This two-argument overload evaluates win probability from `state.activeColor`. In a double
     *   decision state, `state.activeColor` is the player who offered the double, NOT the responder. Callers should
     *   prefer `shouldAcceptDouble(state, currentStake, responder)` to specify the responding side explicitly.
     *
