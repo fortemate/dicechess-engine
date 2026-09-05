@@ -1,13 +1,10 @@
 package dicechess.engine.search
 
-import io.circe.generic.auto.*
-import io.circe.parser.decode
 import java.io.File
 import java.net.URLEncoder
 import java.nio.file.Files
-import scala.io.Source
 
-/** Generates the visual Markdown catalog of KingCaptureProbability test cases from JSON fixtures.
+/** Generates the visual Markdown catalog of KingCaptureProbability test cases from Scala fixtures.
   *
   * This generator bridges test fixtures with published documentation: it ensures the Astro documentation site reflects
   * the exact test positions and expected king capture probabilities vetted by automated tests without manual copy-paste
@@ -15,21 +12,10 @@ import scala.io.Source
   */
 object KingCaptureDocGenerator:
 
-  private def loadTestCases(resourcePath: String): List[KingCaptureProbabilityTestCase] =
-    val source = Option(getClass.getClassLoader.getResourceAsStream(resourcePath))
-      .map(Source.fromInputStream)
-      .getOrElse(sys.error(s"Resource not found: $resourcePath"))
-    val jsonStr = try source.mkString
-    finally source.close()
-    decode[KingCaptureProbabilityTestSuite](jsonStr) match
-      case Right(suite) => suite.testCases
-      case Left(error)  => sys.error(s"Failed to parse $resourcePath: $error")
-
   def main(args: Array[String]): Unit =
     println("Starting documentation generation for KingCaptureProbability Test Cases...")
 
-    val resourcePath = "search/king_capture_probabilities.json"
-    val cases        = loadTestCases(resourcePath)
+    val cases = KingCaptureFixtures.cases
 
     val sb = new StringBuilder()
     sb.append("---\n")
@@ -57,6 +43,8 @@ object KingCaptureDocGenerator:
 
       val probStr =
         String.format(java.util.Locale.US, "%.2f%%", java.lang.Double.valueOf(tc.expectedKingProbability * 100))
+      val probabilityFraction = s"${tc.winningRolls}/216"
+      val defendedColor       = if tc.defenderColor.isWhite then "White" else "Black"
 
       sb.append(s"## $caseNum. ${tc.name}\n\n")
       sb.append(
@@ -64,7 +52,9 @@ object KingCaptureDocGenerator:
   <div style="flex: 1; min-width: 300px;">
     <p style="margin-top: 0; margin-bottom: 16px;">${tc.description}</p>
     <ul style="list-style-type: disc; padding-left: 20px; margin-bottom: 0;">
-      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>$probStr</code></li>
+      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>$probStr ($probabilityFraction)</code></li>
+      <li style="margin-bottom: 8px;"><strong>Defended Color:</strong> <code>$defendedColor</code></li>
+      <li style="margin-bottom: 8px;"><strong>Combinatorial rationale:</strong> ${tc.rationale}</li>
       <li style="margin-bottom: 0;"><strong>FEN:</strong> <code>${tc.fen}</code></li>
     </ul>
   </div>

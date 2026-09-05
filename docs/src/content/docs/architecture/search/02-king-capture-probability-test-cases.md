@@ -15,7 +15,9 @@ This page catalogs all our active test cases for king capture probability, allow
   <div style="flex: 1; min-width: 300px;">
     <p style="margin-top: 0; margin-bottom: 16px;">Kings positioned on opposite ends of the board with no intervening or threatening pieces.</p>
     <ul style="list-style-type: disc; padding-left: 20px; margin-bottom: 0;">
-      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>0.00%</code></li>
+      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>0.00% (0/216)</code></li>
+      <li style="margin-bottom: 8px;"><strong>Defended Color:</strong> <code>White</code></li>
+      <li style="margin-bottom: 8px;"><strong>Combinatorial rationale:</strong> No king can cross the seven-rank gap in three micro-moves: 0 winning rolls.</li>
       <li style="margin-bottom: 0;"><strong>FEN:</strong> <code>4k3/8/8/8/8/8/8/4K3 b - -</code></li>
     </ul>
   </div>
@@ -32,7 +34,9 @@ This page catalogs all our active test cases for king capture probability, allow
   <div style="flex: 1; min-width: 300px;">
     <p style="margin-top: 0; margin-bottom: 16px;">A single bishop directly attacks the king, making it vulnerable whenever that piece type appears.</p>
     <ul style="list-style-type: disc; padding-left: 20px; margin-bottom: 0;">
-      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>42.13%</code></li>
+      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>42.13% (91/216)</code></li>
+      <li style="margin-bottom: 8px;"><strong>Defended Color:</strong> <code>Black</code></li>
+      <li style="margin-bottom: 8px;"><strong>Combinatorial rationale:</strong> Bishop f7 captures e8 directly. At least one Bishop die: 216 - 5^3 = 91.</li>
       <li style="margin-bottom: 0;"><strong>FEN:</strong> <code>rnbqkbnr/pppppBpp/8/8/4P3/8/PPPP1PPP/RNB1K1NR w KQkq - 0 1</code></li>
     </ul>
   </div>
@@ -49,7 +53,9 @@ This page catalogs all our active test cases for king capture probability, allow
   <div style="flex: 1; min-width: 300px;">
     <p style="margin-top: 0; margin-bottom: 16px;">Multiple attacking pieces are present, creating a threat if either piece type is rolled.</p>
     <ul style="list-style-type: disc; padding-left: 20px; margin-bottom: 0;">
-      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>70.37%</code></li>
+      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>70.37% (152/216)</code></li>
+      <li style="margin-bottom: 8px;"><strong>Defended Color:</strong> <code>Black</code></li>
+      <li style="margin-bottom: 8px;"><strong>Combinatorial rationale:</strong> Knight g5 or Queen f3 captures f7 directly. At least one of these two types: 216 - 4^3 = 152.</li>
       <li style="margin-bottom: 0;"><strong>FEN:</strong> <code>rnb1qbnr/pppppkpp/8/6N1/8/4PQ2/PPPP1PPP/RNB1K2R w KQ - 0 1</code></li>
     </ul>
   </div>
@@ -66,7 +72,9 @@ This page catalogs all our active test cases for king capture probability, allow
   <div style="flex: 1; min-width: 300px;">
     <p style="margin-top: 0; margin-bottom: 16px;">Two different attacking pieces must both appear on the dice to facilitate a capture threat.</p>
     <ul style="list-style-type: disc; padding-left: 20px; margin-bottom: 0;">
-      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>13.89%</code></li>
+      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>13.89% (30/216)</code></li>
+      <li style="margin-bottom: 8px;"><strong>Defended Color:</strong> <code>Black</code></li>
+      <li style="margin-bottom: 8px;"><strong>Combinatorial rationale:</strong> Pawn b4-b5 clears Bishop a3-e7. At least one Pawn and one Bishop: 216 - 2 * 5^3 + 4^3 = 30.</li>
       <li style="margin-bottom: 0;"><strong>FEN:</strong> <code>rnbq1bnr/ppppkppp/8/4p3/1P6/B7/P1PPPPPP/R3KBNR w KQ - 0 1</code></li>
     </ul>
   </div>
@@ -83,7 +91,9 @@ This page catalogs all our active test cases for king capture probability, allow
   <div style="flex: 1; min-width: 300px;">
     <p style="margin-top: 0; margin-bottom: 16px;">Vulnerability depends on rolling a specific pair of identical attacking pieces.</p>
     <ul style="list-style-type: disc; padding-left: 20px; margin-bottom: 0;">
-      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>7.41%</code></li>
+      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>7.41% (16/216)</code></li>
+      <li style="margin-bottom: 8px;"><strong>Defended Color:</strong> <code>Black</code></li>
+      <li style="margin-bottom: 8px;"><strong>Combinatorial rationale:</strong> Bishop c4-f7-e8 needs at least two Bishop dice: 3 * 5 + 1 = 16.</li>
       <li style="margin-bottom: 0;"><strong>FEN:</strong> <code>rnbqkbnr/pppppppp/8/8/2B1P3/8/PPPP1PPP/RNB1K1NR w KQ - 0 1</code></li>
     </ul>
   </div>
@@ -100,7 +110,9 @@ This page catalogs all our active test cases for king capture probability, allow
   <div style="flex: 1; min-width: 300px;">
     <p style="margin-top: 0; margin-bottom: 16px;">The king is threatened only if three identical attacking pieces are rolled simultaneously.</p>
     <ul style="list-style-type: disc; padding-left: 20px; margin-bottom: 0;">
-      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>0.46%</code></li>
+      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>0.46% (1/216)</code></li>
+      <li style="margin-bottom: 8px;"><strong>Defended Color:</strong> <code>Black</code></li>
+      <li style="margin-bottom: 8px;"><strong>Combinatorial rationale:</strong> Knight c3-e4-d6-e8 needs three Knight dice: 1 ordered roll.</li>
       <li style="margin-bottom: 0;"><strong>FEN:</strong> <code>rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR w KQ - 0 1</code></li>
     </ul>
   </div>
@@ -117,7 +129,9 @@ This page catalogs all our active test cases for king capture probability, allow
   <div style="flex: 1; min-width: 300px;">
     <p style="margin-top: 0; margin-bottom: 16px;">Multiple attacking piece types are capable of threatening the king if any one of them appears.</p>
     <ul style="list-style-type: disc; padding-left: 20px; margin-bottom: 0;">
-      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>87.50%</code></li>
+      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>87.50% (189/216)</code></li>
+      <li style="margin-bottom: 8px;"><strong>Defended Color:</strong> <code>Black</code></li>
+      <li style="margin-bottom: 8px;"><strong>Combinatorial rationale:</strong> Knight d5, Bishop h4 or Queen a3 captures e7 directly. At least one of three types: 216 - 3^3 = 189.</li>
       <li style="margin-bottom: 0;"><strong>FEN:</strong> <code>rnbq1bnr/ppppkppp/4p3/3N4/3P3B/Q7/PPP1PPPP/R3KBNR w KQ - 0 1</code></li>
     </ul>
   </div>
@@ -134,7 +148,9 @@ This page catalogs all our active test cases for king capture probability, allow
   <div style="flex: 1; min-width: 300px;">
     <p style="margin-top: 0; margin-bottom: 16px;">High likelihood of king capture threat as it depends on any one of four different attacker types appearing.</p>
     <ul style="list-style-type: disc; padding-left: 20px; margin-bottom: 0;">
-      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>96.30%</code></li>
+      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>96.30% (208/216)</code></li>
+      <li style="margin-bottom: 8px;"><strong>Defended Color:</strong> <code>Black</code></li>
+      <li style="margin-bottom: 8px;"><strong>Combinatorial rationale:</strong> Knight d5, Bishop g5, Rook e3 or Queen a3 captures e7 directly. At least one of four types: 216 - 2^3 = 208.</li>
       <li style="margin-bottom: 0;"><strong>FEN:</strong> <code>rnbq1bnr/ppppkppp/8/3N2B1/P2P4/Q3R3/1PP1PPPP/4KBNR w K - 0 1</code></li>
     </ul>
   </div>
@@ -151,7 +167,9 @@ This page catalogs all our active test cases for king capture probability, allow
   <div style="flex: 1; min-width: 300px;">
     <p style="margin-top: 0; margin-bottom: 16px;">Almost certain capture threat as nearly any piece type appearing on the dice enables the attack.</p>
     <ul style="list-style-type: disc; padding-left: 20px; margin-bottom: 0;">
-      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>99.54%</code></li>
+      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>99.54% (215/216)</code></li>
+      <li style="margin-bottom: 8px;"><strong>Defended Color:</strong> <code>Black</code></li>
+      <li style="margin-bottom: 8px;"><strong>Combinatorial rationale:</strong> Pawn d4, Knight f3, Bishop h2, Rook e8 or Queen a5 captures e5 directly. Only three King dice fail: 216 - 1 = 215.</li>
       <li style="margin-bottom: 0;"><strong>FEN:</strong> <code>4R3/8/8/Q3k3/3P4/5N2/7B/6K1 w - - 0 1</code></li>
     </ul>
   </div>
@@ -168,7 +186,9 @@ This page catalogs all our active test cases for king capture probability, allow
   <div style="flex: 1; min-width: 300px;">
     <p style="margin-top: 0; margin-bottom: 16px;">Threat requires the specific combination of three different attacking piece types.</p>
     <ul style="list-style-type: disc; padding-left: 20px; margin-bottom: 0;">
-      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>2.78%</code></li>
+      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>2.78% (6/216)</code></li>
+      <li style="margin-bottom: 8px;"><strong>Defended Color:</strong> <code>Black</code></li>
+      <li style="margin-bottom: 8px;"><strong>Combinatorial rationale:</strong> Pawn c4-c5 and a Knight move from d5 clear Bishop b3-f7. One Pawn, Knight and Bishop: 3! = 6 ordered rolls.</li>
       <li style="margin-bottom: 0;"><strong>FEN:</strong> <code>rnbq1bnr/pppppkpp/8/3N4/2P5/1B1P2P1/PP2PP1P/R1B1K2R w KQ - 0 1</code></li>
     </ul>
   </div>
@@ -185,7 +205,9 @@ This page catalogs all our active test cases for king capture probability, allow
   <div style="flex: 1; min-width: 300px;">
     <p style="margin-top: 0; margin-bottom: 16px;">Threat relies on a specific combination consisting of a pair of identical pieces and one different piece.</p>
     <ul style="list-style-type: disc; padding-left: 20px; margin-bottom: 0;">
-      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>1.39%</code></li>
+      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>1.39% (3/216)</code></li>
+      <li style="margin-bottom: 8px;"><strong>Defended Color:</strong> <code>Black</code></li>
+      <li style="margin-bottom: 8px;"><strong>Combinatorial rationale:</strong> Pawn e2-e3 clears Bishop f1-c4-f7. One Pawn and two Bishop dice: 3 ordered rolls.</li>
       <li style="margin-bottom: 0;"><strong>FEN:</strong> <code>rnbq1bnr/pppppkpp/8/8/8/2P5/PP1PPPPP/R1B1KB1R w KQ - 0 1</code></li>
     </ul>
   </div>
@@ -202,7 +224,9 @@ This page catalogs all our active test cases for king capture probability, allow
   <div style="flex: 1; min-width: 300px;">
     <p style="margin-top: 0; margin-bottom: 16px;">Combined attacking influence from both the queen and bishop.</p>
     <ul style="list-style-type: disc; padding-left: 20px; margin-bottom: 0;">
-      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>14.81%</code></li>
+      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>14.81% (32/216)</code></li>
+      <li style="margin-bottom: 8px;"><strong>Defended Color:</strong> <code>Black</code></li>
+      <li style="margin-bottom: 8px;"><strong>Combinatorial rationale:</strong> Bishop b5-d7-e8 or Queen f3-f7-e8 needs a matching pair. These events are disjoint in three dice: 16 + 16 = 32.</li>
       <li style="margin-bottom: 0;"><strong>FEN:</strong> <code>rnbqkbnr/pppppppp/8/1B6/4P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 0 1</code></li>
     </ul>
   </div>
@@ -219,7 +243,9 @@ This page catalogs all our active test cases for king capture probability, allow
   <div style="flex: 1; min-width: 300px;">
     <p style="margin-top: 0; margin-bottom: 16px;">Direct attacking pressure combined with support from multiple queen threats.</p>
     <ul style="list-style-type: disc; padding-left: 20px; margin-bottom: 0;">
-      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>42.59%</code></li>
+      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>42.59% (92/216)</code></li>
+      <li style="margin-bottom: 8px;"><strong>Defended Color:</strong> <code>Black</code></li>
+      <li style="margin-bottom: 8px;"><strong>Combinatorial rationale:</strong> Bishop f7-e8 needs any Bishop die (91 rolls); Queen d1-g4-d7-e8 adds the disjoint triple-Queen roll: 91 + 1 = 92.</li>
       <li style="margin-bottom: 0;"><strong>FEN:</strong> <code>rnbqkbnr/pppppBpp/8/8/4P3/8/PPPP1PPP/RNBQK1NR w KQkq - 0 1</code></li>
     </ul>
   </div>
@@ -236,7 +262,9 @@ This page catalogs all our active test cases for king capture probability, allow
   <div style="flex: 1; min-width: 300px;">
     <p style="margin-top: 0; margin-bottom: 16px;">Capture threat necessitates specific different piece types to be rolled.</p>
     <ul style="list-style-type: disc; padding-left: 20px; margin-bottom: 0;">
-      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>14.35%</code></li>
+      <li style="margin-bottom: 8px;"><strong>Expected Probability:</strong> <code>14.35% (31/216)</code></li>
+      <li style="margin-bottom: 8px;"><strong>Defended Color:</strong> <code>Black</code></li>
+      <li style="margin-bottom: 8px;"><strong>Combinatorial rationale:</strong> Pawn b4-b5 clears Bishop a3-e7 (30 rolls); Knight b1-c3-d5-e7 adds the disjoint triple-Knight roll: 30 + 1 = 31. The historical title mentions queens, but the extra winning roll is Knights.</li>
       <li style="margin-bottom: 0;"><strong>FEN:</strong> <code>rnbq1bnr/ppppkppp/8/4p3/1P6/B7/P1PPPPPP/RN1QKBNR w KQ - 0 1</code></li>
     </ul>
   </div>
