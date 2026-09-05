@@ -116,15 +116,24 @@ object MonteCarloSearch extends SearchAlgorithm with DrawOfferLogic with TimeBud
     val winProb = if color.isWhite then est.whiteWin else est.blackWin
     (winProb * ProbScoreScale).round.toInt
 
-  /** Uses the Monte-Carlo estimate (rather than the material sigmoid) for doubling-cube decisions. */
-  override protected def estimateWinProbability(state: GameState): Double =
-    val est = MonteCarloEquity.estimate(state, DefaultConfig, rand)
-    if state.activeColor.isWhite then est.whiteWin else est.blackWin
+  /** Uses the Monte-Carlo estimate (rather than the material sigmoid) for doubling-cube decisions, for whichever colour
+    * is asked about: the offerer on an offer, the responder on a take/drop.
+    */
+  override protected def winProbability(state: GameState, color: Color): Double =
+    winProbability(state, color, DefaultConfig, rand)
+
+  /** [[winProbability]] with an explicit rollout budget and entropy source, so the perspective mapping can be tested on
+    * a tiny budget: the estimator integrates the exact capture probability over all 216 rolls at every ply, which makes
+    * the default budget expensive on busy positions.
+    */
+  private[search] def winProbability(state: GameState, color: Color, config: MonteCarloConfig, random: Random): Double =
+    val est = MonteCarloEquity.estimate(state, config, random)
+    if color.isWhite then est.whiteWin else est.blackWin
 
   override def shouldOfferDouble(state: GameState, currentStake: Int): Boolean =
     val _ = currentStake
     estimateWinProbability(state) > 0.65
 
-  override def shouldAcceptDouble(state: GameState, currentStake: Int): Boolean =
+  override def shouldAcceptDouble(state: GameState, currentStake: Int, responder: Color): Boolean =
     val _ = currentStake
-    estimateWinProbability(state) > 0.30
+    winProbability(state, responder) > 0.30

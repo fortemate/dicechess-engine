@@ -2,6 +2,7 @@ package dicechess.engine.search
 
 import dicechess.engine.domain.*
 import munit.FunSuite
+import scala.util.Random
 
 class BotDoubleDrawSpec extends FunSuite:
 
@@ -41,6 +42,13 @@ class BotDoubleDrawSpec extends FunSuite:
     assert(!GreedySearchV2.shouldOfferDouble(equalState, 1))
     assert(GreedySearchV2.shouldAcceptDouble(equalState, 2))
 
+    // 4. Take/drop is decided for the named responder, not for the side to move: in winState White is to move
+    // and winning, so a Black responder drops while a White responder takes; loseState is the mirror image.
+    assert(GreedySearchV2.shouldAcceptDouble(winState, 2, Color.White))
+    assert(!GreedySearchV2.shouldAcceptDouble(winState, 2, Color.Black))
+    assert(!GreedySearchV2.shouldAcceptDouble(loseState, 2, Color.White))
+    assert(GreedySearchV2.shouldAcceptDouble(loseState, 2, Color.Black))
+
     // Draw offers are only triggered in late game scenarios (move count > 30) when the position is equal.
     assert(!GreedySearchV2.shouldOfferDraw(equalState)) // Early game (move 1) -> false
 
@@ -69,6 +77,35 @@ class BotDoubleDrawSpec extends FunSuite:
     assert(!AggressiveSearch.shouldAcceptDouble(loseState, 2))
     assert(!AggressiveSearch.shouldOfferDraw(loseState))
     assert(!AggressiveSearch.shouldAcceptDraw(loseState))
+
+    // 4. The aggressive threshold (0.22) applies to the named responder: Black, the side NOT to move, is the one
+    // being asked in loseState and holds Q+R against a bare king.
+    assert(!AggressiveSearch.shouldAcceptDouble(winState, 2, Color.Black))
+    assert(AggressiveSearch.shouldAcceptDouble(loseState, 2, Color.Black))
+    assert(!AggressiveSearch.shouldAcceptDouble(loseState, 2, Color.White))
+  }
+
+  test("MonteCarloSearch estimates the responder's equity, not the mover's") {
+    // K+Q against a bare king, White to move: the queen on h1 already attacks a8 along the long diagonal, so White
+    // captures with any roll that shows a queen (exact ply-0 mass 1 - (5/6)^3 = 0.42) while Black cannot capture at
+    // all. A tiny budget keeps the Rao-Blackwellized estimator (216 rolls per ply) cheap under coverage.
+    val tiny    = MonteCarloConfig(rollouts = 4, maxPlies = 3)
+    val queenUp = parseState("k7/8/8/8/8/8/8/K6Q w - - 0 1")
+    val white   = MonteCarloSearch.winProbability(queenUp, Color.White, tiny, new Random(1))
+    val black   = MonteCarloSearch.winProbability(queenUp, Color.Black, tiny, new Random(1))
+    assert(white > 0.30, s"White responder must take at the 0.30 threshold, got $white")
+    assert(black < 0.30, s"Black responder must drop at the 0.30 threshold, got $black")
+  }
+
+  test("a strategy overriding only the responder overload is reached through the two-argument form") {
+    object BlackOnlyTaker extends SearchAlgorithm:
+      override def findBestMove(state: GameState): Option[ScoredSequence]                             = None
+      override def shouldAcceptDouble(state: GameState, currentStake: Int, responder: Color): Boolean =
+        responder == Color.Black
+
+    assert(!BlackOnlyTaker.shouldAcceptDouble(winState, 2)) // side to move is White
+    assert(BlackOnlyTaker.shouldAcceptDouble(parseState("k7/8/8/8/8/8/PPPPPPPP/QNBK4 b - - 0 1"), 2))
+    assert(BlackOnlyTaker.shouldAcceptDouble(winState, 2, Color.Black))
   }
 
   test("Default SearchAlgorithm doubling and draw decisions") {
@@ -106,6 +143,7 @@ class BotDoubleDrawSpec extends FunSuite:
     // Invoke them to ensure test coverage of all branch lines
     RandomSearch.shouldOfferDouble(equalState, 1)
     RandomSearch.shouldAcceptDouble(equalState, 2)
+    RandomSearch.shouldAcceptDouble(equalState, 2, Color.Black)
     RandomSearch.shouldOfferDraw(equalState)
     RandomSearch.shouldAcceptDraw(equalState)
   }

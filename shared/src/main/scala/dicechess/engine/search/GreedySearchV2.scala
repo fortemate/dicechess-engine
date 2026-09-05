@@ -47,9 +47,9 @@ object GreedySearchV2 extends SearchAlgorithm:
     val _ = currentStake
     estimateWinProbability(state) > 0.70
 
-  override def shouldAcceptDouble(state: GameState, currentStake: Int): Boolean =
+  override def shouldAcceptDouble(state: GameState, currentStake: Int, responder: Color): Boolean =
     val _ = currentStake
-    estimateWinProbability(state) > 0.35
+    winProbability(state, responder) > 0.35
 
   override def shouldOfferDraw(state: GameState): Boolean =
     state.fullMoveNumber > 30 && math.abs(Evaluator.evaluate(state, state.activeColor)) < 50
