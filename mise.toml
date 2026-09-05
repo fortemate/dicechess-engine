@@ -1,6 +1,7 @@
 [tools]
 # --- Core Runtime & Build ---
 java = "temurin-25"            # Primary runtime, aligned with CI (Java 25)
+sbt = "2.0.8"                  # sbt runner; MUST match sbt.version in project/build.properties (also provisions the Jules VM)
 node = "26"                    # Required for Astro/Starlight documentation
 
 # --- Git Hooks & Formatting ---
@@ -18,13 +19,12 @@ description = "📦 Install tooling and register Git hooks locally"
 depends = ["setup:tools", "hook:install"]
 
 [tasks."setup:tools"]
-description = "🛠️  Install system and build dependencies (SBT, universal-ctags, tree)"
+description = "🛠️  Install system conveniences (universal-ctags, tree) — sbt comes from mise"
 run_windows = """
-winget install --id sbt.sbt --version 2.0.4 --exact --accept-package-agreements --accept-source-agreements
 winget install --id UniversalCtags.UniversalCtags --accept-package-agreements --accept-source-agreements
 winget install --id GnuWin32.Tree --accept-package-agreements --accept-source-agreements
 """
-run = "brew install sbt universal-ctags tree"
+run = "brew install universal-ctags tree"
 
 [tasks.compile]
 description = "🔨 Incremental compilation of main and test sources (JVM)"

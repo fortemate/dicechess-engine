@@ -2,6 +2,22 @@
 
 Cross-compiled Scala 3 Dice Chess rules engine — the single source of truth for game rules across the dicechess ecosystem.
 
+## Definition of Done — before every commit
+
+<!-- dc-shared:definition-of-done v1 — keep identical across Fortemate Scala repositories -->
+
+1. Format: `mise run format`. If `mise` is not on PATH: `~/.local/bin/mise exec -- sbt scalafmtAll`.
+2. Gate: `mise run check` — the same command CI runs. If part of it cannot run in your sandbox (for
+   example Docker for Testcontainers), run `mise exec -- sbt 'scalafmtCheckAll; Test/compile'` plus every
+   suite that can run, and list what you skipped in the pull request.
+3. Never publish unformatted Scala or code that does not compile: CI rejects both, and every red run
+   costs a review cycle.
+
+Sandboxed agents (Jules): the toolchain is provisioned by `scripts/jules-setup.sh` (Java, sbt, scalafmt
+via mise). If a tool is missing, run `bash scripts/jules-setup.sh` instead of installing tools ad hoc.
+
+<!-- /dc-shared:definition-of-done -->
+
 ## Project context
 
 - Public repository, AGPL-3.0 (see `LICENSE`); contributions require a CLA (`CLA.md`, part of an open-core strategy) — external contributors sign inside their first PR (`.github/cla-signatures.json`, enforced by the `CI: CLA` workflow).
@@ -30,8 +46,8 @@ Cross-compiled Scala 3 Dice Chess rules engine — the single source of truth fo
 Prerequisites first:
 
 ```bash
-mise install     # java temurin-25, node 26, lefthook, betterleaks, scalafmt (pinned), gh, jq
-mise run setup   # brew install sbt universal-ctags tree + install git hooks
+mise install     # java temurin-25, sbt 2.0.8, node 26, lefthook, betterleaks, scalafmt (pinned), gh, jq
+mise run setup   # brew install universal-ctags tree + install git hooks (sbt comes from mise, no brew needed)
 ```
 
 - Node is required even for plain `sbt 'testOnly *'` — JS/Wasm tests execute on Node. Missing/old Node fails the JS test run, not just docs.
@@ -65,7 +81,7 @@ Common failure signatures:
 - `sbt rootJVM/doc` errors inside a Scaladoc comment → a non-Scala example sits in a ```scala fence (see Gotchas).
 - Second concurrent `sbt` invocation hangs/fails → sbt server socket collision; run sequential commands in one sbt session (#326).
 
-## Quality gates — Definition of Done
+## Quality gates — repository specifics
 
 - `mise run check` passes locally. It is stricter than PR CI: **PR CI (`ci.yaml`) does not run scalafix** — only `check` and the release/publish workflows do, so code can pass PR CI yet fail at release.
 - Statement coverage >= 90% for `rootJVM`, >= 70% for `arena`, enforced by `build.sbt` (`coverageFailOnMinimum`). JVM-only; `benchmark/` and `.*Main\.scala` excluded.
