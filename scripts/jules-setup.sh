@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# dc-shared:jules-setup v1 — keep identical across Fortemate Scala repositories (source of truth:
+# dc-shared:jules-setup v2 — keep identical across Fortemate Scala repositories (source of truth:
 # fortemate-internal/skills/jules-repo-readiness/templates/jules-setup.sh; change it there, bump the
 # version, roll it out with the jules-repo-readiness skill).
 #
@@ -34,7 +34,8 @@ log() { printf '\n==> %s\n' "$*"; }
 
 log "Installing mise"
 if [[ ! -x "$MISE_BIN" ]]; then
-  curl -fsSL https://mise.run | sh
+  # --proto '=https' --tlsv1.2: -L follows redirects, so pin the scheme (SonarCloud shell:S6506)
+  curl --proto '=https' --tlsv1.2 -fsSL https://mise.run | sh
 fi
 "$MISE_BIN" --version
 "$MISE_BIN" trust "$REPO_ROOT/mise.toml"
