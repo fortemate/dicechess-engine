@@ -8,9 +8,10 @@ on:
       - 'shared/src/main/scala/**'
       - 'jvm/src/main/scala/**'
       - 'js/src/main/scala/**'
-      - 'jvm/src/test/resources/search/**'
       - 'shared/src/test/scala/dicechess/engine/movegen/MoveGenFixtures.scala'
       - 'shared/src/test/scala/dicechess/engine/movegen/ChessDsl.scala'
+      - 'shared/src/test/scala/dicechess/engine/search/KingCaptureFixtures.scala'
+      - 'jvm/src/test/scala/dicechess/engine/search/KingCaptureDocGenerator.scala'
       - '.mise/lib/sbt-cold-cache.sh'
       - '.github/workflows/deploy-docs.yaml'
 
