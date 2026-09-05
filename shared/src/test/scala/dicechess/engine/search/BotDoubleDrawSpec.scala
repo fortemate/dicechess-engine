@@ -81,6 +81,27 @@ class BotDoubleDrawSpec extends FunSuite:
     assert(!DefaultSearch.shouldAcceptDraw(equalState))
   }
 
+  test("shouldAcceptDouble explicit responder perspective overload on asymmetric position") {
+    object DefaultSearch extends SearchAlgorithm:
+      override def findBestMove(state: GameState): Option[ScoredSequence] = None
+
+    // winState FEN is "k7/8/8/8/8/8/PPPPPPPP/QNBK4 w - - 0 1" (active: White, White is winning massively)
+    // White's win prob is near 1.0 (> 0.25), Black's win prob is near 0.0 (< 0.25).
+    assert(DefaultSearch.shouldAcceptDouble(winState, 2, Color.White))
+    assert(!DefaultSearch.shouldAcceptDouble(winState, 2, Color.Black))
+
+    // Two-argument delegates with state.activeColor (White in winState)
+    assert(DefaultSearch.shouldAcceptDouble(winState, 2))
+
+    // Black-to-move asymmetric position
+    val blackActiveWinState = parseState("k7/8/8/8/8/8/PPPPPPPP/QNBK4 b - - 0 1")
+    // In blackActiveWinState, activeColor is Black, but White is still winning massively.
+    assert(DefaultSearch.shouldAcceptDouble(blackActiveWinState, 2, Color.White))
+    assert(!DefaultSearch.shouldAcceptDouble(blackActiveWinState, 2, Color.Black))
+    // Two-arg overload delegates with state.activeColor (which is Black), returning false
+    assert(!DefaultSearch.shouldAcceptDouble(blackActiveWinState, 2))
+  }
+
   test("RandomSearch doubling and draw decisions") {
     // Invoke them to ensure test coverage of all branch lines
     RandomSearch.shouldOfferDouble(equalState, 1)

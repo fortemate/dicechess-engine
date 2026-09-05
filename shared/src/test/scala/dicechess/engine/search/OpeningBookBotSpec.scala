@@ -108,14 +108,17 @@ class OpeningBookBotSpec extends FunSuite:
 
     // 1. DrawOfferLogic underlying
     val withLogic = new SearchAlgorithm with DrawOfferLogic:
-      def findBestMove(state: GameState): Option[ScoredSequence]             = None
-      override def shouldOfferDouble(state: GameState, stake: Int): Boolean  = stake == 10
-      override def shouldAcceptDouble(state: GameState, stake: Int): Boolean = stake == 20
+      def findBestMove(state: GameState): Option[ScoredSequence]                            = None
+      override def shouldOfferDouble(state: GameState, stake: Int): Boolean                 = stake == 10
+      override def shouldAcceptDouble(state: GameState, stake: Int): Boolean                = stake == 20
+      override def shouldAcceptDouble(state: GameState, stake: Int, responder: Color): Boolean = stake == 30 && responder == Color.White
     val bookedLogic = new OpeningBookBot(withLogic, Map.empty)
     assert(bookedLogic.shouldOfferDouble(state, 10))
     assert(!bookedLogic.shouldOfferDouble(state, 5))
     assert(bookedLogic.shouldAcceptDouble(state, 20))
     assert(!bookedLogic.shouldAcceptDouble(state, 10))
+    assert(bookedLogic.shouldAcceptDouble(state, 30, Color.White))
+    assert(!bookedLogic.shouldAcceptDouble(state, 30, Color.Black))
 
     // 2. Direct-override underlying (e.g. AggressiveSearch without DrawOfferLogic)
     val bookedAggressive = OpeningBookBot.decorate(AggressiveSearch, Map.empty)
@@ -129,6 +132,8 @@ class OpeningBookBotSpec extends FunSuite:
     assert(!plain.shouldOfferDouble(state, 10))
     assert(plain.shouldAcceptDouble(state, 20))      // winProb ~0.50 > 0.25 in starting position
     assert(!plain.shouldAcceptDouble(loseState, 20)) // winProb < 0.25 in lost position
+    assert(plain.shouldAcceptDouble(winState, 2, Color.White))
+    assert(!plain.shouldAcceptDouble(winState, 2, Color.Black))
   }
 
   test("plays a booked turn for Black, using the lower-cased dice key") {

@@ -48,7 +48,7 @@ trait DrawOfferLogic extends SearchAlgorithm:
     * while cutting losses in clearly lost ones.
     */
   override def shouldAcceptDraw(state: GameState): Boolean =
-    Evaluator.evaluate(state, state.activeColor) < -200
+    shouldOfferDraw(state) || Evaluator.evaluate(state, state.activeColor) < -200
 
   /** Returns `true` when [[state]] has no pieces that can force a king capture.
     *

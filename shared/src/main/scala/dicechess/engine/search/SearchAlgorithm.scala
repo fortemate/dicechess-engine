@@ -22,6 +22,10 @@ case class ScoredSequence(moves: List[Move], score: Int)
   * moves (the active player must pass).
   *
   * Implementations are expected to be thread-safe singletons (e.g., Scala `object`).
+  *
+  * == Resignation ==
+  * No `shouldResign` hook exists on [[SearchAlgorithm]] by design. Resignation is an operational decision handled by
+  * the bot runtime / host application layer rather than the search strategy.
   */
 trait SearchAlgorithm:
   /** Finds and returns the best full-turn path according to this strategy.
@@ -54,7 +58,27 @@ trait SearchAlgorithm:
     */
   def shouldOfferDouble(state: GameState, currentStake: Int): Boolean = false
 
+  /** Determines whether the bot should accept (Take) or decline (Drop) a double from the opponent from the perspective
+    * of the given responder.
+    *
+    * @param state
+    *   current game state (dice pool is empty)
+    * @param currentStake
+    *   the proposed double stake (e.g. 2, 4...)
+    * @param responder
+    *   the color of the player responding to the double offer
+    * @return
+    *   true to accept the double (Take), false to resign the current stake (Drop)
+    */
+  def shouldAcceptDouble(state: GameState, currentStake: Int, responder: Color): Boolean =
+    val _ = currentStake
+    winProbability(state, responder) > 0.25
+
   /** Determines whether the bot should accept (Take) or decline (Drop) a double from the opponent.
+    *
+    * @note Perspective hazard: This two-argument overload evaluates win probability from `state.activeColor`. In a double
+    *   decision state, `state.activeColor` is the player who offered the double, NOT the responder. Callers should
+    *   prefer `shouldAcceptDouble(state, currentStake, responder)` to specify the responding side explicitly.
     *
     * @param state
     *   current game state (dice pool is empty)
@@ -64,8 +88,7 @@ trait SearchAlgorithm:
     *   true to accept the double (Take), false to resign the current stake (Drop)
     */
   def shouldAcceptDouble(state: GameState, currentStake: Int): Boolean =
-    val _ = currentStake
-    estimateWinProbability(state) > 0.25
+    shouldAcceptDouble(state, currentStake, state.activeColor)
 
   /** Determines whether the bot should offer a draw in the current position.
     *
@@ -85,14 +108,20 @@ trait SearchAlgorithm:
     */
   def shouldAcceptDraw(state: GameState): Boolean = false
 
+  /** Estimates the winning probability in [0.0, 1.0] for the specified side.
+    *
+    * Uses a standard logistic sigmoid function to map the centipawn score to a probability.
+    */
+  protected def winProbability(state: GameState, color: Color): Double =
+    val eval = Evaluator.evaluate(state, color)
+    1.0 / (1.0 + math.exp(-eval / 400.0))
+
   /** Estimates the winning probability in [0.0, 1.0] for the active side.
     *
     * Uses a standard logistic sigmoid function to map the centipawn score to a probability.
     */
   protected def estimateWinProbability(state: GameState): Double =
-    val myColor = state.activeColor
-    val eval    = Evaluator.evaluate(state, myColor)
-    1.0 / (1.0 + math.exp(-eval / 400.0))
+    winProbability(state, state.activeColor)
 
 /** Shared scoring utilities used by all [[SearchAlgorithm]] implementations.
   *
