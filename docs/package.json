@@ -14,7 +14,7 @@
     "@astrojs/starlight": "^0.42.0",
     "astro": "^7.2.10",
     "astro-mermaid": "^2.1.0",
-    "katex": "^0.18.4",
+    "katex": "^0.18.5",
     "mermaid": "^11.17.2",
     "rehype-katex": "^7.0.1",
     "remark-math": "^6.0.0",
