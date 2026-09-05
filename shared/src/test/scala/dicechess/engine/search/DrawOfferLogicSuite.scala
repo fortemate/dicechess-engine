@@ -97,12 +97,20 @@ class DrawOfferLogicSuite extends FunSuite:
     assert(TestBot.shouldAcceptDraw(state))
   }
 
+  test("accepts draw in a dead-draw position (e.g. K vs K) even when evaluation is equal (0 cp)") {
+    val deadState = parseState("k7/8/8/8/8/8/8/K7 w - - 0 1")
+    assert(TestBot.shouldOfferDraw(deadState))
+    assert(TestBot.shouldAcceptDraw(deadState))
+  }
+
   // ──────────────────────────────────────────────
   // shouldAcceptDraw — false
   // ──────────────────────────────────────────────
 
-  test("rejects draw in an equal position") {
-    val state = parseState("k7/8/8/8/8/8/8/K7 w - - 0 1")
+  test("rejects draw in an equal position that is not a dead draw") {
+    // Both sides have a Rook -> equal evaluation (0 cp), but not dead material (Rooks can checkmate).
+    val state = parseState("k7/1r6/8/8/8/8/1R6/K7 w - - 0 1")
+    assert(!TestBot.shouldOfferDraw(state))
     assert(!TestBot.shouldAcceptDraw(state))
   }
 

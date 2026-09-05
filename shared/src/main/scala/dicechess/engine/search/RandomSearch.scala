@@ -52,8 +52,8 @@ object RandomSearch extends SearchAlgorithm:
     val _ = (state, currentStake)
     rand.nextDouble() < 0.15
 
-  override def shouldAcceptDouble(state: GameState, currentStake: Int): Boolean =
-    val _ = (state, currentStake)
+  override def shouldAcceptDouble(state: GameState, currentStake: Int, responder: Color): Boolean =
+    val _ = (state, currentStake, responder)
     rand.nextDouble() < 0.50
 
   override def shouldOfferDraw(state: GameState): Boolean =

@@ -8,8 +8,9 @@ import scala.util.boundary, boundary.break
   *
   * Bots mixing in this trait will offer a draw when neither side can force a king capture — the win condition in Dice
   * Chess. This happens with king + at most one bishop each, no other pieces, kings safely separated and the defending
-  * king on the opposite square colour from the enemy bishop. They will accept a draw offer when the position evaluation
-  * drops below −200 centipawns (down material).
+  * king on the opposite square colour from the enemy bishop. They will accept a draw offer in the same dead-material
+  * positions, and otherwise when the position evaluation drops below −200 centipawns (down material) — so a bot never
+  * declines a position it would itself offer.
   *
   * The trait is designed to be reusable — any `SearchAlgorithm` can gain draw logic simply by declaring:
   * ```text
@@ -41,14 +42,16 @@ trait DrawOfferLogic extends SearchAlgorithm:
   override def shouldOfferDraw(state: GameState): Boolean =
     hasInsufficientDrawMaterial(state)
 
-  /** Accepts a draw when the position is so unfavourable that playing on is worse than splitting the point.
+  /** Accepts a draw when the position is a dead draw by [[shouldOfferDraw]]'s own test, or when it is so unfavourable
+    * that playing on is worse than splitting the point.
     *
-    * Uses the centipawn evaluation from [[Evaluator.evaluate]] from the active side's perspective. The threshold of
-    * −200cp (a pawn's disadvantage) is deliberately conservative — it avoids accepting draws in roughly equal positions
-    * while cutting losses in clearly lost ones.
+    * The second branch uses the centipawn evaluation from [[Evaluator.evaluate]] from the active side's perspective.
+    * The threshold of −200cp (a pawn's disadvantage) is deliberately conservative — it avoids accepting draws in
+    * roughly equal positions while cutting losses in clearly lost ones. The first branch keeps offering and accepting
+    * consistent: a position the bot would offer a draw in is never one it declines.
     */
   override def shouldAcceptDraw(state: GameState): Boolean =
-    Evaluator.evaluate(state, state.activeColor) < -200
+    shouldOfferDraw(state) || Evaluator.evaluate(state, state.activeColor) < -200
 
   /** Returns `true` when [[state]] has no pieces that can force a king capture.
     *

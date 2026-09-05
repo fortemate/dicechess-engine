@@ -42,6 +42,9 @@ class OpeningBookBot(val underlying: SearchAlgorithm, val book: Map[String, Stri
   override def shouldOfferDouble(state: GameState, currentStake: Int): Boolean =
     underlying.shouldOfferDouble(state, currentStake)
 
+  override def shouldAcceptDouble(state: GameState, currentStake: Int, responder: Color): Boolean =
+    underlying.shouldAcceptDouble(state, currentStake, responder)
+
   override def shouldAcceptDouble(state: GameState, currentStake: Int): Boolean =
     underlying.shouldAcceptDouble(state, currentStake)
 

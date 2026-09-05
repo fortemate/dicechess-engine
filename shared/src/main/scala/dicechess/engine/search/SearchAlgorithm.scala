@@ -22,6 +22,10 @@ case class ScoredSequence(moves: List[Move], score: Int)
   * moves (the active player must pass).
   *
   * Implementations are expected to be thread-safe singletons (e.g., Scala `object`).
+  *
+  * ==Resignation==
+  * No `shouldResign` hook exists on [[SearchAlgorithm]] by design. Resignation is an operational decision handled by
+  * the bot runtime / host application layer rather than the search strategy.
   */
 trait SearchAlgorithm:
   /** Finds and returns the best full-turn path according to this strategy.
@@ -54,7 +58,36 @@ trait SearchAlgorithm:
     */
   def shouldOfferDouble(state: GameState, currentStake: Int): Boolean = false
 
-  /** Determines whether the bot should accept (Take) or decline (Drop) a double from the opponent.
+  /** Determines whether the bot should accept (Take) or decline (Drop) a double from the opponent, evaluated from the
+    * perspective of `responder`.
+    *
+    * This is the single policy point for the take/drop decision: strategies that want their own threshold or estimator
+    * override **this** overload. The two-argument form below only delegates here, so a policy written against it is
+    * bypassed whenever a caller names the responder explicitly (which every caller holding a `doubleDecision` state
+    * must, see the hazard note there).
+    *
+    * @param state
+    *   current game state (dice pool is empty); its active colour is the side to move, which in a double decision is
+    *   the offerer, not the responder
+    * @param currentStake
+    *   the proposed double stake (e.g. 2, 4...)
+    * @param responder
+    *   the colour of the player responding to the double offer
+    * @return
+    *   true to accept the double (Take), false to resign the current stake (Drop)
+    */
+  def shouldAcceptDouble(state: GameState, currentStake: Int, responder: Color): Boolean =
+    val _ = currentStake
+    winProbability(state, responder) > 0.25
+
+  /** Determines whether the bot should accept (Take) or decline (Drop) a double from the opponent, taking the side to
+    * move as the responder. Kept for source and binary compatibility; it delegates to the three-argument overload.
+    *
+    * @note
+    *   Perspective hazard: this overload evaluates the win probability of `state.activeColor`. In a double decision
+    *   state, `state.activeColor` is the player who offered the double, NOT the responder, so a caller that feeds the
+    *   delivered position here asks whether the *offerer* should take. Callers must prefer
+    *   `shouldAcceptDouble(state, currentStake, responder)`; strategies must override that overload, not this one.
     *
     * @param state
     *   current game state (dice pool is empty)
@@ -64,8 +97,7 @@ trait SearchAlgorithm:
     *   true to accept the double (Take), false to resign the current stake (Drop)
     */
   def shouldAcceptDouble(state: GameState, currentStake: Int): Boolean =
-    val _ = currentStake
-    estimateWinProbability(state) > 0.25
+    shouldAcceptDouble(state, currentStake, state.activeColor)
 
   /** Determines whether the bot should offer a draw in the current position.
     *
@@ -85,14 +117,21 @@ trait SearchAlgorithm:
     */
   def shouldAcceptDraw(state: GameState): Boolean = false
 
-  /** Estimates the winning probability in [0.0, 1.0] for the active side.
+  /** Estimates the winning probability in [0.0, 1.0] of `color`, whichever side is to move.
     *
-    * Uses a standard logistic sigmoid function to map the centipawn score to a probability.
+    * This is the estimator hook: a strategy with its own equity model (for example a Monte-Carlo rollout) overrides
+    * **this** method, so that both the offer decision (active colour) and the take/drop decision (responder colour) see
+    * the same estimate. The default maps the centipawn evaluation to a probability with a logistic sigmoid.
+    */
+  protected def winProbability(state: GameState, color: Color): Double =
+    val eval = Evaluator.evaluate(state, color)
+    1.0 / (1.0 + math.exp(-eval / 400.0))
+
+  /** Estimates the winning probability in [0.0, 1.0] for the side to move. Convenience over [[winProbability]] for
+    * offer decisions, where the deciding side is the active colour; do not override it, override [[winProbability]].
     */
   protected def estimateWinProbability(state: GameState): Double =
-    val myColor = state.activeColor
-    val eval    = Evaluator.evaluate(state, myColor)
-    1.0 / (1.0 + math.exp(-eval / 400.0))
+    winProbability(state, state.activeColor)
 
 /** Shared scoring utilities used by all [[SearchAlgorithm]] implementations.
   *
