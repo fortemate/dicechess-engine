@@ -140,7 +140,10 @@ class CheckmateAwareSearchSuite extends FunSuite:
     val targetLast = resLast.get.moves.head.toSquare.toNotation
 
     // Ensure that depending on RNG, different safe moves can be picked (proving no strict material bias)
-    assert(targetZero != targetLast, s"Expected different target squares for different RNG seeds, got $targetZero and $targetLast")
+    assert(
+      targetZero != targetLast,
+      s"Expected different target squares for different RNG seeds, got $targetZero and $targetLast"
+    )
   }
 
   test("CheckmateAwareSearch should work symmetrically for Black active player") {
