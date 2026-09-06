@@ -158,6 +158,93 @@ class TimeManagerSuite extends FunSuite:
     assertEqualsDouble(legacyManager.movesToGo(ClockState(60000, 0, 1, Some(0))), 1.0, 0.0)
   }
 
+  // ---- Reserve floor vs Reserve fraction transitions ----
+
+  test("reserve transitions cleanly between fixed ReserveFloorMs and scaled ReserveFraction") {
+    // Below transition threshold (remaining < 6000): ReserveFloorMs (300) > 0.05 * remaining
+    val clock5999 = ClockState(5999, 0, 1, Some(10))
+    // spendable = 5999 - 300 = 5699; target = 5699 / 10 = 569; hardCap = 0.20 * 5999 = 1199
+    assertEquals(legacyManager.budget(clock5999), TimeBudget(569L, 1199L))
+
+    // At exact transition threshold (remaining = 6000): ReserveFloorMs (300) == 0.05 * 6000
+    val clock6000 = ClockState(6000, 0, 1, Some(10))
+    // spendable = 6000 - 300 = 5700; target = 5700 / 10 = 570; hardCap = 0.20 * 6000 = 1200
+    assertEquals(legacyManager.budget(clock6000), TimeBudget(570L, 1200L))
+
+    // Above transition threshold (remaining = 6020): 0.05 * 6020 = 301 > 300
+    val clock6020 = ClockState(6020, 0, 1, Some(10))
+    // spendable = 6020 - 301 = 5719; target = 5719 / 10 = 571; hardCap = 0.20 * 6020 = 1204
+    assertEquals(legacyManager.budget(clock6020), TimeBudget(571L, 1204L))
+  }
+
+  // ---- Panic mode boundaries and clamping ----
+
+  test("panic mode triggers exactly when spendable <= PanicThresholdMs (2000ms)") {
+    // spendable = 2300 - 300 = 2000ms (<= PanicThresholdMs) -> Panic mode active, capped at PanicBudgetMs (200ms)
+    val clockPanicActive = ClockState(2300, 10000, 1)
+    val budgetPanic      = legacyManager.budget(clockPanicActive)
+    assertEquals(budgetPanic.targetMs, TimeManager.PanicBudgetMs)
+
+    // spendable = 2301 - 300 = 2001ms (> PanicThresholdMs) -> Normal allocation (capped only by hardCap)
+    val clockPanicInactive = ClockState(2301, 10000, 1)
+    val budgetNormal       = legacyManager.budget(clockPanicInactive)
+    // hardCap = 0.20 * 2301 = 460; target capped to hardCap 460 > PanicBudgetMs 200
+    assertEquals(budgetNormal.targetMs, 460L)
+  }
+
+  test("panic mode preserves targets below PanicBudgetMs without artificial inflation") {
+    // spendable = 1000 - 300 = 700 <= 2000; mtg = 20 -> target = 700 / 20 = 35ms < PanicBudgetMs (200ms)
+    val clockSmallBudget = ClockState(1000, 0, 1, Some(20))
+    val b                = legacyManager.budget(clockSmallBudget)
+    assertEquals(b.targetMs, 35L)
+  }
+
+  // ---- HardCap floor and small clock handling ----
+
+  test("hardCap floors at MinThinkMs when 20% of remaining clock falls below MinThinkMs") {
+    // remaining = 50ms -> 0.20 * 50 = 10ms < MinThinkMs (20ms) -> hardCap = 20ms
+    val clockTiny = ClockState(50, 0, 1)
+    val b         = legacyManager.budget(clockTiny)
+    assertEquals(b.hardCapMs, TimeManager.MinThinkMs)
+    assertEquals(b.targetMs, TimeManager.MinThinkMs)
+  }
+
+  // ---- Extreme / Out-of-bounds clock values ----
+
+  test("budget handles negative and zero remaining time safely") {
+    val clockNegative = ClockState(-1000, 0, 1)
+    val bNegative     = legacyManager.budget(clockNegative)
+    assertEquals(bNegative.targetMs, TimeManager.MinThinkMs)
+    assertEquals(bNegative.hardCapMs, TimeManager.MinThinkMs)
+
+    val clockZero = ClockState(0, 5000, 1)
+    val bZero     = legacyManager.budget(clockZero)
+    assertEquals(bZero.targetMs, TimeManager.MinThinkMs)
+    assertEquals(bZero.hardCapMs, TimeManager.MinThinkMs)
+  }
+
+  test("budget handles negative increments and huge remaining clocks safely without overflow") {
+    // Negative increment should not pull target below MinThinkMs
+    val clockNegInc = ClockState(60000, -10000, 1, Some(10))
+    val bNegInc     = legacyManager.budget(clockNegInc)
+    assert(bNegInc.targetMs >= TimeManager.MinThinkMs)
+
+    // Extremely large remaining clock (~27.7 hours)
+    val clockHuge = ClockState(100_000_000L, 60_000L, 1, Some(10))
+    val bHuge     = legacyManager.budget(clockHuge)
+    assertEquals(bHuge.hardCapMs, 20_000_000L)
+    assertEquals(bHuge.targetMs, 9_560_000L)
+  }
+
+  // ---- Static Companion Facade Delegation ----
+
+  test("TimeManager companion facade methods delegate identically to default instance") {
+    val clock = ClockState(60000, 1000, 5)
+    assertEquals(TimeManager.budget(clock), TimeManager.default.budget(clock))
+    assertEquals(TimeManager.movesToGo(clock), TimeManager.default.movesToGo(clock).toInt)
+    assertEquals(TimeManager.budgetMs(clock, 150), TimeManager.default.budgetMs(clock, 150))
+  }
+
   // ---- Invariants (properties that must hold for every reasonable clock) ----
 
   private val sampleClocks: List[ClockState] =
@@ -200,5 +287,28 @@ class TimeManagerSuite extends FunSuite:
       val suddenDeath = TimeManager.budget(c.copy(incrementMs = 0)).targetMs
       val withInc     = TimeManager.budget(c).targetMs
       assert(withInc >= suddenDeath, s"increment lowered target for $c ($withInc < $suddenDeath)")
+    }
+  }
+
+  test("invariant: budgetMs is bounded between MinThinkMs and targetMs") {
+    val buffers = List(0L, 50L, 150L, 500L, 10000L)
+    sampleClocks.foreach { c =>
+      val target = TimeManager.budget(c).targetMs
+      buffers.foreach { buf =>
+        val ms = TimeManager.budgetMs(c, buf)
+        assert(ms >= TimeManager.MinThinkMs, s"budgetMs $ms < MinThinkMs for clock $c, buffer $buf")
+        assert(ms <= target, s"budgetMs $ms > targetMs $target for clock $c, buffer $buf")
+      }
+    }
+  }
+
+  test("invariant: legacy movesToGo decreases or stays equal as move number increases") {
+    val moves = List(1, 5, 10, 15, 20, 25, 30, 40, 50, 100)
+    moves.sliding(2).foreach {
+      case List(m1, m2) =>
+        val mtg1 = legacyManager.movesToGo(ClockState(60000, 0, m1))
+        val mtg2 = legacyManager.movesToGo(ClockState(60000, 0, m2))
+        assert(mtg2 <= mtg1, s"movesToGo at move $m2 ($mtg2) > movesToGo at move $m1 ($mtg1)")
+      case _ => ()
     }
   }
