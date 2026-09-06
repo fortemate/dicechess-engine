@@ -555,7 +555,7 @@ final class ExpectimaxSearch(
       rawProbeStates: Array[GameState],
       myColor: Color
   ): scala.collection.mutable.HashMap[LeafKey, Int] =
-    val distinctProbeStates = distinctLeaves(rawProbeStates.clone())
+    val distinctProbeStates = distinctLeaves(rawProbeStates)
     val probeScores         = evalBatch(distinctProbeStates, myColor)
     val scoreMap            = new scala.collection.mutable.HashMap[LeafKey, Int](distinctProbeStates.length * 2, 0.75)
     var m                   = 0
@@ -1195,7 +1195,7 @@ final class ExpectimaxSearch(
       myColor: Color,
       maximizing: Boolean
   ): RecursiveNodeResult =
-    val leaves = distinctLeaves(replies.iterator.map(reply => applyTurn(rolled, reply)).toArray)
+    val leaves = distinctLeaves(rolled, replies)
     val scores = evalBatch(leaves, myColor)
     var value  = if maximizing then Int.MinValue else Int.MaxValue
     var i      = 0
@@ -1242,7 +1242,7 @@ final class ExpectimaxSearch(
   private def opponentMinValue(rolled: GameState, replies: List[List[Move]], myColor: Color): Double =
     if replies.exists(reply => capturesEnemyKing(rolled, reply)) then LossValue
     else
-      val leaves = distinctLeaves(replies.iterator.map(reply => applyTurn(rolled, reply)).toArray)
+      val leaves = distinctLeaves(rolled, replies)
       val scores = evalBatch(leaves, myColor)
       var min    = Int.MaxValue
       var i      = 0
@@ -1251,28 +1251,37 @@ final class ExpectimaxSearch(
         i += 1
       min.toDouble
 
-  /** The distinct positions among `leaves`, in first-seen order.
+  /** The distinct positions resulting from applying each reply turn to `rolled`, in first-seen order.
     *
-    * **Mutates `leaves`**, compacting the distinct entries into its front. That is safe only because the caller builds
-    * the array immediately before the call and never looks at it again, and it is worth the sharper contract on a path
-    * that runs once per dice roll per candidate: the obvious version — write into a second full-length array, then
-    * slice — allocates an extra array the size of the whole reply list every time, and with ~78% duplicates that array
-    * is discarded almost immediately. Compaction is safe in place because the write index never overtakes the read
-    * index (`count <= i` throughout), so no unread element is ever overwritten.
-    *
-    * Returns `leaves` itself when nothing was duplicated, so the no-op case allocates nothing at all.
+    * Direct traversal over `replies` avoids intermediate Iterator, map, and full-length array allocations.
     */
+  private def distinctLeaves(rolled: GameState, replies: List[List[Move]]): Array[GameState] =
+    val size  = replies.size
+    val buf   = new Array[GameState](size)
+    val seen  = new scala.collection.mutable.HashSet[LeafKey](size * 2, 0.75)
+    var count = 0
+    var cur   = replies
+    while cur.nonEmpty do
+      val leaf = applyTurn(rolled, cur.head)
+      if seen.add(leafKey(leaf)) then
+        buf(count) = leaf
+        count += 1
+      cur = cur.tail
+    if count == size then buf else buf.slice(0, count)
+
+  /** The distinct positions among `leaves`, in first-seen order. */
   private def distinctLeaves(leaves: Array[GameState]): Array[GameState] =
     val seen  = new scala.collection.mutable.HashSet[LeafKey](leaves.length * 2, 0.75)
+    val buf   = new Array[GameState](leaves.length)
     var count = 0
     var i     = 0
     while i < leaves.length do
       val leaf = leaves(i)
       if seen.add(leafKey(leaf)) then
-        leaves(count) = leaf
+        buf(count) = leaf
         count += 1
       i += 1
-    if count == leaves.length then leaves else leaves.slice(0, count)
+    if count == leaves.length then buf else buf.slice(0, count)
 
   /** A leaf's exact identity for deduplication.
     *
