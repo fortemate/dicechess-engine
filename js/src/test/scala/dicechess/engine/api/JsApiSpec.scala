@@ -339,3 +339,39 @@ class JsApiSpec extends FunSuite:
     assertEquals(JsApi.benchFilterMaximalMoves(budgetDfen, 0), 0.0)
     assertEquals(JsApi.benchFilterMaximalMoves(budgetDfen, -3), 0.0)
   }
+
+  // --- EngineFacade Tests ---
+
+  test("EngineFacade.getBotMove: returns valid move for unseeded call") {
+    val dfen    = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 P"
+    val moveOpt = dicechess.engine.EngineFacade.getBotMove(dfen, js.undefined).toOption
+    assert(moveOpt.isDefined)
+    val dict = moveOpt.get
+    assert(dict.contains("from"))
+    assert(dict.contains("to"))
+  }
+
+  test("EngineFacade.getBotMove: returns deterministic move when seed is provided") {
+    val dfen  = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 P"
+    val move1 = dicechess.engine.EngineFacade.getBotMove(dfen, 42).toOption.get
+    val move2 = dicechess.engine.EngineFacade.getBotMove(dfen, 42).toOption.get
+    assertEquals(move1("from"), move2("from"))
+    assertEquals(move1("to"), move2("to"))
+  }
+
+  test("EngineFacade.getBotMove: prioritizes king capture when available") {
+    val dfen    = "4k3/4Q3/8/8/8/8/8/4K3 w - - 0 1 Q"
+    val moveOpt = dicechess.engine.EngineFacade.getBotMove(dfen, js.undefined).toOption
+    assert(moveOpt.isDefined)
+    val dict = moveOpt.get
+    assertEquals(dict("from"), "e7")
+    assertEquals(dict("to"), "e8")
+  }
+
+  test("EngineFacade.getBotMove: handles null or invalid DFEN by returning undefined") {
+    assertEquals(
+      dicechess.engine.EngineFacade.getBotMove(null.asInstanceOf[String], js.undefined).toOption,
+      None
+    ) // scalafix:ok(DisableSyntax.null)
+    assertEquals(dicechess.engine.EngineFacade.getBotMove("invalid-fen", js.undefined).toOption, None)
+  }

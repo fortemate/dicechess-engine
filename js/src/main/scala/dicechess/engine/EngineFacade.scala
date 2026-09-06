@@ -6,6 +6,26 @@ import dicechess.engine.domain.*
 import dicechess.engine.movegen.MoveGenerator
 import scala.util.Random
 
+/** Cryptographically secure pseudo-random number generator for Scala.js environment. Uses JS Web Crypto API
+  * (`crypto.getRandomValues`) when available, with fallback to `java.util.Random`.
+  */
+private object SecureRandom extends scala.util.Random {
+  override def nextInt(n: Int): Int =
+    if n <= 0 then 0
+    else
+      try
+        val crypto = js.Dynamic.global.crypto
+        if !js.isUndefined(crypto) && js.typeOf(crypto.getRandomValues) == "function" then
+          val array = new js.typedarray.Uint32Array(1)
+          crypto.getRandomValues(array)
+          val raw = array(0).toInt & Int.MaxValue
+          val max = Int.MaxValue - (Int.MaxValue % n)
+          if raw < max then raw % n
+          else nextInt(n)
+        else super.nextInt(n)
+      catch case _: Throwable => super.nextInt(n)
+}
+
 /** The `EngineFacade` provides a JavaScript-friendly API to interact with the Dice Chess Scala engine.
   *
   * It exposes methods to generate bot moves, query piece types, fetch legal moves filtered by dice, and apply moves
@@ -47,7 +67,7 @@ object EngineFacade {
             val kingCapture = moves.find(m => state.mailbox.get(m.toSquare).exists(_.pieceType == PieceType.King))
 
             val chosenMove = kingCapture.getOrElse {
-              val rng = seed.toOption.map(new Random(_)).getOrElse(Random)
+              val rng = seed.toOption.map(s => new Random(s)).getOrElse(SecureRandom)
               moves(rng.nextInt(moves.length))
             }
 
