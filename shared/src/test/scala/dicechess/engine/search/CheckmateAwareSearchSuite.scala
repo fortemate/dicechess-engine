@@ -92,11 +92,11 @@ class CheckmateAwareSearchSuite extends FunSuite:
   }
 
   test("CheckmateAwareSearch should evaluate King safety at the end of turn and avoid exposing King") {
-    // White King on e1. Black Rook on e8. White Rook on e2 shields King from e8 Rook. White Rook on a1.
+    // White King on e1. Black Queen on a5. White Rook on d2 shields King along diagonal a5-e1. White Rook on h1.
     // White rolls Rook (4).
-    // Moving e2 Rook exposes King on e1 to e8 Rook at end of turn.
-    // Moving a1 Rook keeps e2 Rook in place, leaving King safely shielded.
-    val fen   = "4r3/8/8/8/8/8/4R3/R3K3 w - - 0 1"
+    // Any d2 Rook move leaves King on e1 exposed to a5 Queen at end of turn.
+    // Moving h1 Rook keeps d2 Rook in place, leaving King safely shielded.
+    val fen   = "8/8/8/q7/8/8/3R4/4K2R w - - 0 1"
     val state = FenParser
       .parse(fen)
       .fold(
@@ -107,7 +107,7 @@ class CheckmateAwareSearchSuite extends FunSuite:
 
     assert(bestMoveOpt.isDefined)
     val bestMove = bestMoveOpt.get
-    assertEquals(bestMove.moves.head.fromSquare.toNotation, "a1")
+    assertEquals(bestMove.moves.head.fromSquare.toNotation, "h1")
   }
 
   test("CheckmateAwareSearch should treat safe non-winning paths equally regardless of material value") {
