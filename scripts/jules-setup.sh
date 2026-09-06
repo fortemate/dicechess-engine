@@ -1,24 +1,34 @@
 #!/usr/bin/env bash
-# dc-shared:jules-setup v2 — keep identical across Fortemate Scala repositories (source of truth:
+# dc-shared:jules-setup v3 — keep identical across Fortemate JVM repositories (source of truth:
 # fortemate-internal/skills/jules-repo-readiness/templates/jules-setup.sh; change it there, bump the
 # version, roll it out with the jules-repo-readiness skill).
 #
 # Google Jules "Initial Setup" script. The Jules VM is Ubuntu with OpenJDK 21, Maven and Gradle but
 # no sbt, scalafmt, mise or brew. This script provisions the same toolchain humans get from mise.toml,
-# then warms the sbt caches so `mise run format` and `mise run check` are cheap inside a task.
+# then warms the build caches so `mise run format` and `mise run check` are cheap inside a task.
+# Supports sbt builds (project/build.properties) and Maven builds (pom.xml).
 #
 # Jules app: repository → Configuration → Initial Setup → `bash scripts/jules-setup.sh` → Run and Snapshot.
-# Re-run "Run and Snapshot" whenever this script, mise.toml or project/build.properties changes.
+# Re-run "Run and Snapshot" whenever this script, mise.toml, project/build.properties or pom.xml changes.
 #
 # Knobs (set as Jules environment variables or inline in the Initial Setup command):
-#   JULES_SETUP_WARMUP  sbt command used to warm caches (default: Test/compile; use "none" to skip)
+#   JULES_SETUP_WARMUP  build command used to warm caches: sbt command (default Test/compile) or Maven
+#                       goals (default "-DskipTests test-compile"); "none" skips the warm-up
 #   MISE_GITHUB_TOKEN   read-only GitHub token if `mise install` hits API rate limits (HTTP 403)
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$REPO_ROOT"
-if [[ ! -f mise.toml || ! -f project/build.properties ]]; then
-  echo "error: run from the root of an sbt repository with a mise.toml (cwd: $PWD)" >&2
+if [[ ! -f mise.toml ]]; then
+  echo "error: run from the root of a repository with a mise.toml (cwd: $PWD)" >&2
+  exit 1
+fi
+if [[ -f project/build.properties ]]; then
+  BUILD=sbt
+elif [[ -f pom.xml ]]; then
+  BUILD=maven
+else
+  echo "error: neither project/build.properties (sbt) nor pom.xml (Maven) found in $PWD" >&2
   exit 1
 fi
 
@@ -40,14 +50,21 @@ fi
 "$MISE_BIN" --version
 "$MISE_BIN" trust "$REPO_ROOT/mise.toml"
 
-log "Installing the tools pinned in mise.toml (Java, scalafmt, hooks tooling, ...)"
+log "Installing the tools pinned in mise.toml (Java, build tool, formatter, hooks tooling, ...)"
 "$MISE_BIN" install
 
-log "Ensuring the sbt runner is available"
-SBT_VERSION="$(sed -n 's/^sbt.version=//p' project/build.properties | tr -d '[:space:]')"
-if ! "$MISE_BIN" which sbt >/dev/null 2>&1; then
-  # Repositories that do not pin sbt in mise.toml yet: install the runner matching the build.
-  "$MISE_BIN" use --global "sbt@${SBT_VERSION}"
+if [[ "$BUILD" == sbt ]]; then
+  log "Ensuring the sbt runner is available"
+  SBT_VERSION="$(sed -n 's/^sbt.version=//p' project/build.properties | tr -d '[:space:]')"
+  if ! "$MISE_BIN" which sbt >/dev/null 2>&1; then
+    # Repositories that do not pin sbt in mise.toml yet: install the runner matching the build.
+    "$MISE_BIN" use --global "sbt@${SBT_VERSION}"
+  fi
+else
+  log "Ensuring Maven is available"
+  if ! "$MISE_BIN" which mvn >/dev/null 2>&1; then
+    "$MISE_BIN" use --global maven@latest
+  fi
 fi
 
 log "Persisting PATH for the shells Jules opens later"
@@ -60,13 +77,26 @@ done
 
 log "Toolchain versions"
 "$MISE_BIN" exec -- java -version
-"$MISE_BIN" exec -- scalafmt --version
-"$MISE_BIN" exec -- sbt --version # first boot downloads the sbt ${SBT_VERSION} launcher and plugins
+if [[ "$BUILD" == sbt ]]; then
+  if "$MISE_BIN" which scalafmt >/dev/null 2>&1; then "$MISE_BIN" exec -- scalafmt --version; fi
+  "$MISE_BIN" exec -- sbt --version # first boot downloads the sbt launcher and plugins
+else
+  "$MISE_BIN" exec -- mvn --version
+fi
 
-WARMUP="${JULES_SETUP_WARMUP:-Test/compile}"
-if [[ "$WARMUP" != "none" ]]; then
-  log "Warming the sbt and coursier caches with: sbt $WARMUP"
-  "$MISE_BIN" exec -- sbt "$WARMUP"
+if [[ "$BUILD" == sbt ]]; then
+  WARMUP="${JULES_SETUP_WARMUP:-Test/compile}"
+  if [[ "$WARMUP" != "none" ]]; then
+    log "Warming the sbt and coursier caches with: sbt $WARMUP"
+    "$MISE_BIN" exec -- sbt "$WARMUP"
+  fi
+else
+  WARMUP="${JULES_SETUP_WARMUP:--DskipTests test-compile}"
+  if [[ "$WARMUP" != "none" ]]; then
+    log "Warming the Maven repository with: mvn --batch-mode --no-transfer-progress $WARMUP"
+    # shellcheck disable=SC2086 # WARMUP holds several Maven goals/flags on purpose
+    "$MISE_BIN" exec -- mvn --batch-mode --no-transfer-progress $WARMUP
+  fi
 fi
 
 log "Optional capabilities"
