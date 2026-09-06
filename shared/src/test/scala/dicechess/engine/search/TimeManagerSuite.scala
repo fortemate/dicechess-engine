@@ -142,6 +142,55 @@ class TimeManagerSuite extends FunSuite:
     assertEquals(TimeManager.budgetMs(ClockState(600000, 10000, 1), 150L), 85678L)
   }
 
+  test("budgetMs handles zero overhead buffer without subtraction loss") {
+    val clock = ClockState(60000, 0, 1)
+    val b     = empiricalManager.budget(clock)
+    assertEquals(empiricalManager.budgetMs(clock, 0L), b.targetMs)
+    assertEquals(legacyManager.budgetMs(clock, 0L), legacyManager.budget(clock).targetMs)
+  }
+
+  test("budgetMs floors at MinThinkMs when overhead buffer equals or exceeds target budget") {
+    val clock = ClockState(60000, 0, 1)
+    val b     = empiricalManager.budget(clock)
+    assertEquals(empiricalManager.budgetMs(clock, b.targetMs), TimeManager.MinThinkMs)
+    assertEquals(empiricalManager.budgetMs(clock, b.targetMs + 5000L), TimeManager.MinThinkMs)
+  }
+
+  test("budgetMs behavior across clock scenarios (panic, sudden death, Fischer, empty clock)") {
+    // Panic clock (spendable <= 2000ms): budget is capped at PanicBudgetMs (200ms)
+    val panicClock = ClockState(2000, 10000, 40)
+    assertEquals(empiricalManager.budgetMs(panicClock, 50L), 150L)
+    assertEquals(empiricalManager.budgetMs(panicClock, 300L), TimeManager.MinThinkMs)
+
+    // Sudden death late game (low remaining clock)
+    val lateClock  = ClockState(4000, 0, 40)
+    val lateBudget = empiricalManager.budget(lateClock)
+    assertEquals(empiricalManager.budgetMs(lateClock, 50L), lateBudget.targetMs - 50L)
+
+    // Empty clock
+    val emptyClock = ClockState(0, 0, 1)
+    assertEquals(empiricalManager.budgetMs(emptyClock, 0L), TimeManager.MinThinkMs)
+    assertEquals(empiricalManager.budgetMs(emptyClock, 100L), TimeManager.MinThinkMs)
+  }
+
+  test("companion object budgetMs facade matches default instance behavior") {
+    val clockBuffers = List(
+      (ClockState(60000, 0, 1), 0L),
+      (ClockState(60000, 0, 1), 150L),
+      (ClockState(600000, 10000, 1), 50L),
+      (ClockState(2000, 10000, 40), 100L),
+      (ClockState(0, 0, 1), 200L)
+    )
+
+    clockBuffers.foreach { case (clock, buffer) =>
+      assertEquals(
+        TimeManager.budgetMs(clock, buffer),
+        TimeManager.default.budgetMs(clock, buffer),
+        s"facade mismatch for clock $clock and buffer $buffer"
+      )
+    }
+  }
+
   test("legacy movesToGo tapers with move number and floors at MinMovesToGo") {
     assertEqualsDouble(legacyManager.movesToGo(ClockState(60000, 0, 1)), 29.0, 0.0)
     assertEqualsDouble(
@@ -201,4 +250,36 @@ class TimeManagerSuite extends FunSuite:
       val withInc     = TimeManager.budget(c).targetMs
       assert(withInc >= suddenDeath, s"increment lowered target for $c ($withInc < $suddenDeath)")
     }
+  }
+
+  private val sampleBuffers: List[Long] = List(0L, 50L, 150L, 500L, 2000L, 10000L)
+
+  test("invariant: budgetMs is always >= MinThinkMs and <= targetMs / hardCapMs") {
+    for
+      c   <- sampleClocks
+      buf <- sampleBuffers
+      mgr <- List(empiricalManager, legacyManager)
+    do
+      val bMs = mgr.budgetMs(c, buf)
+      val b   = mgr.budget(c)
+      assert(bMs >= TimeManager.MinThinkMs, s"budgetMs $bMs below MinThinkMs for $c, buf $buf")
+      assert(bMs <= b.targetMs, s"budgetMs $bMs > targetMs ${b.targetMs} for $c, buf $buf")
+      assert(bMs <= b.hardCapMs, s"budgetMs $bMs > hardCapMs ${b.hardCapMs} for $c, buf $buf")
+  }
+
+  test("invariant: budgetMs is monotonic non-increasing with respect to overheadBufferMs") {
+    for
+      c   <- sampleClocks
+      mgr <- List(empiricalManager, legacyManager)
+    do
+      sampleBuffers.sliding(2).foreach {
+        case List(bLo, bHi) =>
+          val budgetLo = mgr.budgetMs(c, bLo)
+          val budgetHi = mgr.budgetMs(c, bHi)
+          assert(
+            budgetHi <= budgetLo,
+            s"budgetMs increasing with larger overhead buffer for $c: at $bLo=$budgetLo, at $bHi=$budgetHi"
+          )
+        case _ => ()
+      }
   }
