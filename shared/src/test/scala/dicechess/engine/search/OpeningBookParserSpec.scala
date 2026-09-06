@@ -131,3 +131,89 @@ class OpeningBookParserSpec extends ScalaCheckSuite:
       assertEquals(parsed, Right(Map(key -> val2)))
     }
   }
+
+  // --- Unit Tests for OpeningBookParser.parse ---
+
+  test("parse handles valid single and multi-line TSV data") {
+    val input =
+      """rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - BPR	e2e4,f1c4
+        |rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - BPR	e7e5,g8f6""".stripMargin
+
+    val expected = Map(
+      "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - BPR"   -> "e2e4,f1c4",
+      "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - BPR" -> "e7e5,g8f6"
+    )
+
+    assertEquals(OpeningBookParser.parse(input), Right(expected))
+  }
+
+  test("parse returns empty map for empty string or whitespace-only input") {
+    assertEquals(OpeningBookParser.parse(""), Right(Map.empty[String, String]))
+    assertEquals(OpeningBookParser.parse("   \n\t\n  \r\n  "), Right(Map.empty[String, String]))
+  }
+
+  test("parse trims leading and trailing whitespace from keys and values") {
+    val input    = "  posKey1   \t  e2e4,f1c4   \n   posKey2\t   e7e5  "
+    val expected = Map(
+      "posKey1" -> "e2e4,f1c4",
+      "posKey2" -> "e7e5"
+    )
+    assertEquals(OpeningBookParser.parse(input), Right(expected))
+  }
+
+  test("parse handles Windows CRLF line endings") {
+    val input    = "key1\tval1\r\nkey2\tval2\r\n"
+    val expected = Map(
+      "key1" -> "val1",
+      "key2" -> "val2"
+    )
+    assertEquals(OpeningBookParser.parse(input), Right(expected))
+  }
+
+  test("parse overwrites earlier entry when duplicate key appears") {
+    val input = "key1\tfirst\nkey1\tsecond"
+    assertEquals(OpeningBookParser.parse(input), Right(Map("key1" -> "second")))
+  }
+
+  test("parse returns Left with exception when line is missing tab delimiter") {
+    val result = OpeningBookParser.parse("invalid_line_without_tab")
+    assert(result.isLeft)
+    val err = result.left.toOption.get
+    assert(err.isInstanceOf[IllegalArgumentException])
+    assertEquals(err.getMessage, "Malformed line: invalid_line_without_tab")
+  }
+
+  test("parse returns Left when key is empty or whitespace-only") {
+    val result = OpeningBookParser.parse("\tval1")
+    assert(result.isLeft)
+    assertEquals(result.left.toOption.get.getMessage, "Malformed line: \tval1")
+
+    val wsResult = OpeningBookParser.parse("   \tval1")
+    assert(wsResult.isLeft)
+    assertEquals(wsResult.left.toOption.get.getMessage, "Malformed line:    \tval1")
+  }
+
+  test("parse returns Left when value is empty or whitespace-only") {
+    val result = OpeningBookParser.parse("key1\t")
+    assert(result.isLeft)
+    assertEquals(result.left.toOption.get.getMessage, "Malformed line: key1\t")
+
+    val wsResult = OpeningBookParser.parse("key1\t   ")
+    assert(wsResult.isLeft)
+    assertEquals(wsResult.left.toOption.get.getMessage, "Malformed line: key1\t   ")
+  }
+
+  test("parse returns Left when line contains extra tab columns") {
+    val result = OpeningBookParser.parse("key1\tval1\textra")
+    assert(result.isLeft)
+    assertEquals(result.left.toOption.get.getMessage, "Malformed line: key1\tval1\textra")
+  }
+
+  test("parse aggregates multiple malformed line errors separated by semicolon") {
+    val input = "key1\tval1\nbad1\nkey2\tval2\nbad2\textra1\textra2"
+
+    val result = OpeningBookParser.parse(input)
+    assert(result.isLeft)
+    val msg = result.left.toOption.get.getMessage
+    assertEquals(msg, "Malformed line: bad1; Malformed line: bad2\textra1\textra2")
+  }
