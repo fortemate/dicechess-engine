@@ -77,8 +77,31 @@ strength requires a controlled comparison. Adding a feature does not justify a
 fixed positive evaluation bonus.
 
 The engine does not apply a PDI weight to any built-in bot or append PDI to existing
-ONNX feature vectors. Introduce an explicit feature-schema version and matching
-model before changing a model's inputs.
+ONNX feature vectors.
+
+### Versioned rich-PDI input
+
+`RichPdiFeatures` exposes the opt-in schema `rich-pdi-11-v1`. Its `columnNames`
+and `extract(state, color)` are the CSV and ONNX contract:
+
+```text
+p_diff,n_diff,b_diff,r_diff,q_diff,material_diff,total_material,mobility_diff,king_safety_diff,own_pdi,opponent_pdi
+```
+
+The first nine float32 values are exactly `RichFeatures.extract(state, color)`.
+The last two are `PieceDiversity.count(state, color) / 5f` and the same quantity
+for `color.opponent`: each is one of 0, 0.2, 0.4, 0.6, 0.8, 1. They swap when
+the evaluation perspective changes; they are not signed differences. The explicit
+perspective remains authoritative even after `endTurn()` changes the active side.
+
+Pass `RichPdiFeatures.extract` to the JVM ONNX evaluator or select
+`--features rich-pdi-11-v1` in an arena runner with an eleven-input model.
+The tensor contract is float32 `[batch, 11]`; existing `rich` models still take
+nine columns. Training consumers must read all eleven engine-enriched columns
+in this order, including material, rather than recomputing a subset independently.
+
+Changing the layout, normalization, or definition requires a new schema identifier
+and a matching trained model. Schema availability alone is not evidence of strength.
 
 ## Tests and measurement
 

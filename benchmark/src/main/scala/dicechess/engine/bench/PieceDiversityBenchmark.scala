@@ -1,7 +1,7 @@
 package dicechess.engine.bench
 
 import dicechess.engine.domain.*
-import dicechess.engine.search.PieceDiversity
+import dicechess.engine.search.{PieceDiversity, RichFeatures, RichPdiFeatures}
 import org.openjdk.jmh.annotations.*
 
 import java.util.concurrent.TimeUnit
@@ -24,6 +24,12 @@ class PieceDiversityBenchmark:
   @Setup(Level.Trial)
   def setup(): Unit =
     state = BenchmarkPositions.parse(BenchmarkPositions.AllPositions(position))
+
+  @Benchmark
+  def rich(): Array[Float] = RichFeatures.extract(state, Color.White)
+
+  @Benchmark
+  def richPdi(): Array[Float] = RichPdiFeatures.extract(state, Color.White)
 
   @Benchmark
   def count(): Int = PieceDiversity.count(state, Color.White)
