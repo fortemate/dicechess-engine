@@ -7,7 +7,7 @@ import org.openjdk.jmh.annotations.*
 import java.util.concurrent.TimeUnit
 import scala.compiletime.uninitialized
 
-/** Measures the standalone, unweighted PDI primitives across different material configurations. */
+/** Isolates PDI primitive cost from search and evaluator overhead across representative material configurations. */
 @BenchmarkMode(Array(Mode.AverageTime))
 @OutputTimeUnit(TimeUnit.NANOSECONDS)
 @Warmup(iterations = 3, time = 1, timeUnit = TimeUnit.SECONDS)

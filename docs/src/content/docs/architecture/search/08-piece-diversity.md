@@ -84,7 +84,8 @@ model before changing a model's inputs.
 
 The shared semantic suite covers every non-king type for both colors, duplicate
 and last-piece captures, both difference bounds, color and dice invariance,
-blocked pieces, promotion transitions, terminal kings, and state immutability.
+blocked and pinned pieces, empty and fully occupied boards, promotion transitions,
+terminal kings, and state immutability.
 It runs on JVM, JavaScript, and WebAssembly.
 
 `PieceDiversityBenchmark` measures the standalone count and difference on opening,
