@@ -1,10 +1,33 @@
 package dicechess.engine.search
 
+import java.net.URL
+import java.nio.file.{Files, Paths}
+
+import ai.onnxruntime.OrtException
 import dicechess.engine.domain.*
 import munit.FunSuite
 
 class RichPdiOnnxSpec extends FunSuite:
-  private val modelPath = getClass.getResource("/synthetic_pdi_test_model.onnx").getPath
+  private def modelFilePath(resource: URL): String = Paths.get(resource.toURI).toString
+
+  private val modelPath = modelFilePath(
+    Option(getClass.getResource("/synthetic_pdi_test_model.onnx"))
+      .getOrElse(fail("Missing test resource: /synthetic_pdi_test_model.onnx"))
+  )
+
+  test("ONNX fixture loads from a URL containing percent-encoded spaces"):
+    val directory = Files.createTempDirectory("rich pdi ")
+    val copy      = directory.resolve("synthetic model.onnx")
+    try
+      val _   = Files.copy(Paths.get(modelPath), copy)
+      val bot = new OnnxEvalSearch(modelFilePath(copy.toUri.toURL), RichPdiFeatures.extract)
+      try
+        val state = FenParser.parse(FenParser.InitialPosition).toOption.get
+        assert(math.abs(bot.onnxEval(state, Color.White) - 9000) <= 1)
+      finally bot.close()
+    finally
+      val _ = Files.deleteIfExists(copy)
+      val _ = Files.deleteIfExists(directory)
 
   test("eleven-column ONNX wiring preserves normalized perspective in single and batched inference"):
     val states = Array(
@@ -22,6 +45,11 @@ class RichPdiOnnxSpec extends FunSuite:
     finally bot.close()
 
   test("legacy rich-9 cannot be silently passed to an eleven-input model"):
-    val bot = new OnnxEvalSearch(modelPath, RichFeatures.extract)
-    try intercept[Exception](bot.onnxEval(FenParser.parse(FenParser.InitialPosition).toOption.get, Color.White))
+    val bot   = new OnnxEvalSearch(modelPath, RichFeatures.extract)
+    val state = FenParser.parse(FenParser.InitialPosition).toOption.get
+    try
+      val error   = intercept[OrtException](bot.onnxEval(state, Color.White))
+      val message = Option(error.getMessage).getOrElse(fail("ONNX shape error has no message"))
+      assert(message.contains("input"), message)
+      assert(message.contains("Got: 9 Expected: 11"), message)
     finally bot.close()
