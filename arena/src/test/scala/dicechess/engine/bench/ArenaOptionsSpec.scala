@@ -104,3 +104,14 @@ class ArenaOptionsSpec extends FunSuite:
     assert(command.parse(Seq("--sprt", "-2,2,NaN,0.05"), sys.env).isLeft)
     assert(command.parse(Seq("--sprt", "-2,2,0.05,Infinity"), sys.env).isLeft)
   }
+
+  test("PDI selector is opt-in and dispatches the eleven-column extractor") {
+    val command = Command("test", "test")(ArenaOptions.featuresOpt())
+    assertEquals(command.parse(Seq.empty, sys.env).toOption, Some("rich"))
+    assertEquals(command.parse(Seq("--features", "rich-pdi-11-v1"), sys.env).toOption, Some("rich-pdi-11-v1"))
+    val state = dicechess.engine.domain.FenParser.parse(dicechess.engine.domain.FenParser.InitialPosition).toOption.get
+    assertEquals(
+      ArenaOptions.extractFeatures("rich-pdi-11-v1")(state, dicechess.engine.domain.Color.White).toList,
+      dicechess.engine.search.RichPdiFeatures.extract(state, dicechess.engine.domain.Color.White).toList
+    )
+  }

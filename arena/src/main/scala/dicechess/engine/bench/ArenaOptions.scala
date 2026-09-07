@@ -98,7 +98,7 @@ private[bench] object ArenaOptions:
     * Shared rather than inlined per option: a runner that takes a feature set for each of two sides would otherwise
     * carry a second copy of this list, and the copies drift the moment a set is added.
     */
-  val FeatureSets: List[String] = List("material", "rich", "kcp", "rawboard")
+  val FeatureSets: List[String] = List("material", "rich", "rich-pdi-11-v1", "kcp", "rawboard")
 
   val optionalRescoreFeaturesOpt: Opts[Option[String]] =
     Opts
@@ -119,11 +119,12 @@ private[bench] object ArenaOptions:
       featureSet: String
   ): (dicechess.engine.domain.GameState, dicechess.engine.domain.Color) => Array[Float] =
     featureSet.toLowerCase match
-      case "material" => dicechess.engine.search.OnnxFeatures.extract
-      case "rich"     => dicechess.engine.search.RichFeatures.extract
-      case "kcp"      => dicechess.engine.search.KcpFeatures.extract
-      case "rawboard" => dicechess.engine.search.RawBoardFeatures.extract
-      case other      => sys.error(s"Unknown feature set '$other'")
+      case "material"       => dicechess.engine.search.OnnxFeatures.extract
+      case "rich"           => dicechess.engine.search.RichFeatures.extract
+      case "rich-pdi-11-v1" => dicechess.engine.search.RichPdiFeatures.extract
+      case "kcp"            => dicechess.engine.search.KcpFeatures.extract
+      case "rawboard"       => dicechess.engine.search.RawBoardFeatures.extract
+      case other            => sys.error(s"Unknown feature set '$other'")
 
   private val limitMustBePositive = "limit must be > 0"
 
