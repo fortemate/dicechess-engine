@@ -55,7 +55,7 @@ object PassedPawns:
       idx += 1
     arr
 
-  /** Returns a [[Bitboard]] of all passed pawns belonging to `color`. */
+  /** Returns a [[dicechess.engine.domain.Bitboard]] of all passed pawns belonging to `color`. */
   def bitboard(state: GameState, color: Color): Bitboard =
     val myPieces  = if color.isWhite then state.whitePieces else state.blackPieces
     val oppPieces = if color.isWhite then state.blackPieces else state.whitePieces
@@ -70,7 +70,6 @@ object PassedPawns:
       p &= (p - 1L)
     Bitboard(passed)
 
-  /** Returns the number of passed pawns for `color`. */
   def count(state: GameState, color: Color): Int =
     bitboard(state, color).count
 
@@ -91,7 +90,6 @@ object PassedPawns:
         p &= (p - 1L)
       max
 
-  /** Returns a tuple `(count, maxRank)` of passed pawn count and most advanced rank for `color`. */
   def countAndMaxRank(state: GameState, color: Color): (Int, Int) =
     val bb = bitboard(state, color).value
     if bb == 0L then (0, 0)

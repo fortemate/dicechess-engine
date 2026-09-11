@@ -108,8 +108,8 @@ the vector matches that of the color-flipped state evaluated for its own mover.
 ### Expected Wasted Rolls
 
 In Dice Chess, a turn rolls 3 dice from a uniform 6-sided die $\{P, N, B, R, Q, K\}$.
-If a side has zero legal moves for a piece type $T$, any die face showing $T$ cannot
-be used for that type.
+If a side has zero pseudo-legal moves for a piece type $T$ (and therefore zero legal moves),
+any die face showing $T$ cannot be used for that type.
 
 For a single die roll, the probability that the rolled piece type has no move is:
 
@@ -157,5 +157,6 @@ Microbenchmarks on OpenJDK 25 (Temurin 25.0.4) compare extraction overhead acros
 
 The 216-outcome DFS search for king/queen capture probabilities in `kcp` dominates
 total extraction time (hundreds of microseconds to tens of milliseconds). The additional
-per-type move counting ($\sim 0.3\,\mu s$) and passed-pawn bitboard probe ($\sim 0.01\,\mu s$)
-add less than 0.1% overhead.
+per-type move counting ($\sim 0.10\text{–}0.44\,\mu s$) and passed-pawn bitboard probe ($\sim 0.01\,\mu s$)
+add under $0.01\%$ overhead on complex positions (e.g. $0.44\,\mu s$ on kiwipete's $17.6\,\text{ms}$)
+and under $0.55\%$ on the fastest sparse positions ($0.44\,\mu s$ on promotion's $79\,\mu s$).

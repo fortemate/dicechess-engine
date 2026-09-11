@@ -23,17 +23,15 @@ object KcpMobilityPawnsFeatures:
     )
 
   def extract(state: GameState, color: Color): Array[Float] =
-    val prefix           = KcpMobilityFeatures.extract(state, color)
-    val opponent         = color.opponent
-    val ownPassedCount   = PassedPawns.count(state, color).toFloat
-    val oppPassedCount   = PassedPawns.count(state, opponent).toFloat
-    val ownPassedMaxRank = PassedPawns.maxRank(state, color).toFloat
-    val oppPassedMaxRank = PassedPawns.maxRank(state, opponent).toFloat
+    val prefix                 = KcpMobilityFeatures.extract(state, color)
+    val opponent               = color.opponent
+    val (ownCount, ownMaxRank) = PassedPawns.countAndMaxRank(state, color)
+    val (oppCount, oppMaxRank) = PassedPawns.countAndMaxRank(state, opponent)
 
     val result = new Array[Float](31)
     System.arraycopy(prefix, 0, result, 0, 27)
-    result(27) = ownPassedCount
-    result(28) = oppPassedCount
-    result(29) = ownPassedMaxRank
-    result(30) = oppPassedMaxRank
+    result(27) = ownCount.toFloat
+    result(28) = oppCount.toFloat
+    result(29) = ownMaxRank.toFloat
+    result(30) = oppMaxRank.toFloat
     result

@@ -35,6 +35,11 @@ class PieceMobilitySpec extends FunSuite:
       assertEquals(counts(0), 0)
       assertEquals(PieceMobility.count(state, color, PieceType.Pawn), 0)
 
+  test("pinned piece still contributes its pseudo-legal moves"):
+    val state = parse("k3r3/8/8/8/8/8/4N3/4K3 w - - 0 1")
+    assertEquals(PieceMobility.count(state, Color.White, PieceType.Knight), 6)
+    assertEquals(PieceMobility.counts(state, Color.White)(1), 6)
+
   test("sum(own_moves) - sum(opp_moves) strictly equals RichFeatures mobility_diff on diverse positions"):
     val fens = List(
       FenParser.InitialPosition,

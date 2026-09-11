@@ -84,6 +84,9 @@ class KcpMobilityFeaturesSpec extends FunSuite:
     val positions = List(
       "initial"          -> parse(FenParser.InitialPosition),
       "bare kings"       -> parse("4k3/8/8/8/8/8/8/4K3 w - - 0 1"),
+      "empty board"      -> parse("8/8/8/8/8/8/8/8 w - - 0 1"),
+      "full board"       -> parse("rnbqkbnr/pppppppp/nnnnnnnn/rrrrrrrr/RRRRRRRR/NNNNNNNN/PPPPPPPP/RNBQKBNR w - - 0 1"),
+      "pinned piece"     -> parse("k3r3/8/8/8/8/8/4N3/4K3 w - - 0 1"),
       "blocked chain"    -> parse("4k3/8/8/p1p1p1p1/P1P1P1P1/8/8/4K3 w - - 0 1"),
       "promotion-passed" -> parse("k7/4P3/8/8/8/8/8/4K3 w - - 0 1"),
       "kiwipete"         -> parse("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"),
