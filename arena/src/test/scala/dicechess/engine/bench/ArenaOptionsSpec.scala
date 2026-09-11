@@ -115,3 +115,24 @@ class ArenaOptionsSpec extends FunSuite:
       dicechess.engine.search.RichPdiFeatures.extract(state, dicechess.engine.domain.Color.White).toList
     )
   }
+
+  test("mobility selectors are opt-in and dispatch 27- and 31-column extractors") {
+    val command = Command("test", "test")(ArenaOptions.featuresOpt())
+    assertEquals(
+      command.parse(Seq("--features", "kcp-mobility-27-v1"), sys.env).toOption,
+      Some("kcp-mobility-27-v1")
+    )
+    assertEquals(
+      command.parse(Seq("--features", "kcp-mobility-pawns-31-v1"), sys.env).toOption,
+      Some("kcp-mobility-pawns-31-v1")
+    )
+    val state = dicechess.engine.domain.FenParser.parse(dicechess.engine.domain.FenParser.InitialPosition).toOption.get
+    assertEquals(
+      ArenaOptions.extractFeatures("kcp-mobility-27-v1")(state, dicechess.engine.domain.Color.White).toList,
+      dicechess.engine.search.KcpMobilityFeatures.extract(state, dicechess.engine.domain.Color.White).toList
+    )
+    assertEquals(
+      ArenaOptions.extractFeatures("kcp-mobility-pawns-31-v1")(state, dicechess.engine.domain.Color.White).toList,
+      dicechess.engine.search.KcpMobilityPawnsFeatures.extract(state, dicechess.engine.domain.Color.White).toList
+    )
+  }
