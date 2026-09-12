@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 package dicechess.engine.bench
 
 import com.sun.net.httpserver.{HttpExchange, HttpHandler, HttpServer}

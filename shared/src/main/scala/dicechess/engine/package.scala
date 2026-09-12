@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 package dicechess
 
 /** Core library and entry points for the Dice Chess Engine.

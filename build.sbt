@@ -14,7 +14,7 @@ ThisBuild / version              := "0.9.3-SNAPSHOT"
 ThisBuild / scalaVersion         := "3.9.0"
 
 ThisBuild / description   := "Cross-platform high-performance Dice Chess engine, move generator, and AI search."
-ThisBuild / licenses      := List(License("AGPL-3.0", uri("https://www.gnu.org/licenses/agpl-3.0.txt")))
+ThisBuild / licenses      := List(License("AGPL-3.0-only", uri("https://www.gnu.org/licenses/agpl-3.0.txt")))
 ThisBuild / versionScheme := Some("early-semver")
 
 ThisBuild / scmInfo := Some(

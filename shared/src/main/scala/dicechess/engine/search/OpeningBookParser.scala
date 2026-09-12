@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 package dicechess.engine.search
 
 /** Validates and parses opening-book TSV data, rejecting malformed entries before bot registration.

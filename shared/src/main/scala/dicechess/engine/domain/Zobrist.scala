@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 package dicechess.engine.domain
 
 /** Deterministic Zobrist hashing for Dice Chess game states.

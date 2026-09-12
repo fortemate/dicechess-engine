@@ -65,6 +65,8 @@ jobs:
           node-version: "26"
       - name: Test immutable npm artifact handoff
         run: bash .mise/lib/test-npm-release-handoff.sh
+      - name: SPDX headers
+        run: bash .mise/lib/check-spdx.sh
       - name: Show sbt version
         run: sbt --version
       - name: scalafmt check

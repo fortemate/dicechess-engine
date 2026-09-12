@@ -109,4 +109,4 @@ const acceptDraw = DiceChess.shouldBotAcceptDraw(finalDfen);
 
 ## License
 
-This package is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+This package is licensed under the GNU Affero General Public License v3.0 only (SPDX `AGPL-3.0-only`).

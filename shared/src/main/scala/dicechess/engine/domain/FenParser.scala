@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 package dicechess.engine.domain
 
 import scala.util.boundary, boundary.break

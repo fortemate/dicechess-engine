@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 package dicechess.engine.bench
 
 /** Sequential Probability Ratio Test for "is the bot under test stronger than the baseline" (#522) — ported from

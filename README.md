@@ -4,7 +4,7 @@
 [![CI Pipeline](https://github.com/fortemate/dicechess-engine/actions/workflows/ci.yaml/badge.svg)](https://github.com/fortemate/dicechess-engine/actions/workflows/ci.yaml)
 [![Architecture Docs](https://img.shields.io/badge/Docs-Architecture-orange)](https://fortemate.github.io/dicechess-engine/)
 [![Scaladoc API](https://img.shields.io/badge/Scaladoc-API-blue)](https://fortemate.github.io/dicechess-engine/api/)
-[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
+[![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-blue.svg)](LICENSE)
 
 An open-source, high-performance, cross-platform game engine and AI search for **Dice Chess**, built with **Scala 3** targeting **JVM**, **JavaScript (Scala.js)**, and **WebAssembly (WasmGC)**.
 
@@ -116,6 +116,6 @@ public class BotExample {
 
 ## 📄 License & Contributing
 
-- Licensed under **[AGPL-3.0](LICENSE)**.
+- Licensed under **[AGPL-3.0-only](LICENSE)** (SPDX `AGPL-3.0-only`; the GNU Affero General Public License version 3, without the "or any later version" option).
 - Contributions require signing the [Contributor License Agreement](CLA.md) (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 - Security vulnerability reports should follow [SECURITY.md](SECURITY.md).

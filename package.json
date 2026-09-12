@@ -45,7 +45,7 @@
 			"url": "https://github.com/rabestro"
 		}
 	],
-	"license": "AGPL-3.0",
+	"license": "AGPL-3.0-only",
 	"engines": {
 		"node": ">=18"
 	},

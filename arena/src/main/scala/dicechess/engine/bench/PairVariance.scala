@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 package dicechess.engine.bench
 
 /** Turns a match's outcome histograms into the only number that decides whether a comparison was worth running: how

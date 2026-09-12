@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 package dicechess.engine.bench
 
 /** Which search an arena runner puts over an ONNX model.

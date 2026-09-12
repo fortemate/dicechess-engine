@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 package dicechess.engine.search
 
 /** The probability distribution of a single Dice Chess roll (3d6), as the chance-node primitive shared by every

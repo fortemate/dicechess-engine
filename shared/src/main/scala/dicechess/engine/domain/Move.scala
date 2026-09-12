@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 package dicechess.engine.domain
 
 /** A highly optimized 16-bit encoded chess move.
