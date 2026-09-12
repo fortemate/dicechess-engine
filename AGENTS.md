@@ -20,7 +20,7 @@ via mise). If a tool is missing, run `bash scripts/jules-setup.sh` instead of in
 
 ## Project context
 
-- Public repository, AGPL-3.0 (see `LICENSE`); contributions require a CLA (`CLA.md`, part of an open-core strategy) — external contributors sign inside their first PR (`.github/cla-signatures.json`, enforced by the `CI: CLA` workflow).
+- Public repository, AGPL-3.0-only (see `LICENSE`); contributions require a CLA (`CLA.md`, part of an open-core strategy) — external contributors sign inside their first PR (`.github/cla-signatures.json`, enforced by the `CI: CLA` workflow).
 - Ships three artifacts per release: Maven Central jar `com.fortemate:dicechess-engine_3` (JVM), npmjs.org `@fortemate/dicechess-engine` (Scala.js, from `dist/`), and npmjs.org `@fortemate/dicechess-engine-wasm` (WebAssembly, from `dist-wasm/`). All three are also published to GitHub Packages as authenticated mirrors.
 - Published contracts consumed by dicechess-analytics, the play site, and bots:
   - The DFEN string format (FEN extended with a 7th field = remaining dice pool) — parser in `shared/src/main/scala/dicechess/engine/domain/FenParser.scala`, canonicalization in `movegen/Dfen.scala`.
