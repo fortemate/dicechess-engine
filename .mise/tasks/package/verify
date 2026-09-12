@@ -90,6 +90,7 @@ NODE
 
 verify_package \
   '@fortemate/dicechess-engine' \
+  LICENSE \
   README.md \
   dicechess-engine.d.ts \
   dicechess-engine.js \
@@ -97,6 +98,7 @@ verify_package \
 
 verify_package \
   '@fortemate/dicechess-engine-wasm' \
+  LICENSE \
   README.md \
   __loader.js \
   dicechess-engine.d.ts \

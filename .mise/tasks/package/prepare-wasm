@@ -51,6 +51,7 @@ rm dist-wasm/package.json.bak
 cp target/out/sjs1/scala-3.*/dicechess-engine-wasm/dicechess-engine-wasm-opt/* dist-wasm/
 cp js/dicechess-engine.d.ts dist-wasm/
 cp js/README.md dist-wasm/README.md
+cp LICENSE dist-wasm/LICENSE
 
 # Compile optimized package.json for NPM publication (flattened paths, no 'files' field needed)
 jq --arg ver "$CLEAN_VERSION" '
