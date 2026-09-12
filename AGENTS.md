@@ -135,7 +135,7 @@ Common failure signatures:
 - `git add` new `.scala` files **before** `mise run format`: `sbt scalafmtAll` skips untracked files, then the native-scalafmt pre-commit hook fails the commit.
 - Do not "optimize" the `check` task order: `clean` runs before `scalafmtCheckAll` deliberately — sbt-scalafmt's warm cache can skip a misformatted file (#354).
 - `publish.yaml` and `release.yaml` duplicate Maven Central and GitHub Packages steps intentionally: tags created by `release.yaml` via `GITHUB_TOKEN` do not trigger `publish.yaml` (GitHub anti-recursion). Both dispatch and wait for the canonical `npm-publish.yaml` Trusted Publishing workflow because npm permits only one trusted publisher per package. Edit both entry points in sync and keep npmjs.org publication inside the canonical workflow.
-- `deploy-docs.yaml` dynamically discovers `target/out/jvm/scala-<version>/dicechess-engine/api` for the Scaladoc merge.
+- `deploy-docs.yaml` dynamically discovers `target/out/jvm/scala-<version>/dicechess-api-docs/api` (the unified `apiDocs/doc` output) for the Scaladoc merge.
 - Turn maximality is measured in **dice consumed, not move count** — castling spends two dice in one move; the active color never changes within a turn. Regression suites: `TurnGeneratorSuite` (#347), `EnPassantMicroMoveSuite`.
 - The engine does **not** support Chess960 castling — squares e1/h1/a1 are hardcoded.
 - Root `package.json` version is dead weight — the real version comes from sbt at `package:prepare` time. Never "fix" or trust it.
