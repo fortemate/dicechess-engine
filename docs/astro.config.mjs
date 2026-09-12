@@ -64,6 +64,7 @@ export default defineConfig({
 				{
 					label: 'Developer Experience',
 					items: [
+						{ label: 'Published Artifacts & Migration', slug: 'architecture/artifacts' },
 						{ label: 'JavaScript API Reference', slug: 'architecture/javascript-api' },
 						{ label: 'JVM API Reference', slug: 'architecture/jvm-api' },
 						{ label: 'NPM Packaging & Local Integration', slug: 'guidelines/npm-packaging' },

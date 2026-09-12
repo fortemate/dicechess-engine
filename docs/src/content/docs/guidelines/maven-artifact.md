@@ -11,14 +11,19 @@ re-implementing game logic.
 Non-Scala JVM callers (Java, Kotlin) bind to a dedicated facade rather than to the Scala API
 directly — see [Consuming from Java or Kotlin](#consuming-from-java-or-kotlin) below.
 
-Every release publishes the JVM artifact alongside the NPM package:
+Every release publishes two JVM coordinates alongside the NPM packages, at one shared version:
 
-| Coordinate | Value |
-| :--- | :--- |
-| Group ID | `com.fortemate` |
-| Artifact ID | `dicechess-engine_3` |
-| Canonical registry | [Maven Central](https://central.sonatype.com/artifact/com.fortemate/dicechess-engine_3) |
-| Authenticated mirror | [GitHub Packages](https://github.com/fortemate/dicechess-engine/packages/3201398) |
+| | `dicechess-rules_3` (from 0.11.0) | `dicechess-engine_3` |
+| :--- | :--- | :--- |
+| Group ID | `com.fortemate` | `com.fortemate` |
+| Contents | rules only: domain model, DFEN, move generation, legal turns, dice probabilities | bots, evaluators, feature extractors, `JvmApi`; depends on `dicechess-rules_3` |
+| Canonical registry | [Maven Central](https://central.sonatype.com/artifact/com.fortemate/dicechess-rules_3) | [Maven Central](https://central.sonatype.com/artifact/com.fortemate/dicechess-engine_3) |
+| Authenticated mirror | [GitHub Packages](https://github.com/orgs/fortemate/packages?repo_name=dicechess-engine) | [GitHub Packages](https://github.com/fortemate/dicechess-engine/packages/3201398) |
+
+Which coordinate a project needs, and how a rules-only consumer switches, is covered in
+[Published Artifacts & Rules-Only Migration](/dicechess-engine/architecture/artifacts/). The rest of
+this page uses the engine coordinate in its examples; a rules-only project substitutes
+`dicechess-rules` / `dicechess-rules_3`.
 
 ---
 
@@ -29,6 +34,7 @@ authentication is needed.
 
 ```scala
 libraryDependencies += "com.fortemate" %% "dicechess-engine" % "<latest release>"
+// rules only (0.11.0+): "com.fortemate" %% "dicechess-rules" % "<latest release>"
 ```
 
 ### ONNX Consumers Declare `onnxruntime` Directly
