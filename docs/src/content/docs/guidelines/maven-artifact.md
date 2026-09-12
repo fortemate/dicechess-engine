@@ -31,6 +31,38 @@ authentication is needed.
 libraryDependencies += "com.fortemate" %% "dicechess-engine" % "<latest release>"
 ```
 
+### ONNX Consumers Declare `onnxruntime` Directly
+
+The published `dicechess-engine_3` POM marks `com.microsoft.onnxruntime:onnxruntime` as an **optional** dependency (`<optional>true</optional>`). This prevents downstream rules-only consumers (such as `dicechess-play-api` or analytics services) from dragging in the ~54 MB ONNX native binaries when they do not evaluate ML models.
+
+Consumers that use ONNX-backed search bots ([`OnnxEvalSearch`](/dicechess-engine/architecture/search/07-onnx-integration/#onnxevalsearch), [`OnnxExpectimaxSearch`](/dicechess-engine/architecture/search/07-onnx-integration/#onnxexpectimaxsearch)) must declare `onnxruntime` directly in their own build configuration and pin version **`1.29.0`**:
+
+#### sbt
+
+```scala
+libraryDependencies ++= Seq(
+  "com.fortemate"          %% "dicechess-engine" % "<latest release>",
+  "com.microsoft.onnxruntime" % "onnxruntime"    % "1.29.0"
+)
+```
+
+#### Maven
+
+```xml
+<dependencies>
+    <dependency>
+        <groupId>com.fortemate</groupId>
+        <artifactId>dicechess-engine_3</artifactId>
+        <version>${dicechess.engine.version}</version>
+    </dependency>
+    <dependency>
+        <groupId>com.microsoft.onnxruntime</groupId>
+        <artifactId>onnxruntime</artifactId>
+        <version>1.29.0</version>
+    </dependency>
+</dependencies>
+```
+
 ---
 
 ## Consuming from Java or Kotlin
