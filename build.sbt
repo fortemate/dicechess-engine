@@ -80,6 +80,34 @@ def layout(platformDir: String) = Seq(
   )
 )
 
+// The rules artifact has no platform-specific sources: one shared-rules/ root for every row.
+def rulesLayout = Seq(
+  Compile / unmanagedSourceDirectories := Seq(
+    (ThisBuild / baseDirectory).value / "shared-rules" / "src" / "main" / "scala"
+  ),
+  Test / unmanagedSourceDirectories := Seq(
+    (ThisBuild / baseDirectory).value / "shared-rules" / "src" / "test" / "scala"
+  ),
+  Compile / unmanagedResourceDirectories := Seq(
+    (ThisBuild / baseDirectory).value / "shared-rules" / "src" / "main" / "resources"
+  ),
+  Test / unmanagedResourceDirectories := Seq(
+    (ThisBuild / baseDirectory).value / "shared-rules" / "src" / "test" / "resources"
+  )
+)
+
+// Coverage metadata guard shared by every JVM row that runs under scoverage (#531).
+def coverageDataCheckSetting = coverageDataCheck := Def.uncached {
+  val metadata = coverageDataDir.value / "scoverage-data" / "scoverage.coverage"
+  if (!metadata.isFile)
+    sys.error(
+      s"""Coverage instrumentation metadata is missing: $metadata
+         |The compiler did not run, so nothing was measured. Re-run against a cold cache:
+         |  mise run coverage""".stripMargin
+    )
+  streams.value.log.info(s"Coverage instrumentation metadata present: $metadata")
+}
+
 lazy val commonSettings = Seq(
   name := "dicechess-engine",
   libraryDependencies ++= Seq(
@@ -105,7 +133,51 @@ lazy val commonSettings = Seq(
   )
 )
 
+// =============================================================================
+// dicechess-rules: rule validation, move generation, legal turn enumeration, DFEN, exact
+// king-capture probabilities. Zero third-party dependencies. The moved objects keep the package
+// `dicechess.engine.search` (split package across the two jars, see ADR 009 / #218).
+// =============================================================================
+lazy val rules = (projectMatrix in file("shared-rules"))
+  .settings(commonSettings)
+  .settings(
+    name        := "dicechess-rules",
+    description := "Dice Chess rules core: domain model, DFEN, bitboard move generation, legal turn enumeration."
+  )
+  .defaultAxes(VirtualAxis.scalaABIVersion(ScalaV))
+  .jvmPlatform(
+    scalaVersions = Seq(ScalaV),
+    settings = rulesLayout ++ Seq(
+      coverageMinimumStmtTotal := 95, // measured 98.89 % statement coverage at the split (#218)
+      Test / exportJars        := false,
+      coverageDataCheckSetting,
+      Compile / doc / scalacOptions ++= Seq(
+        "-project",
+        name.value,
+        "-project-version",
+        version.value,
+        "-project-footer",
+        "Fortemate Dice Chess Rules",
+        "-social-links:github::https://github.com/fortemate/dicechess-engine",
+        "-groups",
+        "-author"
+      )
+    )
+  )
+  .jsPlatform(
+    scalaVersions = Seq(ScalaV),
+    settings = rulesLayout ++ Seq(
+      coverageEnabled                 := false,
+      scalaJSUseMainModuleInitializer := false,
+      scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.ESModule) }
+    )
+  )
+
+lazy val rulesJVM = rules.jvm(ScalaV)
+lazy val rulesJS  = rules.js(ScalaV)
+
 lazy val root = (projectMatrix in file("."))
+  .dependsOn(rules % "compile->compile;test->test")
   .settings(commonSettings)
   .defaultAxes(VirtualAxis.scalaABIVersion(ScalaV))
   .jvmPlatform(
@@ -114,19 +186,7 @@ lazy val root = (projectMatrix in file("."))
       coverageMinimumStmtTotal                          := 90,
       libraryDependencies += "com.microsoft.onnxruntime" % "onnxruntime" % OnnxRuntimeV % Optional,
       Test / exportJars                                 := false,
-      coverageDataCheck                                 := Def.uncached {
-        val metadata = coverageDataDir.value / "scoverage-data" / "scoverage.coverage"
-        if (!metadata.isFile)
-          sys.error(
-            s"""Coverage instrumentation metadata is missing: $metadata
-               |
-               |The compiler did not run, so nothing was measured and the coverage
-               |threshold could not be enforced (see #531). Re-run against a cold cache:
-               |
-               |  mise run coverage""".stripMargin
-          )
-        streams.value.log.info(s"Coverage instrumentation metadata present: $metadata")
-      },
+      coverageDataCheckSetting,
       assertNoCoverageInstrumentation := Def.uncached {
         val jar    = fileConverter.value.toPath((Compile / packageBin).value).toFile
         val marker = "scala/runtime/coverage/Invoker"
@@ -220,7 +280,7 @@ lazy val rootJS  = root.js(ScalaV)
 
 // Explicit root aggregate project to avoid sbt 2 empty synthetic root issues.
 lazy val dicechessEngine = (project in file("."))
-  .aggregate(rootJVM, rootJS, rootWasm, benchmark, arena, cli)
+  .aggregate(rulesJVM, rulesJS, rootJVM, rootJS, rootWasm, rulesSmoke, benchmark, arena, cli)
   .settings(
     name := "dicechess-engine-aggregate",
     // sonaRelease runs from this unpublished aggregate project. Override sbt's default
@@ -239,6 +299,7 @@ lazy val dicechessEngine = (project in file("."))
 
 lazy val rootWasm = project
   .in(file(".wasm"))
+  .dependsOn(rulesJS % "compile->compile;test->test")
   .enablePlugins(ScalaJSPlugin)
   .settings(commonSettings)
   .settings(layout("js"))
@@ -317,4 +378,17 @@ lazy val cli = project
         )
       streams.value.log.info(s"Coverage instrumentation metadata present: $metadata")
     }
+  )
+
+// Consumer smoke check for the rules artifact (#218): compiles and runs against rulesJVM ALONE, so a
+// rules-only program must work without a single search class or onnxruntime on the classpath.
+lazy val rulesSmoke = project
+  .in(file("rules-smoke"))
+  .dependsOn(rulesJVM)
+  .settings(commonSettings)
+  .settings(
+    name                    := "dicechess-rules-smoke",
+    publish / skip          := true,
+    coverageEnabled         := false,
+    Compile / doc / sources := Seq.empty
   )

@@ -12,7 +12,8 @@ import dicechess.engine.movegen.MoveGenerator
   *   - A path is legal if it ends with a King capture (win condition), *or*
   *   - it consumes the maximum achievable number of dice (castling spends two dice in a single move).
   *
-  * This object is used by [[SearchAlgorithm]] implementations to obtain the candidate set before scoring.
+  * Search algorithms (the `SearchAlgorithm` implementations shipped in the `dicechess-engine` artifact) use this object
+  * to obtain the candidate set before scoring; servers and clients use it for rule validation.
   *
   * @note
   *   Active color is kept constant throughout the turn — it is *not* toggled between micro-moves. `makeMove` preserves

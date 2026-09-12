@@ -92,7 +92,7 @@ For complex, multi-move path-optimization rules under Dice Chess mechanics, stan
 
 ### 1. Golden Test Suites via ChessDsl
 
-All move generator golden test cases are structured directly in Scala in `shared/src/test/scala/dicechess/engine/movegen/MoveGenFixtures.scala` using our fluent DSL, categorized by the number of dice rolled:
+All move generator golden test cases are structured directly in Scala in `shared-rules/src/test/scala/dicechess/engine/movegen/MoveGenFixtures.scala` using our fluent DSL, categorized by the number of dice rolled:
 * `1-Die Scenarios` — 1-die fundamental leaper/slider moves.
 * `2-Dice Scenarios` — 2-dice micro-move sequences.
 * `3-Dice Scenarios` — 3-dice full turn path optimizations.
@@ -118,7 +118,7 @@ Example entry:
 
 ### 2. The Movegen Test DSL
 
-To keep our test files clean and type-safe, we extended our fluent DSL in `shared/src/test/scala/dicechess/engine/movegen/ChessDsl.scala`. This allows developers to dynamically construct and verify test cases using simple, readable extension methods:
+To keep our test files clean and type-safe, we extended our fluent DSL in `shared-rules/src/test/scala/dicechess/engine/movegen/ChessDsl.scala`. This allows developers to dynamically construct and verify test cases using simple, readable extension methods:
 
 ```scala
 import dicechess.engine.movegen.ChessDsl.*
