@@ -11,7 +11,8 @@
 #
 # Usage:
 #   maven-registry-state.sh <registry> <version> [<user> <token>]
-#     registry: 'central' (https://repo1.maven.org/maven2) or 'github'
+#     registry: 'central' (https://repo1.maven.org/maven2; <user> <token> = optional Central Portal
+#               user token, used only to confirm an all-404 verdict, see below) or 'github'
 #               (https://maven.pkg.github.com/fortemate/dicechess-engine, needs user + token)
 # Output (stdout, one per line, suitable for $GITHUB_OUTPUT):
 #   publish_rules=true|false
@@ -31,7 +32,11 @@ USER=${3:-}
 TOKEN=${4:-}
 
 case "$REGISTRY" in
-  central) BASE="https://repo1.maven.org/maven2/com/fortemate"; AUTH=() ;;
+  central)
+    BASE="https://repo1.maven.org/maven2/com/fortemate"
+    AUTH=()
+    PORTAL_API="${CENTRAL_PORTAL_API:-https://central.sonatype.com/api/v1/publisher}"
+    ;;
   github)
     BASE="https://maven.pkg.github.com/fortemate/dicechess-engine/com/fortemate"
     if [[ -z "$USER" || -z "$TOKEN" ]]; then
@@ -42,6 +47,33 @@ case "$REGISTRY" in
     ;;
   *) echo "error: unknown registry '$REGISTRY' (expected central|github)" >&2; exit 2 ;;
 esac
+
+# Central only. repo1.maven.org lags the Central Portal after `sonaRelease` (minutes, up to about
+# half an hour), so four 404s in a recovery run do not prove the version is unpublished, and a
+# second deployment of an existing version would fail. With Portal credentials the authoritative
+# published-status endpoint is asked first. Only a definite `"published": true` changes the verdict
+# (to skip); no credentials, 401, 5xx or a network error keep the repo1 verdict, so this check can
+# never block a release on its own.
+portal_says_published() { # $1 artifact → 0 when the Portal reports <artifact> <version> as published
+  [[ "$REGISTRY" == central && -n "$USER" && -n "$TOKEN" ]] || return 1
+  local bearer body status
+  bearer=$(printf '%s:%s' "$USER" "$TOKEN" | base64 | tr -d '\n')
+  body=$(mktemp)
+  status=$(curl --silent --location --header "Authorization: Bearer $bearer" --output "$body" \
+    --write-out '%{http_code}' --retry 3 \
+    "$PORTAL_API/published?namespace=com.fortemate&name=$1&version=$VERSION" || echo 000)
+  if [[ "$status" == 200 ]] && grep -Eq '"published"[[:space:]]*:[[:space:]]*true' "$body"; then
+    rm -f "$body"
+    return 0
+  fi
+  if [[ "$status" == 200 ]]; then
+    echo "$REGISTRY: the Central Portal reports $1 $VERSION as not published" >&2
+  else
+    echo "$REGISTRY: Central Portal published-status check for $1 $VERSION unavailable (HTTP $status); keeping the repo1 verdict" >&2
+  fi
+  rm -f "$body"
+  return 1
+}
 
 SUFFIXES=(.pom .jar -sources.jar -javadoc.jar)
 declare -A PROJECT_OF=([dicechess-rules_3]=rulesJVM [dicechess-engine_3]=rootJVM)
@@ -65,10 +97,15 @@ for ARTIFACT in dicechess-rules_3 dicechess-engine_3; do
     echo "publish_$key=false"
     echo "$REGISTRY: $ARTIFACT $VERSION is complete; skipping" >&2
   elif [[ "$missing" -eq "${#SUFFIXES[@]}" ]]; then
-    echo "publish_$key=true"
-    publish_projects+=("${PROJECT_OF[$ARTIFACT]}")
-    any=true
-    echo "$REGISTRY: $ARTIFACT $VERSION is absent; publishing" >&2
+    if portal_says_published "$ARTIFACT"; then
+      echo "publish_$key=false"
+      echo "$REGISTRY: $ARTIFACT $VERSION is published on the Central Portal and still synchronising to repo1.maven.org; skipping" >&2
+    else
+      echo "publish_$key=true"
+      publish_projects+=("${PROJECT_OF[$ARTIFACT]}")
+      any=true
+      echo "$REGISTRY: $ARTIFACT $VERSION is absent; publishing" >&2
+    fi
   else
     echo "::error::$REGISTRY: $ARTIFACT $VERSION is partial ($present present, $missing missing); refusing to overwrite an immutable version" >&2
     exit 1

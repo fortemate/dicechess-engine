@@ -151,6 +151,10 @@ def publishGuards = Seq(
       )
     streams.value.log.info(s"No bench classes in ${jar.getName}")
   },
+  // A direct `<row>/publish` or `publishLocal` must not bypass the jar guards either; the workflows
+  // still run them explicitly so a failure is reported before any registry is touched.
+  publishLocal := publishLocal.dependsOn(assertNoCoverageInstrumentation, assertNoBenchClasses).value,
+  publish      := publish.dependsOn(assertNoCoverageInstrumentation, assertNoBenchClasses).value,
   // Every published jar carries the licence text (#219). sbt 2 mappings are virtual-file based.
   Compile / packageBin / mappings += licenceMapping.value,
   Compile / packageSrc / mappings += licenceMapping.value,

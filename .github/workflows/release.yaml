@@ -192,8 +192,12 @@ jobs:
       - name: Check Maven Central for both coordinates
         id: maven
         env:
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
           RELEASE_VERSION: ${{ steps.bump_version.outputs.new_version }}
-        run: bash .mise/lib/maven-registry-state.sh central "$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+        # The Portal credentials only confirm an all-404 verdict against the authoritative
+        # published-status endpoint (repo1.maven.org lags a fresh deployment); see the script.
+        run: bash .mise/lib/maven-registry-state.sh central "$RELEASE_VERSION" "$SONATYPE_USERNAME" "$SONATYPE_PASSWORD" >> "$GITHUB_OUTPUT"
 
       - name: Import GPG signing key
         if: steps.maven.outputs.publish_any == 'true'

@@ -97,7 +97,12 @@ another incomplete, so every retry checks the exact package and version separate
   the POM plus main, sources, and javadoc jars. A complete coordinate is skipped, an absent one is
   published, a partial one fails closed. Only the absent coordinates are passed to
   `publish`/`publishSigned`, so a retry after a run that published the rules jar but not the engine
-  jar publishes exactly the engine jar.
+  jar publishes exactly the engine jar. Because `repo1.maven.org` lags a fresh Central Portal
+  deployment by minutes (up to about half an hour), an all-absent verdict on Maven Central is
+  confirmed against the Portal's published-status endpoint with the Sonatype credentials: a version
+  the Portal already reports as published is skipped instead of deployed twice. Any other answer from
+  the Portal (no credentials, 401, outage) keeps the `repo1` verdict, so the confirmation can never
+  block a release on its own.
 * Each GitHub Packages package uses an independent `npm view` against
   `https://npm.pkg.github.com`.
 * Each npmjs.org package uses an independent `npm view` against
