@@ -38,6 +38,7 @@ The published `dicechess-engine_3` POM marks `com.microsoft.onnxruntime:onnxrunt
 Consumers that use ONNX-backed search bots ([`OnnxEvalSearch`](/dicechess-engine/architecture/search/07-onnx-integration/#onnxevalsearch), [`OnnxExpectimaxSearch`](/dicechess-engine/architecture/search/07-onnx-integration/#onnxexpectimaxsearch)) must declare `onnxruntime` directly in their own build configuration and pin version **`1.29.0`**:
 
 #### sbt
+
 ```scala
 libraryDependencies ++= Seq(
   "com.fortemate"          %% "dicechess-engine" % "<latest release>",
@@ -46,6 +47,7 @@ libraryDependencies ++= Seq(
 ```
 
 #### Maven
+
 ```xml
 <dependencies>
     <dependency>
