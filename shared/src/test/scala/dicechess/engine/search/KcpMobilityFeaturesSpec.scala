@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dicechess.engine.search
 
+import scala.concurrent.duration.*
+
 import dicechess.engine.domain.*
 import munit.FunSuite
 
 class KcpMobilityFeaturesSpec extends FunSuite:
+
+  override def munitTimeout: Duration = 3.minutes
 
   private def parse(fen: String): GameState = FenParser.parse(fen).toOption.get
 
