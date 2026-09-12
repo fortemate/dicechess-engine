@@ -36,11 +36,13 @@ write_manifest() {
 
 write_manifest "$JS_DIRECTORY" '@fortemate/dicechess-engine' './dicechess-engine.js'
 printf '%s\n' '# fixture' >"$JS_DIRECTORY/README.md"
+printf '%s\n' 'fixture licence text' >"$JS_DIRECTORY/LICENSE"
 printf '%s\n' 'export declare const fixture: true;' >"$JS_DIRECTORY/dicechess-engine.d.ts"
 printf '%s\n' 'export const fixture = true;' >"$JS_DIRECTORY/dicechess-engine.js"
 
 write_manifest "$WASM_DIRECTORY" '@fortemate/dicechess-engine-wasm' './main.js'
 printf '%s\n' '# fixture' >"$WASM_DIRECTORY/README.md"
+printf '%s\n' 'fixture licence text' >"$WASM_DIRECTORY/LICENSE"
 printf '%s\n' 'export declare const fixture: true;' >"$WASM_DIRECTORY/dicechess-engine.d.ts"
 printf '%s\n' 'export const fixture = true;' >"$WASM_DIRECTORY/main.js"
 printf '%s\n' 'export const load = () => undefined;' >"$WASM_DIRECTORY/__loader.js"

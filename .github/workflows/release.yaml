@@ -81,7 +81,7 @@ jobs:
         # the two cannot drift; invoked with bash because the runner already provisions the JVM
         # toolchain and needs no mise (same pattern as `bash .mise/tasks/package/prepare`).
         # `rootJVM/coverageDataCheck` fails the build loudly if metadata is missing anyway.
-        run: bash .mise/lib/sbt-cold-cache.sh 'scalafmtCheckAll; scalafixAll --check; clean; coverage; testOnly *; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport'
+        run: bash .mise/lib/sbt-cold-cache.sh 'scalafmtCheckAll; scalafixAll --check; clean; coverage; testOnly *; rulesJVM/coverageDataCheck; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport'
 
       - name: Publish Test Report
         uses: mikepenz/action-junit-report@a9170d5795813c01ab4901ffb045b52bab4ab09d # v6.5.0
@@ -164,79 +164,43 @@ jobs:
           git tag ${{ steps.bump_version.outputs.new_tag }}
           git push origin ${{ steps.bump_version.outputs.new_tag }}
 
-      - name: Check GitHub Packages for this version
+      - name: Check GitHub Packages for both coordinates
         id: github_maven
         env:
           GITHUB_PACKAGE_USER: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_VERSION: ${{ steps.bump_version.outputs.new_version }}
-        run: |
-          ARTIFACT_BASE="https://maven.pkg.github.com/fortemate/dicechess-engine/com/fortemate/dicechess-engine_3/$RELEASE_VERSION/dicechess-engine_3-$RELEASE_VERSION"
-          EXPECTED_SUFFIXES=(.pom .jar -sources.jar -javadoc.jar)
-          PRESENT_COUNT=0
-          MISSING_COUNT=0
-          for SUFFIX in "${EXPECTED_SUFFIXES[@]}"; do
-            ARTIFACT_URL="$ARTIFACT_BASE$SUFFIX"
-            HTTP_STATUS=$(curl --silent --show-error --location --user "$GITHUB_PACKAGE_USER:$GITHUB_TOKEN" --output /dev/null --write-out '%{http_code}' --retry 3 "$ARTIFACT_URL")
-            case "$HTTP_STATUS" in
-              200) PRESENT_COUNT=$((PRESENT_COUNT + 1)) ;;
-              404) MISSING_COUNT=$((MISSING_COUNT + 1)) ;;
-              *) echo "::error::GitHub Packages returned HTTP $HTTP_STATUS for $ARTIFACT_URL"; exit 1 ;;
-            esac
-          done
+        # One decision per coordinate (dicechess-rules_3, dicechess-engine_3): complete → skip,
+        # absent → publish, partial → fail closed. See .mise/lib/maven-registry-state.sh (#219).
+        run: bash .mise/lib/maven-registry-state.sh github "$RELEASE_VERSION" "$GITHUB_PACKAGE_USER" "$GITHUB_TOKEN" >> "$GITHUB_OUTPUT"
 
-          if [[ "$PRESENT_COUNT" -eq "${#EXPECTED_SUFFIXES[@]}" ]]; then
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-            echo "Complete GitHub Maven artifact $RELEASE_VERSION already exists; skipping"
-          elif [[ "$MISSING_COUNT" -eq "${#EXPECTED_SUFFIXES[@]}" ]]; then
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-            echo "GitHub Maven artifact $RELEASE_VERSION is absent; publishing"
-          else
-            echo "::error::GitHub Maven artifact $RELEASE_VERSION is partial ($PRESENT_COUNT present, $MISSING_COUNT missing); refusing to overwrite an immutable version"
-            exit 1
-          fi
-
-      - name: Publish JVM artifact to GitHub Packages
-        if: steps.github_maven.outputs.publish == 'true'
+      - name: Publish the absent JVM coordinates to GitHub Packages
+        if: steps.github_maven.outputs.publish_any == 'true'
         env:
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_VERSION: ${{ steps.bump_version.outputs.new_version }}
+          PUBLISH_PROJECTS: ${{ steps.github_maven.outputs.publish_projects }}
+        # Both rows are built once and guarded; only the coordinates the state check found absent are
+        # published, so a retry after a partial run never republishes an immutable version.
         run: |
-          sbt --server "set ThisBuild / version := \"$RELEASE_VERSION\"; set rootJVM / publishTo := Some(\"GitHub Packages\" at \"https://maven.pkg.github.com/fortemate/dicechess-engine\"); set ThisBuild / credentials += Credentials(\"GitHub Package Registry\", \"maven.pkg.github.com\", sys.env(\"GITHUB_ACTOR\"), sys.env(\"GITHUB_TOKEN\")); clean; rootJVM/assertNoCoverageInstrumentation; rootJVM/assertNoBenchClasses; rootJVM/assertOnnxRuntimeOptionalInPom; rootJVM/publish"
+          GUARDS="rulesJVM/assertNoCoverageInstrumentation; rulesJVM/assertNoBenchClasses; rulesJVM/assertRulesPomHasNoThirdPartyDependencies; rootJVM/assertNoCoverageInstrumentation; rootJVM/assertNoBenchClasses; rootJVM/assertOnnxRuntimeOptionalInPom"
+          PUBLISH=""
+          for PROJECT in $PUBLISH_PROJECTS; do PUBLISH="$PUBLISH; $PROJECT/publish"; done
+          sbt --server "set ThisBuild / version := \"$RELEASE_VERSION\"; set rulesJVM / publishTo := Some(\"GitHub Packages\" at \"https://maven.pkg.github.com/fortemate/dicechess-engine\"); set rootJVM / publishTo := Some(\"GitHub Packages\" at \"https://maven.pkg.github.com/fortemate/dicechess-engine\"); set ThisBuild / credentials += Credentials(\"GitHub Package Registry\", \"maven.pkg.github.com\", sys.env(\"GITHUB_ACTOR\"), sys.env(\"GITHUB_TOKEN\")); clean; $GUARDS$PUBLISH"
 
-      - name: Check Maven Central for this version
+      - name: Check Maven Central for both coordinates
         id: maven
         env:
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
           RELEASE_VERSION: ${{ steps.bump_version.outputs.new_version }}
-        run: |
-          ARTIFACT_BASE="https://repo1.maven.org/maven2/com/fortemate/dicechess-engine_3/$RELEASE_VERSION/dicechess-engine_3-$RELEASE_VERSION"
-          EXPECTED_SUFFIXES=(.pom .jar -sources.jar -javadoc.jar)
-          PRESENT_COUNT=0
-          MISSING_COUNT=0
-          for SUFFIX in "${EXPECTED_SUFFIXES[@]}"; do
-            ARTIFACT_URL="$ARTIFACT_BASE$SUFFIX"
-            HTTP_STATUS=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --retry 3 "$ARTIFACT_URL")
-            case "$HTTP_STATUS" in
-              200) PRESENT_COUNT=$((PRESENT_COUNT + 1)) ;;
-              404) MISSING_COUNT=$((MISSING_COUNT + 1)) ;;
-              *) echo "::error::Maven Central returned HTTP $HTTP_STATUS for $ARTIFACT_URL"; exit 1 ;;
-            esac
-          done
-
-          if [[ "$PRESENT_COUNT" -eq "${#EXPECTED_SUFFIXES[@]}" ]]; then
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-            echo "Complete Maven Central artifact $RELEASE_VERSION already exists; skipping"
-          elif [[ "$MISSING_COUNT" -eq "${#EXPECTED_SUFFIXES[@]}" ]]; then
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-            echo "Maven Central artifact $RELEASE_VERSION is absent; publishing"
-          else
-            echo "::error::Maven Central artifact $RELEASE_VERSION is partial ($PRESENT_COUNT present, $MISSING_COUNT missing); refusing to republish an immutable version"
-            exit 1
-          fi
+        # The Portal credentials only confirm an all-404 verdict against the authoritative
+        # published-status endpoint (repo1.maven.org lags a fresh deployment); see the script.
+        run: bash .mise/lib/maven-registry-state.sh central "$RELEASE_VERSION" "$SONATYPE_USERNAME" "$SONATYPE_PASSWORD" >> "$GITHUB_OUTPUT"
 
       - name: Import GPG signing key
-        if: steps.maven.outputs.publish == 'true'
+        if: steps.maven.outputs.publish_any == 'true'
         # sbt-pgp reads PGP_PASSPHRASE from the environment to unlock the key.
         # allow-loopback-pinentry lets gpg-agent accept the passphrase non-interactively.
         env:
@@ -246,16 +210,19 @@ jobs:
           echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
           gpgconf --kill gpg-agent
 
-      - name: Publish JVM artifact to Maven Central
-        if: steps.maven.outputs.publish == 'true'
-        # --server runs a foreground process with this step's environment and session instead
-        # of reusing the native thin client's background server.
-        # `clean` guarantees a fresh uninstrumented build; assertNoCoverageInstrumentation,
-        # assertNoBenchClasses, and assertOnnxRuntimeOptionalInPom prove it rather than trusting it.
-        # publishSigned signs every artifact; sonaRelease uploads the bundle to Maven Central.
-        run: sbt --server "set ThisBuild / version := \"$RELEASE_VERSION\"; clean; rootJVM/assertNoCoverageInstrumentation; rootJVM/assertNoBenchClasses; rootJVM/assertOnnxRuntimeOptionalInPom; rootJVM/publishSigned; sonaRelease"
+      - name: Publish the absent JVM coordinates to Maven Central
+        if: steps.maven.outputs.publish_any == 'true'
+        # `clean` guarantees a fresh uninstrumented build; the guards prove it for both jars rather than
+        # trusting it. publishSigned stages every artifact of the selected coordinates in one local
+        # bundle; sonaRelease uploads that bundle (one Central Portal deployment for the release).
+        run: |
+          GUARDS="rulesJVM/assertNoCoverageInstrumentation; rulesJVM/assertNoBenchClasses; rulesJVM/assertRulesPomHasNoThirdPartyDependencies; rootJVM/assertNoCoverageInstrumentation; rootJVM/assertNoBenchClasses; rootJVM/assertOnnxRuntimeOptionalInPom"
+          PUBLISH=""
+          for PROJECT in $PUBLISH_PROJECTS; do PUBLISH="$PUBLISH; $PROJECT/publishSigned"; done
+          sbt --server "set ThisBuild / version := \"$RELEASE_VERSION\"; clean; $GUARDS$PUBLISH; sonaRelease"
         env:
           RELEASE_VERSION: ${{ steps.bump_version.outputs.new_version }}
+          PUBLISH_PROJECTS: ${{ steps.maven.outputs.publish_projects }}
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
           SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}

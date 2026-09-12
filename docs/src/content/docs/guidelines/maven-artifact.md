@@ -188,11 +188,16 @@ to a real release before opening a PR — CI has no access to your local reposit
 - The Maven Central copy is **GPG-signed** by `sbt-pgp` using the org key stored in the `PGP_SECRET`
   org secret; the passphrase is in `PGP_PASSPHRASE`. Maven Central verifies the signature against
   the public key published at `keyserver.ubuntu.com`.
-- Both CD workflows (`release.yaml` and `publish.yaml`) first check the authenticated GitHub
-  Packages POM plus main, sources, and javadoc jars. They publish only when the complete version is
-  absent and fail closed on a partial immutable version. They apply the same completeness check to
-  Maven Central, upload the signed bundle with `rootJVM/publishSigned`, and promote it with
-  `sonaRelease`.
+- Both CD workflows (`release.yaml` and `publish.yaml`) first run `.mise/lib/maven-registry-state.sh`,
+  which checks the POM plus main, sources, and javadoc jars of **each** coordinate
+  (`dicechess-rules_3`, `dicechess-engine_3`) on the authenticated GitHub Packages registry. A
+  coordinate is published only when its complete version is absent; a partial immutable version fails
+  closed. The same per-coordinate check runs against Maven Central; the absent coordinates are
+  uploaded with `rulesJVM/publishSigned` and/or `rootJVM/publishSigned` and promoted together with one
+  `sonaRelease` (one Central Portal deployment named after both coordinates).
+- Every publish is preceded by the guards of both rows: no coverage instrumentation, no bench
+  classes, `META-INF/LICENSE` in every jar, a rules POM without third-party compile dependencies,
+  and `onnxruntime` marked optional in the engine POM.
 - Publish commands run with `sbt --server`, which executes a foreground process instead of the
   persistent native thin client. This prevents credentials or coverage settings from a previous
   session leaking into publication and avoids thin-client startup deadlocks.

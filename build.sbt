@@ -59,6 +59,10 @@ lazy val assertNoBenchClasses =
 lazy val assertOnnxRuntimeOptionalInPom =
   taskKey[Unit]("Fail if the published engine POM does not mark onnxruntime as optional")
 
+// Prove the published rules POM carries no third-party compile dependency (#219).
+lazy val assertRulesPomHasNoThirdPartyDependencies =
+  taskKey[Unit]("Fail if the published rules POM declares any non-Scala compile dependency")
+
 // projectMatrix layout: map to shared/ + jvm/ + js/
 def layout(platformDir: String) = Seq(
   Compile / unmanagedSourceDirectories := Seq(
@@ -108,6 +112,59 @@ def coverageDataCheckSetting = coverageDataCheck := Def.uncached {
   streams.value.log.info(s"Coverage instrumentation metadata present: $metadata")
 }
 
+// Publish guards shared by every published JVM row (#564, #531, #219): a published jar must be
+// uninstrumented, must not carry bench/arena classes, and must ship the licence text.
+def publishGuards = Seq(
+  assertNoCoverageInstrumentation := Def.uncached {
+    val jar    = fileConverter.value.toPath((Compile / packageBin).value).toFile
+    val marker = "scala/runtime/coverage/Invoker"
+    val zip    = new java.util.zip.ZipFile(jar)
+    val hits   =
+      try
+        zip.entries().asScala.count { entry =>
+          entry.getName.endsWith(".class") && {
+            val bytes = zip.getInputStream(entry).readAllBytes()
+            new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1).contains(marker)
+          }
+        }
+      finally zip.close()
+    if (hits > 0)
+      sys.error(
+        s"""$jar is coverage-instrumented: $hits class file(s) reference $marker.
+           |Restart the server and rebuild before publishing:
+           |  sbt shutdown
+           |  sbt 'clean; <project>/assertNoCoverageInstrumentation; <project>/publish'""".stripMargin
+      )
+    streams.value.log.info(s"No coverage instrumentation in ${jar.getName}")
+  },
+  assertNoBenchClasses := Def.uncached {
+    val jar    = fileConverter.value.toPath((Compile / packageBin).value).toFile
+    val marker = "dicechess/engine/bench/"
+    val zip    = new java.util.zip.ZipFile(jar)
+    val hits   =
+      try zip.entries().asScala.count(_.getName.startsWith(marker))
+      finally zip.close()
+    if (hits > 0)
+      sys.error(
+        s"""$jar carries $hits bench class file(s) under $marker.
+           |Published artifacts must not ship bench/arena tooling to consumers (see #564).""".stripMargin
+      )
+    streams.value.log.info(s"No bench classes in ${jar.getName}")
+  },
+  // A direct `<row>/publish` or `publishLocal` must not bypass the jar guards either; the workflows
+  // still run them explicitly so a failure is reported before any registry is touched.
+  publishLocal := publishLocal.dependsOn(assertNoCoverageInstrumentation, assertNoBenchClasses).value,
+  publish      := publish.dependsOn(assertNoCoverageInstrumentation, assertNoBenchClasses).value,
+  // Every published jar carries the licence text (#219). sbt 2 mappings are virtual-file based.
+  Compile / packageBin / mappings += licenceMapping.value,
+  Compile / packageSrc / mappings += licenceMapping.value,
+  Compile / packageDoc / mappings += licenceMapping.value
+)
+
+def licenceMapping = Def.task {
+  fileConverter.value.toVirtualFile(((ThisBuild / baseDirectory).value / "LICENSE").toPath) -> "META-INF/LICENSE"
+}
+
 lazy val commonSettings = Seq(
   name := "dicechess-engine",
   libraryDependencies ++= Seq(
@@ -147,10 +204,29 @@ lazy val rules = (projectMatrix in file("shared-rules"))
   .defaultAxes(VirtualAxis.scalaABIVersion(ScalaV))
   .jvmPlatform(
     scalaVersions = Seq(ScalaV),
-    settings = rulesLayout ++ Seq(
+    settings = rulesLayout ++ publishGuards ++ Seq(
       coverageMinimumStmtTotal := 95, // measured 98.89 % statement coverage at the split (#218)
       Test / exportJars        := false,
       coverageDataCheckSetting,
+      assertRulesPomHasNoThirdPartyDependencies := Def.uncached {
+        val pomFile   = fileConverter.value.toPath(makePom.value).toFile
+        val xml       = scala.xml.XML.loadFile(pomFile)
+        val deps      = xml \ "dependencies" \ "dependency"
+        val offending = deps.filter { d =>
+          val scope = (d \ "scope").text.trim
+          val group = (d \ "groupId").text.trim
+          (scope.isEmpty || scope == "compile" || scope == "runtime") && group != "org.scala-lang"
+        }
+        if (offending.nonEmpty)
+          sys.error(
+            s"""${pomFile.getName} declares third-party compile/runtime dependencies for dicechess-rules:
+               |${offending.map(d => "  " + (d \ "groupId").text + ":" + (d \ "artifactId").text).mkString("\n")}
+               |The rules artifact must depend on the Scala standard library only (ADR 009).""".stripMargin
+          )
+        streams.value.log.info(s"Verified ${pomFile.getName} has no third-party compile dependency")
+      },
+      publishLocal := publishLocal.dependsOn(assertRulesPomHasNoThirdPartyDependencies).value,
+      publish      := publish.dependsOn(assertRulesPomHasNoThirdPartyDependencies).value,
       Compile / doc / scalacOptions ++= Seq(
         "-project",
         name.value,
@@ -182,50 +258,11 @@ lazy val root = (projectMatrix in file("."))
   .defaultAxes(VirtualAxis.scalaABIVersion(ScalaV))
   .jvmPlatform(
     scalaVersions = Seq(ScalaV),
-    settings = layout("jvm") ++ Seq(
+    settings = layout("jvm") ++ publishGuards ++ Seq(
       coverageMinimumStmtTotal                          := 90,
       libraryDependencies += "com.microsoft.onnxruntime" % "onnxruntime" % OnnxRuntimeV % Optional,
       Test / exportJars                                 := false,
       coverageDataCheckSetting,
-      assertNoCoverageInstrumentation := Def.uncached {
-        val jar    = fileConverter.value.toPath((Compile / packageBin).value).toFile
-        val marker = "scala/runtime/coverage/Invoker"
-        val zip    = new java.util.zip.ZipFile(jar)
-        val hits   =
-          try
-            zip.entries().asScala.count { entry =>
-              entry.getName.endsWith(".class") && {
-                val bytes = zip.getInputStream(entry).readAllBytes()
-                new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1).contains(marker)
-              }
-            }
-          finally zip.close()
-        if (hits > 0)
-          sys.error(
-            s"""$jar is coverage-instrumented: $hits class file(s) reference $marker.
-               |Restart the server and rebuild before publishing:
-               |  sbt shutdown
-               |  sbt 'clean; rootJVM/assertNoCoverageInstrumentation; rootJVM/publish'""".stripMargin
-          )
-        streams.value.log.info(s"No coverage instrumentation in ${jar.getName}")
-      },
-      assertNoBenchClasses := Def.uncached {
-        val jar    = fileConverter.value.toPath((Compile / packageBin).value).toFile
-        val marker = "dicechess/engine/bench/"
-        val zip    = new java.util.zip.ZipFile(jar)
-        val hits   =
-          try
-            zip.entries().asScala.count { entry =>
-              entry.getName.startsWith(marker)
-            }
-          finally zip.close()
-        if (hits > 0)
-          sys.error(
-            s"""$jar carries $hits bench class file(s) under $marker.
-               |The engine artifact must not ship bench/arena tooling to consumers (see #564).""".stripMargin
-          )
-        streams.value.log.info(s"No bench classes in ${jar.getName}")
-      },
       assertOnnxRuntimeOptionalInPom := Def.uncached {
         val pomFile = fileConverter.value.toPath(makePom.value).toFile
         val xml     = scala.xml.XML.loadFile(pomFile)
@@ -280,6 +317,9 @@ lazy val rootJS  = root.js(ScalaV)
 
 // Explicit root aggregate project to avoid sbt 2 empty synthetic root issues.
 lazy val dicechessEngine = (project in file("."))
+  // apiDocs is deliberately outside the aggregate: it re-compiles the rules + engine sources only to
+  // produce one unified scaladoc site, so `testOnly *` / `coverage` must not touch it (CI and the docs
+  // deployment call `apiDocs/doc` explicitly).
   .aggregate(rulesJVM, rulesJS, rootJVM, rootJS, rootWasm, rulesSmoke, benchmark, arena, cli)
   .settings(
     name := "dicechess-engine-aggregate",
@@ -288,11 +328,17 @@ lazy val dicechessEngine = (project in file("."))
     // coordinate. sonaDeploymentName is Central Portal display metadata only: it does not
     // change the staged bundle, artifact coordinates, or the number of deployments.
     sonaDeploymentName := {
-      val module = CrossVersion(
-        (rootJVM / scalaVersion).value,
-        (rootJVM / scalaBinaryVersion).value
-      )((rootJVM / projectID).value)
-      s"${module.organization}:${module.name}:${module.revision}"
+      def coordinate(id: ModuleID, sv: String, sbv: String) = {
+        val m = CrossVersion(sv, sbv)(id)
+        s"${m.organization}:${m.name}:${m.revision}"
+      }
+      // One Central Portal deployment carries both coordinates of a release (ADR 009 / #219).
+      coordinate((rootJVM / projectID).value, (rootJVM / scalaVersion).value, (rootJVM / scalaBinaryVersion).value) +
+        " + " + coordinate(
+          (rulesJVM / projectID).value,
+          (rulesJVM / scalaVersion).value,
+          (rulesJVM / scalaBinaryVersion).value
+        )
     },
     publish / skip := true
   )
@@ -391,4 +437,35 @@ lazy val rulesSmoke = project
     publish / skip          := true,
     coverageEnabled         := false,
     Compile / doc / sources := Seq.empty
+  )
+
+// The docs site publishes ONE API tree (/api/). sbt 2 documents a project from its own sources, so a
+// project that sees all three JVM source roots reproduces the pre-split tree; it is never published
+// and has no tests (#219, ADR 009).
+lazy val apiDocs = project
+  .in(file("api-docs"))
+  .settings(commonSettings)
+  .settings(
+    name                                              := "dicechess-api-docs",
+    publish / skip                                    := true,
+    coverageEnabled                                   := false,
+    libraryDependencies += "com.microsoft.onnxruntime" % "onnxruntime" % OnnxRuntimeV,
+    Compile / unmanagedSourceDirectories              := Seq(
+      (ThisBuild / baseDirectory).value / "shared-rules" / "src" / "main" / "scala",
+      (ThisBuild / baseDirectory).value / "shared" / "src" / "main" / "scala",
+      (ThisBuild / baseDirectory).value / "jvm" / "src" / "main" / "scala"
+    ),
+    Test / unmanagedSourceDirectories := Seq.empty,
+    Compile / doc / scalacOptions ++= Seq(
+      "-project",
+      "dicechess-engine",
+      "-project-version",
+      version.value,
+      "-project-footer",
+      "Fortemate Dice Chess Engine",
+      "-social-links:github::https://github.com/fortemate/dicechess-engine",
+      "-groups",
+      "-author",
+      "-snippet-compiler:compile"
+    )
   )

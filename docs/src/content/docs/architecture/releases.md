@@ -5,10 +5,18 @@ description: Release entry points, registry idempotency, npm Trusted Publishing,
 
 Every release uses one `X.Y.Z` version for all public artifacts:
 
-* Maven Central: canonical `com.fortemate:dicechess-engine_3`
+* Maven Central: canonical `com.fortemate:dicechess-rules_3` (rules core, no third-party
+  dependencies) and `com.fortemate:dicechess-engine_3` (search, evaluators, extractors; depends on
+  the rules coordinate at the same version) — two coordinates, one version, one Central Portal
+  deployment
 * npmjs.org: `@fortemate/dicechess-engine` and `@fortemate/dicechess-engine-wasm`
-* GitHub Packages: authenticated mirrors of the JVM artifact and both npm packages
+* GitHub Packages: authenticated mirrors of both JVM coordinates and both npm packages
 * GitHub Release: JavaScript, TypeScript, and WebAssembly assets from tag `vX.Y.Z`
+
+Every published jar (main, sources, javadoc) and both npm tarballs carry the `LICENSE` text. Before
+any publication the release proves, per coordinate, that the jar is not coverage-instrumented and
+carries no bench/arena classes; the rules POM additionally must declare no third-party compile
+dependency, and the engine POM must mark `onnxruntime` optional.
 
 Maven Central and npmjs.org are the public canonical registries. GitHub Packages remains a mirror
 for consumers who already use GitHub authentication.
@@ -23,7 +31,7 @@ The repository has two supported release entry points:
 * `publish.yaml` runs for a directly pushed tag and can be manually rerun at an existing tag. This is
   the recovery path after a partial release.
 
-Both entry points publish the JVM artifact to GitHub Packages and Maven Central from the same tag.
+Both entry points publish both JVM coordinates to GitHub Packages and Maven Central from the same tag.
 They also build each JavaScript package once, create one immutable npm release bundle, and record the
 SHA-512 digest of its manifest and both tarballs. The entry point publishes those exact tarballs to
 GitHub Packages, then dispatches `npm-publish.yaml` with the exact tag, commit SHA, source run,
@@ -31,9 +39,9 @@ artifact name, and manifest digest. It waits for that child run and fails if it 
 
 ```mermaid
 flowchart LR
-    Release["release.yaml<br/>owner release"] --> JvmMirror["GitHub Packages<br/>JVM mirror"]
+    Release["release.yaml<br/>owner release"] --> JvmMirror["GitHub Packages<br/>rules + engine mirror"]
     Tag["publish.yaml<br/>tag or retry"] --> JvmMirror
-    Release --> Central["Maven Central<br/>JVM canonical"]
+    Release --> Central["Maven Central<br/>rules + engine, one deployment"]
     Tag --> Central
     Release --> Bundle["one npm bundle<br/>JS + Wasm .tgz + SHA-512"]
     Tag --> Bundle
@@ -84,10 +92,17 @@ build.
 Registry publication is not transactional. A failure can leave one destination complete and
 another incomplete, so every retry checks the exact package and version separately:
 
-* Maven Central checks the POM plus main, sources, and javadoc jars at
-  `https://repo1.maven.org/maven2/` before signing or publishing.
-* GitHub Packages checks the same authenticated JVM artifact set at
-  `https://maven.pkg.github.com/` before publishing the Maven mirror.
+* Maven Central and GitHub Packages are checked **per coordinate** by
+  `.mise/lib/maven-registry-state.sh`: for `dicechess-rules_3` and `dicechess-engine_3` it probes
+  the POM plus main, sources, and javadoc jars. A complete coordinate is skipped, an absent one is
+  published, a partial one fails closed. Only the absent coordinates are passed to
+  `publish`/`publishSigned`, so a retry after a run that published the rules jar but not the engine
+  jar publishes exactly the engine jar. Because `repo1.maven.org` lags a fresh Central Portal
+  deployment by minutes (up to about half an hour), an all-absent verdict on Maven Central is
+  confirmed against the Portal's published-status endpoint with the Sonatype credentials: a version
+  the Portal already reports as published is skipped instead of deployed twice. Any other answer from
+  the Portal (no credentials, 401, outage) keeps the `repo1` verdict, so the confirmation can never
+  block a release on its own.
 * Each GitHub Packages package uses an independent `npm view` against
   `https://npm.pkg.github.com`.
 * Each npmjs.org package uses an independent `npm view` against

@@ -5,12 +5,13 @@ on:
     branches: [ main ]
     paths:
       - 'docs/**'
+      - 'shared-rules/src/main/scala/**'
       - 'shared/src/main/scala/**'
       - 'jvm/src/main/scala/**'
       - 'js/src/main/scala/**'
-      - 'shared/src/test/scala/dicechess/engine/movegen/MoveGenFixtures.scala'
-      - 'shared/src/test/scala/dicechess/engine/movegen/ChessDsl.scala'
-      - 'shared/src/test/scala/dicechess/engine/search/KingCaptureFixtures.scala'
+      - 'shared-rules/src/test/scala/dicechess/engine/movegen/MoveGenFixtures.scala'
+      - 'shared-rules/src/test/scala/dicechess/engine/movegen/ChessDsl.scala'
+      - 'shared-rules/src/test/scala/dicechess/engine/search/KingCaptureFixtures.scala'
       - 'jvm/src/test/scala/dicechess/engine/search/KingCaptureDocGenerator.scala'
       - '.mise/lib/sbt-cold-cache.sh'
       - '.github/workflows/deploy-docs.yaml'
@@ -76,9 +77,9 @@ jobs:
         working-directory: ${{ env.BUILD_PATH }}
 
       - name: Generate Scaladoc
-        # Use cold cache to ensure the compiler runs and generates Scaladoc
-        # (see .mise/lib/sbt-cold-cache.sh and AGENTS.md #531 for rationale)
-        run: bash .mise/lib/sbt-cold-cache.sh 'doc'
+        # One API tree over both artifacts: the apiDocs project sees every JVM source root (#219).
+        # Cold cache ensures the compiler actually runs and generates the pages (#531).
+        run: bash .mise/lib/sbt-cold-cache.sh 'apiDocs/doc'
 
       - name: Merge Scaladoc into Astro dist
         # sbt 2's shared build cache moved output from jvm/target/... to
@@ -86,11 +87,11 @@ jobs:
         # bump (see AGENTS.md Documentation section).
         run: |
           mkdir -p ${{ env.BUILD_PATH }}/dist/api
-          # Find the actual Scaladoc API directory dynamically
-          # Look for the api directory under any scala version
-          api_dir=$(find target/out/jvm -type d -name 'api' -print -quit)
+          # Exactly the apiDocs tree: the rules and engine rows also produce api/ directories for
+          # their javadoc jars, and `-print -quit` would pick whichever comes first.
+          api_dir=$(find target/out/jvm -type d -path '*/dicechess-api-docs/api' -print -quit)
           if [ -z "$api_dir" ]; then
-            echo "::error::Scaladoc API directory not found in target/out/jvm"
+            echo "::error::apiDocs Scaladoc directory not found under target/out/jvm (expected */dicechess-api-docs/api)"
             echo "Contents of target/out/jvm:"
             ls -la target/out/jvm/ || true
             exit 1

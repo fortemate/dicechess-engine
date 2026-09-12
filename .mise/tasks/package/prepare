@@ -45,6 +45,7 @@ mkdir -p dist
 cp target/out/sjs1/scala-3.*/dicechess-engine/dicechess-engine-opt/main.js dist/dicechess-engine.js
 cp js/dicechess-engine.d.ts dist/
 cp js/README.md dist/README.md
+cp LICENSE dist/LICENSE
 
 # Compile optimized package.json for NPM publication (flattened paths, no 'files' field needed)
 jq --arg ver "$CLEAN_VERSION" '

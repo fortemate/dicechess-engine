@@ -75,14 +75,14 @@ jobs:
         run: bash .mise/lib/sbt-cold-cache.sh 'clean; coverage; testOnly *; rulesJVM/coverageDataCheck; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport'
       - name: Scaladoc
         run: |
-          if bash .mise/lib/sbt-cold-cache.sh 'rootJVM/doc' > scaladoc.log 2>&1; then
+          if bash .mise/lib/sbt-cold-cache.sh 'apiDocs/doc' > scaladoc.log 2>&1; then
             status=0
           else
             status=$?
           fi
           cat scaladoc.log
           if [ "$status" -ne 0 ]; then
-            echo "::error::sbt rootJVM/doc failed (exit $status)"
+            echo "::error::sbt apiDocs/doc failed (exit $status)"
             exit 1
           fi
           if grep -q "Couldn't resolve a member for the given link query" scaladoc.log; then

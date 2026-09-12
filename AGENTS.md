@@ -70,7 +70,7 @@ mise run arena:evaluate [bot] [baseline] [fixtures]     # deterministic search s
 mise run js:build | js:dev | wasm:build                 # bundles
 mise run publish:local                                  # JVM jar to local Ivy for downstream dev
 mise run docs:dev | docs:build                          # docs site (runs the doc generators first)
-sbt rootJVM/doc                                         # Scaladoc with COMPILED snippets — not in `mise run check`,
+sbt apiDocs/doc                                         # Scaladoc with COMPILED snippets — not in `mise run check`,
                                                          # but enforced in `ci.yaml` on every PR (see Quality gates)
 ```
 
@@ -80,7 +80,7 @@ sbt rootJVM/doc                                         # Scaladoc with COMPILED
 Common failure signatures:
 
 - Pre-commit hook rejects a file that `mise run format` claims is already formatted → the file is untracked; `git add` it, format again.
-- `sbt rootJVM/doc` errors inside a Scaladoc comment → a non-Scala example sits in a ```scala fence (see Gotchas).
+- `sbt apiDocs/doc` errors inside a Scaladoc comment → a non-Scala example sits in a ```scala fence (see Gotchas).
 - Second concurrent `sbt` invocation hangs/fails → sbt server socket collision; run sequential commands in one sbt session (#326).
 
 ## Quality gates — repository specifics
@@ -89,14 +89,14 @@ Common failure signatures:
 - Statement coverage >= 90% for `rootJVM`, >= 70% for `arena`, enforced by `build.sbt` (`coverageFailOnMinimum`). JVM-only; `benchmark/` and `.*Main\.scala` excluded.
 - The compiler is a gate: `-Werror`, `-Wunused:all`, `-language:strictEquality`, `-Yexplicit-nulls` — any warning fails the build.
 - CI also runs a SonarCloud scan; PR policy workflow enforces branch naming and issue links (see Git & PR workflow).
-- `ci.yaml`'s `Scaladoc` step runs `sbt rootJVM/doc` on every PR (the workflow-file exception below applies here too)
+- `ci.yaml`'s `Scaladoc` step runs `sbt apiDocs/doc` on every PR (the workflow-file exception below applies here too)
   and fails on an unresolved `[[...]]` cross-reference or a broken snippet fence (#621) — `-Werror` does not reach
   the doc tool (it silently drops unsupported `scalacOptions`), so this grep-on-log step is what makes those
   failures loud instead of scrolling past as warnings. It is not part of `mise run check` (a fresh `doc` compile is
-  a second full recompile pass check does not otherwise pay for), so run `sbt rootJVM/doc` locally before pushing
+  a second full recompile pass check does not otherwise pay for), so run `sbt apiDocs/doc` locally before pushing
   Scaladoc changes rather than relying on CI to catch it first.
 - Per-change-type extras:
-  - Touched Scaladoc → run `sbt rootJVM/doc` locally; CI's `Scaladoc` step re-checks it on the PR.
+  - Touched Scaladoc → run `sbt apiDocs/doc` locally; CI's `Scaladoc` step re-checks it on the PR.
   - Touched `movegen/` or `search/` hot paths → attach JMH evidence (`mise run bench:filter <pattern>`) to the PR.
   - Changed bot behavior/strength → attach an arena run (`mise run arena` or `arena:timed`).
   - Touched `.github/workflows/` → trigger the run manually with `gh workflow run ci.yaml`; such PRs have been
@@ -131,11 +131,11 @@ Common failure signatures:
   sandbox, Keychain or network access may still be unavailable; retry the command with elevated sandbox
   permission before asking the user to log out or authenticate again. Never print `gh auth token` or copy
   the Keychain credential into a file.
-- Every ```` ```scala ```` fence in Scaladoc is **compiled** by `sbt rootJVM/doc` (`-snippet-compiler:compile`). Non-Scala examples (JSON, pseudocode) must use ```` ```text ````/```` ```json ```` fences — `mise run check` will not catch a bad fence, but `ci.yaml`'s `Scaladoc` step does, on the PR that introduces it (see Documentation).
+- Every ```` ```scala ```` fence in Scaladoc is **compiled** by `sbt apiDocs/doc` (`-snippet-compiler:compile`). Non-Scala examples (JSON, pseudocode) must use ```` ```text ````/```` ```json ```` fences — `mise run check` will not catch a bad fence, but `ci.yaml`'s `Scaladoc` step does, on the PR that introduces it (see Documentation).
 - `git add` new `.scala` files **before** `mise run format`: `sbt scalafmtAll` skips untracked files, then the native-scalafmt pre-commit hook fails the commit.
 - Do not "optimize" the `check` task order: `clean` runs before `scalafmtCheckAll` deliberately — sbt-scalafmt's warm cache can skip a misformatted file (#354).
 - `publish.yaml` and `release.yaml` duplicate Maven Central and GitHub Packages steps intentionally: tags created by `release.yaml` via `GITHUB_TOKEN` do not trigger `publish.yaml` (GitHub anti-recursion). Both dispatch and wait for the canonical `npm-publish.yaml` Trusted Publishing workflow because npm permits only one trusted publisher per package. Edit both entry points in sync and keep npmjs.org publication inside the canonical workflow.
-- `deploy-docs.yaml` dynamically discovers `target/out/jvm/scala-<version>/dicechess-engine/api` for the Scaladoc merge.
+- `deploy-docs.yaml` dynamically discovers `target/out/jvm/scala-<version>/dicechess-api-docs/api` (the unified `apiDocs/doc` output) for the Scaladoc merge.
 - Turn maximality is measured in **dice consumed, not move count** — castling spends two dice in one move; the active color never changes within a turn. Regression suites: `TurnGeneratorSuite` (#347), `EnPassantMicroMoveSuite`.
 - The engine does **not** support Chess960 castling — squares e1/h1/a1 are hardcoded.
 - Root `package.json` version is dead weight — the real version comes from sbt at `package:prepare` time. Never "fix" or trust it.
@@ -259,5 +259,5 @@ failures cheaply. When in doubt, escalate one tier — reviewer time costs more 
   - Changed `MoveGenFixtures.scala`, `ChessDsl.scala` or the KCP Scala fixtures → catalog pages regenerate; preview with `mise run docs:generate:all`.
   - Changed the JS API → update `js/dicechess-engine.d.ts` and the README usage examples.
   - Changed DFEN semantics or turn rules → update the architecture pages under `docs/src/content/docs/architecture/`.
-  - Touched Scaladoc → run `sbt rootJVM/doc` locally before pushing.
+  - Touched Scaladoc → run `sbt apiDocs/doc` locally before pushing.
 - All documentation, comments, and commit text: English only.
