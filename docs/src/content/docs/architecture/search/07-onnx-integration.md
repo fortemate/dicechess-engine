@@ -273,11 +273,14 @@ def extract_features(board_state):
 
 ## Dependency Management
 
-ONNX integration requires:
+The published `dicechess-engine_3` artifact marks `onnxruntime` as **optional** (`<optional>true</optional>`) so that rules-only callers do not carry the ~54 MB native library. Downstream ONNX consumers must declare the dependency directly in their own build, pinning version **`1.29.0`**:
 
 ```scala
-// build.sbt
-libraryDependencies += "com.microsoft.onnxruntime" % "onnxruntime" % "1.18.0"
+// build.sbt (consumer)
+libraryDependencies ++= Seq(
+  "com.fortemate"          %% "dicechess-engine" % "<latest release>",
+  "com.microsoft.onnxruntime" % "onnxruntime"    % "1.29.0"
+)
 ```
 
 The dependency is **JVM-only** and excluded from JS/Wasm compilation.

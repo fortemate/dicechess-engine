@@ -203,7 +203,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_VERSION: ${{ steps.bump_version.outputs.new_version }}
         run: |
-          sbt --server "set ThisBuild / version := \"$RELEASE_VERSION\"; set rootJVM / publishTo := Some(\"GitHub Packages\" at \"https://maven.pkg.github.com/fortemate/dicechess-engine\"); set ThisBuild / credentials += Credentials(\"GitHub Package Registry\", \"maven.pkg.github.com\", sys.env(\"GITHUB_ACTOR\"), sys.env(\"GITHUB_TOKEN\")); clean; rootJVM/assertNoCoverageInstrumentation; rootJVM/assertNoBenchClasses; rootJVM/publish"
+          sbt --server "set ThisBuild / version := \"$RELEASE_VERSION\"; set rootJVM / publishTo := Some(\"GitHub Packages\" at \"https://maven.pkg.github.com/fortemate/dicechess-engine\"); set ThisBuild / credentials += Credentials(\"GitHub Package Registry\", \"maven.pkg.github.com\", sys.env(\"GITHUB_ACTOR\"), sys.env(\"GITHUB_TOKEN\")); clean; rootJVM/assertNoCoverageInstrumentation; rootJVM/assertNoBenchClasses; rootJVM/assertOnnxRuntimeOptionalInPom; rootJVM/publish"
 
       - name: Check Maven Central for this version
         id: maven
@@ -250,10 +250,10 @@ jobs:
         if: steps.maven.outputs.publish == 'true'
         # --server runs a foreground process with this step's environment and session instead
         # of reusing the native thin client's background server.
-        # `clean` guarantees a fresh uninstrumented build; assertNoCoverageInstrumentation
-        # and assertNoBenchClasses prove it rather than trusting it.
+        # `clean` guarantees a fresh uninstrumented build; assertNoCoverageInstrumentation,
+        # assertNoBenchClasses, and assertOnnxRuntimeOptionalInPom prove it rather than trusting it.
         # publishSigned signs every artifact; sonaRelease uploads the bundle to Maven Central.
-        run: sbt --server "set ThisBuild / version := \"$RELEASE_VERSION\"; clean; rootJVM/assertNoCoverageInstrumentation; rootJVM/assertNoBenchClasses; rootJVM/publishSigned; sonaRelease"
+        run: sbt --server "set ThisBuild / version := \"$RELEASE_VERSION\"; clean; rootJVM/assertNoCoverageInstrumentation; rootJVM/assertNoBenchClasses; rootJVM/assertOnnxRuntimeOptionalInPom; rootJVM/publishSigned; sonaRelease"
         env:
           RELEASE_VERSION: ${{ steps.bump_version.outputs.new_version }}
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}

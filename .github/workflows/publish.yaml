@@ -256,7 +256,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
         run: |
-          sbt --server "set ThisBuild / version := \"$RELEASE_VERSION\"; set rootJVM / publishTo := Some(\"GitHub Packages\" at \"https://maven.pkg.github.com/fortemate/dicechess-engine\"); set ThisBuild / credentials += Credentials(\"GitHub Package Registry\", \"maven.pkg.github.com\", sys.env(\"GITHUB_ACTOR\"), sys.env(\"GITHUB_TOKEN\")); clean; rootJVM/assertNoCoverageInstrumentation; rootJVM/assertNoBenchClasses; rootJVM/publish"
+          sbt --server "set ThisBuild / version := \"$RELEASE_VERSION\"; set rootJVM / publishTo := Some(\"GitHub Packages\" at \"https://maven.pkg.github.com/fortemate/dicechess-engine\"); set ThisBuild / credentials += Credentials(\"GitHub Package Registry\", \"maven.pkg.github.com\", sys.env(\"GITHUB_ACTOR\"), sys.env(\"GITHUB_TOKEN\")); clean; rootJVM/assertNoCoverageInstrumentation; rootJVM/assertNoBenchClasses; rootJVM/assertOnnxRuntimeOptionalInPom; rootJVM/publish"
 
       - name: Check Maven Central for this version
         id: maven
@@ -305,7 +305,7 @@ jobs:
         # --server runs a foreground process instead of the persistent native thin client.
         # publishSigned signs every artifact with the imported GPG key and stages it in Sonatype.
         # sonaRelease uploads the staged bundle to Maven Central and releases it automatically.
-        run: sbt --server "set ThisBuild / version := \"$RELEASE_VERSION\"; clean; rootJVM/assertNoCoverageInstrumentation; rootJVM/assertNoBenchClasses; rootJVM/publishSigned; sonaRelease"
+        run: sbt --server "set ThisBuild / version := \"$RELEASE_VERSION\"; clean; rootJVM/assertNoCoverageInstrumentation; rootJVM/assertNoBenchClasses; rootJVM/assertOnnxRuntimeOptionalInPom; rootJVM/publishSigned; sonaRelease"
         env:
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}

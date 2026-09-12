@@ -41,7 +41,8 @@ ThisBuild / developers := List(
 // GPG key is imported by the CI step and unlocked via PGP_PASSPHRASE (sbt-pgp reads this).
 // Local publishing (publishM2, publishLocal) bypasses signing and needs no env vars.
 
-val ScalaV = "3.8.4"
+val ScalaV       = "3.8.4"
+val OnnxRuntimeV = "1.29.0"
 
 // Fails the build when a coverage run produced no instrumentation metadata (#531).
 lazy val coverageDataCheck = taskKey[Unit]("Verify the coverage run actually instrumented the code")
@@ -53,6 +54,10 @@ lazy val assertNoCoverageInstrumentation =
 // Prove the published engine jar carries no bench/arena classes (#564).
 lazy val assertNoBenchClasses =
   taskKey[Unit]("Fail if the packaged jar carries dicechess/engine/bench classes")
+
+// Prove the published engine POM marks onnxruntime as optional (#217).
+lazy val assertOnnxRuntimeOptionalInPom =
+  taskKey[Unit]("Fail if the published engine POM does not mark onnxruntime as optional")
 
 // projectMatrix layout: map to shared/ + jvm/ + js/
 def layout(platformDir: String) = Seq(
@@ -107,7 +112,7 @@ lazy val root = (projectMatrix in file("."))
     scalaVersions = Seq(ScalaV),
     settings = layout("jvm") ++ Seq(
       coverageMinimumStmtTotal                          := 90,
-      libraryDependencies += "com.microsoft.onnxruntime" % "onnxruntime" % "1.29.0",
+      libraryDependencies += "com.microsoft.onnxruntime" % "onnxruntime" % OnnxRuntimeV % Optional,
       Test / exportJars                                 := false,
       coverageDataCheck                                 := Def.uncached {
         val metadata = coverageDataDir.value / "scoverage-data" / "scoverage.coverage"
@@ -161,6 +166,31 @@ lazy val root = (projectMatrix in file("."))
           )
         streams.value.log.info(s"No bench classes in ${jar.getName}")
       },
+      assertOnnxRuntimeOptionalInPom := Def.uncached {
+        val pomFile = fileConverter.value.toPath(makePom.value).toFile
+        val xml     = scala.xml.XML.loadFile(pomFile)
+        val deps    = xml \ "dependencies" \ "dependency"
+        val onnxDep = deps.find { d =>
+          (d \ "groupId").text.trim == "com.microsoft.onnxruntime" &&
+          (d \ "artifactId").text.trim == "onnxruntime"
+        }
+        onnxDep match {
+          case None =>
+            sys.error(s"onnxruntime dependency was not found in generated POM: $pomFile")
+          case Some(dep) =>
+            val isOptional = (dep \ "optional").text.trim == "true"
+            if (!isOptional) {
+              sys.error(
+                s"""onnxruntime in $pomFile is not marked <optional>true</optional>.
+                   |Found dependency node:
+                   |$dep""".stripMargin
+              )
+            }
+        }
+        streams.value.log.info(s"Verified onnxruntime is marked optional in ${pomFile.getName}")
+      },
+      publishLocal := publishLocal.dependsOn(assertOnnxRuntimeOptionalInPom).value,
+      publish      := publish.dependsOn(assertOnnxRuntimeOptionalInPom).value,
       Compile / doc / scalacOptions ++= Seq(
         "-project",
         name.value,
@@ -231,7 +261,8 @@ lazy val benchmark = project
     Compile / doc / sources := Seq.empty,
     coverageEnabled         := false,
     publish / skip          := true,
-    scalacOptions -= "-Werror"
+    scalacOptions -= "-Werror",
+    libraryDependencies += "com.microsoft.onnxruntime" % "onnxruntime" % OnnxRuntimeV
   )
 
 lazy val arena = project
@@ -241,8 +272,9 @@ lazy val arena = project
   .settings(
     name := "dicechess-arena",
     libraryDependencies ++= Seq(
-      "com.monovore"  %% "decline"   % "2.6.2",
-      "org.typelevel" %% "cats-core" % "2.13.0"
+      "com.monovore"             %% "decline"     % "2.6.2",
+      "org.typelevel"            %% "cats-core"   % "2.13.0",
+      "com.microsoft.onnxruntime" % "onnxruntime" % OnnxRuntimeV
     ),
     publish / skip := true,
     Test / unmanagedResourceDirectories += (ThisBuild / baseDirectory).value / "jvm" / "src" / "test" / "resources",
@@ -269,9 +301,10 @@ lazy val cli = project
     name           := "dicechess-cli",
     publish / skip := true,
     libraryDependencies ++= Seq(
-      "com.monovore"  %% "decline"   % "2.6.2",
-      "org.typelevel" %% "cats-core" % "2.13.0",
-      "org.jline"      % "jline"     % "4.4.3"
+      "com.monovore"             %% "decline"     % "2.6.2",
+      "org.typelevel"            %% "cats-core"   % "2.13.0",
+      "org.jline"                 % "jline"       % "4.4.3",
+      "com.microsoft.onnxruntime" % "onnxruntime" % OnnxRuntimeV
     ),
     coverageMinimumStmtTotal := 60,
     coverageDataCheck        := Def.uncached {
