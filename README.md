@@ -38,11 +38,14 @@ Dice Chess is a stochastic chess variant where players roll **three six-sided di
 
 ## 🛠️ Architecture & Multi-Platform Delivery
 
-This project compiles from a single Scala 3 codebase into three production artifacts:
+This project compiles from a single Scala 3 codebase into four published artifacts, all at one version per release:
 
-* **Maven Package** (`com.fortemate:dicechess-engine_3`): Full-featured JVM JAR with JMH benchmarks, bot arena, ONNX runtime, and high-speed simulation.
+* **Maven rules artifact** (`com.fortemate:dicechess-rules_3`, from 0.11.0): the rules of the game only — board and DFEN model, move generation, legal turn enumeration, dice probabilities. Depends on the Scala standard library and nothing else.
+* **Maven engine artifact** (`com.fortemate:dicechess-engine_3`): bots, evaluators, feature extractors and the Java/Kotlin facade `JvmApi`. Depends on `dicechess-rules_3` of the same version; `onnxruntime` is an optional dependency that ONNX consumers declare themselves. The JMH benchmarks, the bot arena and the CLI live in this repository but are not part of the jar.
 * **NPM JavaScript Package** (`@fortemate/dicechess-engine`): ES Module for browsers and Node.js.
 * **NPM WebAssembly Package** (`@fortemate/dicechess-engine-wasm`): WasmGC build running on modern WebAssembly runtimes.
+
+What each artifact contains, what is deliberately left out and how to pick or switch a coordinate: [Published Artifacts & Rules-Only Migration](https://fortemate.github.io/dicechess-engine/architecture/artifacts/).
 
 ---
 
@@ -84,33 +87,47 @@ npm install @fortemate/dicechess-engine
 ```
 
 ```typescript
-import { DiceChess, EngineFacade } from '@fortemate/dicechess-engine';
+import { DiceChess } from '@fortemate/dicechess-engine';
 
-// Generate legal micro-moves for current position and dice roll
-const fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-const legalMoves = DiceChess.getLegalMoves(fen, [1, 2, 4]); // Pawn, Knight, Rook
+// A Dice Chess FEN (DFEN) carries the rolled dice as a 7th field: "PN" = a Pawn and a Knight die.
+const dfen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 PN';
 
-// Find best move sequence using AI search
-const bestMoves = DiceChess.getBestMove(fen, [1, 2, 4], 'greedy');
-console.log('Suggested moves:', bestMoves);
+// Every legal micro-move for this position and roll, as UCI strings
+const legalMoves = DiceChess.getLegalUciMoves(dfen); // e.g. ["e2e3", "e2e4", "b1c3", ...]
+
+// Play one micro-move, then close the turn once the dice are spent
+const afterMove = DiceChess.applyMove(dfen, 'e2', 'e4');
+const nextTurn = DiceChess.endTurn(afterMove);
+
+// Ask a built-in bot for its turn (ids from DiceChess.getAvailableBots())
+const bot = DiceChess.getBestMove(nextTurn, { algorithm: 'greedy' });
+console.log('Bot plays:', bot.moves, 'score', bot.score);
 ```
+
+The full surface (`getAvailableBots`, clock-aware `getBestMove`, doubling and draw decisions, `estimateEquity`) is documented in the [JavaScript API Reference](https://fortemate.github.io/dicechess-engine/architecture/javascript-api/).
 
 ### Java / Kotlin (JVM Facade)
 
+`JvmApi` ships in `com.fortemate:dicechess-engine_3` (Maven Central); rules-only JVM projects use `dicechess-rules_3` and call the Scala API directly.
+
 ```java
+import dicechess.engine.domain.GameState;
 import dicechess.engine.jvmapi.JvmApi;
 import java.util.List;
 
 public class BotExample {
     public static void main(String[] args) {
-        String fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-        List<Integer> dice = List.of(1, 2, 4);
+        GameState state = JvmApi.parseDfen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        GameState rolled = JvmApi.withDice(state, List.of(1, 2, 4)); // Pawn, Knight, Rook
 
-        List<String> bestSequence = JvmApi.chooseMoves(fen, dice, "greedy");
-        System.out.println("Best sequence: " + bestSequence);
+        JvmApi.bestTurn(rolled, "greedy").ifPresentOrElse(
+            turn -> System.out.println("Best turn: " + turn.uci() + " score " + turn.score()),
+            () -> System.out.println("No legal turn for this roll: forced pass"));
     }
 }
 ```
+
+The facade's contract — `legalTurns`, `evaluate`, thinking-time budgets, game-over queries — is documented in the [JVM API Reference](https://fortemate.github.io/dicechess-engine/architecture/jvm-api/).
 
 ---
 
