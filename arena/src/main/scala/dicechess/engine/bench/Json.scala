@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 package dicechess.engine.bench
 
 /** Minimal JSON value model, encoder, and decoder backing the arena runners' optional `--json` machine-readable report

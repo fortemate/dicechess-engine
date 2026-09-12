@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 package dicechess.engine.search
 
 /** Metadata representing a Search Algorithm (Bot) in the engine.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 package dicechess.engine.domain
 
 /** Board-symmetry transforms and position canonicalization for Dice Chess.

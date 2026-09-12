@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 package dicechess.engine
 
 /** JVM-language-agnostic facade over the engine, for callers not written in Scala.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 package dicechess.engine
 
 /** Search and evaluation layer for the Dice Chess Engine.

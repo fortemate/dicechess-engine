@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 package dicechess.engine.search
 
 /** A snapshot of the moving side's game clock, in **milliseconds**.

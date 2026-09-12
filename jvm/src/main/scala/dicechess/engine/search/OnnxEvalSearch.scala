@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 package dicechess.engine.search
 
 import ai.onnxruntime.{OnnxTensor, OrtEnvironment, OrtSession}
