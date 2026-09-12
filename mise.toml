@@ -43,7 +43,7 @@ run = "sbt 'testOnly *'"
 
 [tasks.coverage]
 description = "📊 Run tests with scoverage and generate detailed local reports"
-run = "bash .mise/lib/sbt-cold-cache.sh 'clean; coverage; testOnly *; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport'"
+run = "bash .mise/lib/sbt-cold-cache.sh 'clean; coverage; testOnly *; rulesJVM/coverageDataCheck; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport'"
 
 [tasks."spdx:check"]
 description = "📄 Verify every Scala source carries the SPDX AGPL-3.0-only header"
@@ -53,7 +53,7 @@ run = "bash .mise/lib/check-spdx.sh"
 description = "✅ Run a full validation cycle"
 run = [
   "bash .mise/lib/check-spdx.sh",
-  "bash .mise/lib/sbt-cold-cache.sh 'scalafixAll --check; clean; scalafmtCheckAll; coverage; testOnly *; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport; rootJVM/assertOnnxRuntimeOptionalInPom'",
+  "bash .mise/lib/sbt-cold-cache.sh 'scalafixAll --check; clean; scalafmtCheckAll; coverage; testOnly *; rulesJVM/coverageDataCheck; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport; rootJVM/assertOnnxRuntimeOptionalInPom'",
 ]
 
 [tasks.console]

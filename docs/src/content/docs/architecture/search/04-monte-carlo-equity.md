@@ -27,7 +27,7 @@ per-rollout variance is that of a Bernoulli variable: `p·(1 - p)`, which needs 
 tighten.
 
 The engine already computes, for any position, the **exact** probability that the side to move
-captures a king on its upcoming roll — [`KingCaptureProbability`](https://github.com/fortemate/dicechess-engine/blob/main/shared/src/main/scala/dicechess/engine/search/KingCaptureProbability.scala)
+captures a king on its upcoming roll — [`KingCaptureProbability`](https://github.com/fortemate/dicechess-engine/blob/main/shared-rules/src/main/scala/dicechess/engine/search/KingCaptureProbability.scala)
 enumerates all 216 dice outcomes (56 weighted multisets). Instead of sampling a win/loss at each
 node, we **integrate that exact term** along the rollout, weighted by the probability the game is
 still alive:
@@ -42,7 +42,7 @@ for each ply (side S to move):
 ```
 
 This is **Rao-Blackwellization**: replacing a sampled indicator with its conditional expectation
-can only reduce variance. The continuation is still sampled (via [`TurnGenerator`](https://github.com/fortemate/dicechess-engine/blob/main/shared/src/main/scala/dicechess/engine/search/TurnGenerator.scala)
+can only reduce variance. The continuation is still sampled (via [`TurnGenerator`](https://github.com/fortemate/dicechess-engine/blob/main/shared-rules/src/main/scala/dicechess/engine/search/TurnGenerator.scala)
 + the `RandomSearch` policy), so the estimator stays unbiased to first order while the dominant
 win/loss mass at every node is added analytically.
 

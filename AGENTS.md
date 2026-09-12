@@ -23,14 +23,15 @@ via mise). If a tool is missing, run `bash scripts/jules-setup.sh` instead of in
 - Public repository, AGPL-3.0-only (see `LICENSE`); contributions require a CLA (`CLA.md`, part of an open-core strategy) — external contributors sign inside their first PR (`.github/cla-signatures.json`, enforced by the `CI: CLA` workflow).
 - Ships three artifacts per release: Maven Central jar `com.fortemate:dicechess-engine_3` (JVM), npmjs.org `@fortemate/dicechess-engine` (Scala.js, from `dist/`), and npmjs.org `@fortemate/dicechess-engine-wasm` (WebAssembly, from `dist-wasm/`). All three are also published to GitHub Packages as authenticated mirrors.
 - Published contracts consumed by dicechess-analytics, the play site, and bots:
-  - The DFEN string format (FEN extended with a 7th field = remaining dice pool) — parser in `shared/src/main/scala/dicechess/engine/domain/FenParser.scala`, canonicalization in `movegen/Dfen.scala`.
+  - The DFEN string format (FEN extended with a 7th field = remaining dice pool) — parser in `shared-rules/src/main/scala/dicechess/engine/domain/FenParser.scala`, canonicalization in `movegen/Dfen.scala`.
   - Two exported JS objects: `DiceChess` (`js/src/main/scala/dicechess/engine/api/JsApi.scala`) and `EngineFacade` (`js/src/main/scala/dicechess/engine/EngineFacade.scala`), both typed by the hand-written `js/dicechess-engine.d.ts`.
   - `JvmApi` (`jvm/src/main/scala/dicechess/engine/jvmapi/JvmApi.scala`) — the facade non-Scala JVM callers (Java, Kotlin) bind to, consumed by dicechess-bot-java. Everything outside it is Scala-shaped surface such consumers cannot use without reflection or unchecked casts, so treat the facade as the contract and the rest as internal. Its Java-callability is pinned by a Java-source test (`jvm/src/test/java/`) — a Scala-only test cannot catch a signature that stops being reachable from Java.
 - Changing any of these contracts is a cross-repo event — flag it in the PR description and treat as high blast radius.
 
 ## Architecture map
 
-- `shared/src/main/scala/dicechess/engine/` — cross-compiled core (JVM + JS + Wasm):
+- `shared-rules/src/main/scala/dicechess/engine/` — the **rules core**, published separately as `com.fortemate:dicechess-rules_3` (ADR 009 / #218): `domain`, `movegen`, and the rules-level objects `TurnGenerator`, `KingCaptureProbability`, `KcpScratchBoard`, `DiceRolls`, which deliberately keep the package `dicechess.engine.search` (split package across the two jars; no third-party dependencies). `rules-smoke/` compiles against this jar alone.
+- `shared/src/main/scala/dicechess/engine/` — the rest of the cross-compiled core (JVM + JS + Wasm), published as `dicechess-engine_3` and depending on the rules artifact:
   - `domain/` — opaque-type game state: `Bitboard`/`Square`/`Piece`/`Color` (`Models.scala`), `Position`, `GameFlags`, `Move`, `FenParser` (DFEN), `Symmetry`.
   - `movegen/` — `MagicBitboards`, `LeaperAttacks`, `PawnGeneration`, `MoveGenerator`, `LegalMovesFilter`, `Dfen`. Allocation-sensitive hot path.
   - `search/` — `TurnGenerator` (exhaustive micro-move paths), `Evaluator`, `BotRegistry` (six built-in bots + runtime `registerCustomBot`), `KingCaptureProbability` (216 dice outcomes), `MonteCarloEquity`/`MonteCarloSearch`, `ExpectimaxSearch`, `OpeningBook`(+`Bot`/`Parser`), `TimeManager`/`TimeBudgetedSearch`, `DrawOfferLogic`, ONNX feature extractors (`OnnxFeatures`, `RichFeatures`, `KcpFeatures`).
@@ -114,9 +115,9 @@ Common failure signatures:
 ## Testing conventions
 
 - MUnit `FunSuite` + `munit-scalacheck` for properties. Suites named `*Suite`/`*Spec`; sentence-style test names; regression suites cite the issue number in the Scaladoc header.
-- Two accepted ways to build positions: most suites use `FenParser.parse` + `.withDicePool(...)` directly; the movegen golden fixtures use the `ChessDsl` test DSL (`shared/src/test/scala/dicechess/engine/movegen/ChessDsl.scala`: `"<fen>".withDice(...)` builders taking a die or a tuple, or a FEN that already carries its dice pool in the 7th field, plus `Move.toNotation`). Both patterns are fine.
-- The movegen golden catalog is Scala, not JSON: `shared/src/test/scala/dicechess/engine/movegen/MoveGenFixtures.scala`. It compiles into the JVM, JS and Wasm test runs, so the golden net is cross-platform (#123). It doubles as docs-site content via `DocGenerator` — changing it changes the published docs.
-- JSON fixtures that remain are JVM-only: `shared/src/test/resources/movegen/perft_suite.json` (`PerftSpec`). King-capture probability cases live in the shared Scala fixture `shared/src/test/scala/dicechess/engine/search/KingCaptureFixtures.scala`, which also feeds `KingCaptureDocGenerator`.
+- Two accepted ways to build positions: most suites use `FenParser.parse` + `.withDicePool(...)` directly; the movegen golden fixtures use the `ChessDsl` test DSL (`shared-rules/src/test/scala/dicechess/engine/movegen/ChessDsl.scala`: `"<fen>".withDice(...)` builders taking a die or a tuple, or a FEN that already carries its dice pool in the 7th field, plus `Move.toNotation`). Both patterns are fine.
+- The movegen golden catalog is Scala, not JSON: `shared-rules/src/test/scala/dicechess/engine/movegen/MoveGenFixtures.scala`. It compiles into the JVM, JS and Wasm test runs, so the golden net is cross-platform (#123). It doubles as docs-site content via `DocGenerator` — changing it changes the published docs.
+- JSON fixtures that remain are JVM-only: `shared-rules/src/test/resources/movegen/perft_suite.json` (`PerftSpec`). King-capture probability cases live in the shared Scala fixture `shared/src/test/scala/dicechess/engine/search/KingCaptureFixtures.scala`, which also feeds `KingCaptureDocGenerator`.
 - Single suite: `sbt "rootJVM/testOnly dicechess.engine.search.TurnGeneratorSuite"` (JVM-only, fastest loop). Beware: a non-matching FQCN exits 0 with zero tests run — confirm the suite actually executed.
 - Shared-code tests also run on the JS/Wasm Node runner, which is slower — avoid tight time budgets in tests or they will flake there (a MonteCarlo test already timed out once).
 - No Docker is needed for any test in this repo.

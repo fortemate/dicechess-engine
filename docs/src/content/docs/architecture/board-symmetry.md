@@ -9,7 +9,7 @@ positions: analytics pools empirical win-rate statistics, and search / Monte-Car
 transposition cache key.
 
 This chapter covers the first symmetry — **color-flip** — implemented in
-[`Symmetry`](https://github.com/fortemate/dicechess-engine/blob/main/shared/src/main/scala/dicechess/engine/domain/Symmetry.scala).
+[`Symmetry`](https://github.com/fortemate/dicechess-engine/blob/main/shared-rules/src/main/scala/dicechess/engine/domain/Symmetry.scala).
 Horizontal mirror is a separate step; horizontal shift is intentionally excluded (see below).
 
 ## Which symmetries are exact?
