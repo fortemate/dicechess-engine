@@ -183,18 +183,22 @@ branch only when the pull-request body explicitly includes `Closes #<id>`, `Fixe
 
 ## Publication boundary
 
-<!-- dc-shared:publication v1 — keep identical across Fortemate repositories -->
+<!-- dc-shared:publication v4 — keep identical across Fortemate repositories -->
 
-- Fortemate is open-core. Public by nature: code, rules, search, feature definitions and extractors,
-  serving contracts, mechanics, and the programme numbers already published in the project READMEs.
-  Private: trained weights, opening books, labelled corpora, production parameter **values** (search
-  profiles, candidate limits, table sizes, blend weights, time budgets), experiment **verdicts** (win
-  rates, feature importance, cost ratios, negative results) and the names of private repositories,
-  artifacts and hosts.
+- Fortemate is open-core. Public by nature, in the public repositories: their source (engine rules
+  and search, feature definitions and extractors, bot templates, the play client and server), serving
+  contracts, mechanics, and the programme numbers already published in the project READMEs. Private
+  repositories (evaluation service, training pipelines, proprietary evaluators, house bots, analytics,
+  infrastructure) stay private in full; this rule governs what may be written into the public ones.
+- Always private, wherever it is written: trained weights, opening books, labelled corpora, production
+  parameter **values** (search profiles, candidate limits, table sizes, blend weights, time budgets),
+  experiment **verdicts** (win rates, feature importance, cost ratios, negative results) and the names
+  of private artifacts, hosts and internal paths.
 - Before writing to a public repository — code, docs, scaladoc, commit messages, Issues, pull requests,
   review replies — check the text against that list. Values and verdicts go to the private knowledge
-  base (`fortemate-internal`) and are referenced from public text by page title only; examples use
-  placeholders such as `<candidate-limit>` instead of real values.
+  base (`fortemate-internal`, a private repository agents read and write through the owner's access;
+  naming it is the address, not a disclosure) and are referenced from public text by page title only;
+  examples use placeholders such as `<candidate-limit>` instead of real values.
 - The rule is forward-only (ADR 009): nothing already published is retracted and history is never
   rewritten. When unsure whether something is a definition or a verdict, ask the owner before
   publishing.
