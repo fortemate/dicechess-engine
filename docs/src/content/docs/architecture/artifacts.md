@@ -172,11 +172,19 @@ modules, and neither jar declares a `module-info`. Two consequences:
 
 ## Version coupling
 
-The two coordinates are released together and the engine POM pins the rules at its own version.
-Do not mix versions (engine 0.11.1 with rules 0.11.0, or the reverse): the split package makes such a
-mix compile against one half and run against another. Whether the two may ever version independently
-is a separate decision ([#224](https://github.com/fortemate/dicechess-engine/issues/224)); until it is
-taken, one version for both is the contract.
+The two coordinates are released together from one tag and the engine POM pins the rules at its own
+version. Do not mix versions (engine 0.11.1 with rules 0.11.0, or the reverse): the split package
+makes such a mix compile against one half and run against another.
+
+This is a decision, not an accident ([#224](https://github.com/fortemate/dicechess-engine/issues/224)):
+**the coordinates stay in lockstep until `dicechess-rules` reaches 1.0.** Until then:
+
+- one tag `vX.Y.Z` versions `dicechess-rules_3`, `dicechess-engine_3` and both npm packages;
+- a rules release may carry no rules change at all — the release notes have a dedicated *Rules*
+  section, so a rules-only consumer can tell from the notes whether a bump matters to it;
+- binary compatibility of the rules artifact is checked against the previous release in CI, so a
+  minor release does not break a rules-only consumer silently;
+- independent versioning is reconsidered when the rules are declared stable (1.0).
 
 ## Migration guide
 
