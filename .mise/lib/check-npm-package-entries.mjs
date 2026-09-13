@@ -43,6 +43,7 @@ const RULES_FUNCTIONS = [
   'canonicalKey',
 ];
 
+/** Records a violation and keeps going, so one run reports every problem rather than the first. */
 const fail = (message) => {
   console.error(`error: ${message}`);
   process.exitCode = 1;
@@ -64,12 +65,18 @@ const moduleClosure = (entryFile) => {
   return [...seen].sort();
 };
 
+/**
+ * Resolves a subpath through the package's own `exports` map rather than a hard-coded filename, so
+ * this check follows exactly what a consumer's `import` would resolve to — including a map that
+ * points at a file the build forgot to produce.
+ */
 const entryFile = (subpath) => {
   const target = manifest.exports?.[subpath]?.import;
   if (typeof target !== 'string') throw new Error(`package.json has no "${subpath}" import target`);
   return resolve(distDirectory, target);
 };
 
+/** Prints an entry's closure — the bytes a consumer downloads, which is the figure a release quotes. */
 const report = (subpath, files) => {
   const bytes = files.reduce((total, file) => total + statSync(file).size, 0);
   console.log(`  ${subpath.padEnd(8)} ${String(bytes).padStart(9)} B in ${files.length} module(s)`);
