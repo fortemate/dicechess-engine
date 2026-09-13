@@ -182,8 +182,10 @@ This is a decision, not an accident ([#224](https://github.com/fortemate/diceche
 - one tag `vX.Y.Z` versions `dicechess-rules_3`, `dicechess-engine_3` and both npm packages;
 - a rules release may carry no rules change at all — the release notes have a dedicated *Rules*
   section, so a rules-only consumer can tell from the notes whether a bump matters to it;
-- binary compatibility of the rules artifact is checked against the previous release in CI, so a
-  minor release does not break a rules-only consumer silently;
+- binary compatibility of the rules artifact is checked against the previous release in CI
+  (`rulesJVM/assertRulesBinaryCompatible`, see [CI/CD & Releases](/dicechess-engine/architecture/releases/)),
+  so a minor release does not break a rules-only consumer silently; an intentional break is visible
+  as a filter entry in `build.sbt` with its issue reference;
 - independent versioning is reconsidered when the rules are declared stable (1.0).
 
 ## Migration guide

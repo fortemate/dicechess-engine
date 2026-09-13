@@ -84,8 +84,10 @@ jobs:
         run: |
           sbt --server rootJS/fullLinkJS
           bash .mise/tasks/package/prepare
+      # The rules binary-compatibility gate (#246) runs first, before `coverage` switches the sbt server to
+      # instrumented builds: it compares the plain rules jar with RulesMimaBaseline.
       - name: Run tests with Coverage
-        run: bash .mise/lib/sbt-cold-cache.sh 'clean; coverage; testOnly *; rulesJVM/coverageDataCheck; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport'
+        run: bash .mise/lib/sbt-cold-cache.sh 'rulesJVM/assertRulesBinaryCompatible; clean; coverage; testOnly *; rulesJVM/coverageDataCheck; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport'
       - name: Scaladoc
         run: |
           if bash .mise/lib/sbt-cold-cache.sh 'apiDocs/doc' > scaladoc.log 2>&1; then

@@ -330,6 +330,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NEXT_SNAPSHOT: ${{ steps.bump_version.outputs.next_snapshot }}
+          RELEASE_VERSION: ${{ steps.bump_version.outputs.new_version }}
           RELEASE_TAG: ${{ steps.bump_version.outputs.new_tag }}
           REPO: ${{ github.repository }}
         run: |
@@ -342,6 +343,8 @@ jobs:
           BASE_SHA=$(git rev-parse origin/main)
           git checkout -b "$BRANCH" "$BASE_SHA"
           sed -i 's/ThisBuild \/ version[[:space:]]*:= "[^"]*"/ThisBuild \/ version              := "'"$NEXT_SNAPSHOT"'"/' build.sbt
+          # The release just published becomes the binary-compatibility baseline of dicechess-rules (#246).
+          sed -i 's/^val RulesMimaBaseline[[:space:]]*= "[^"]*"/val RulesMimaBaseline = "'"$RELEASE_VERSION"'"/' build.sbt
 
           if ! git diff --quiet build.sbt; then
             changed_files=$(git diff --name-only)
@@ -351,7 +354,7 @@ jobs:
             fi
 
             git add build.sbt
-            git commit -m "chore(release): bump version to $NEXT_SNAPSHOT"
+            git commit -m "chore(release): bump version to $NEXT_SNAPSHOT, rules baseline to $RELEASE_VERSION"
 
             # Establish the remote branch at the current main SHA before pushing the
             # bookkeeping commit. The subsequent update then changes only build.sbt
@@ -366,14 +369,15 @@ jobs:
             git push origin "$BRANCH"
 
             pr_url=$(gh pr create -R "$REPO" --base main --head "$BRANCH" \
-              --title "chore(release): bump version to $NEXT_SNAPSHOT" \
+              --title "chore(release): bump version to $NEXT_SNAPSHOT, rules baseline to $RELEASE_VERSION" \
               --body "Post-release bookkeeping for **$RELEASE_TAG**, opened automatically by \`Ops: Release\`.
 
           Sets the \`build.sbt\` version to \`$NEXT_SNAPSHOT\` so \`main\` carries the next
-          development version. Nothing else changes.
+          development version, and moves \`RulesMimaBaseline\` to \`$RELEASE_VERSION\` so the
+          rules binary-compatibility gate compares against the release just made. Nothing else changes.
 
           \`$RELEASE_TAG\`, its artifacts and its GitHub Release are already published —
-          this pull request only moves the version forward on \`main\`.")
+          this pull request only advances the version and the compatibility baseline on \`main\`.")
             echo "Opened $pr_url"
 
             # Pull-request events created by GITHUB_TOKEN require manual approval.

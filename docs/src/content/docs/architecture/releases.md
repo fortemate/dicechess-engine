@@ -18,6 +18,15 @@ any publication the release proves, per coordinate, that the jar is not coverage
 carries no bench/arena classes; the rules POM additionally must declare no third-party compile
 dependency, and the engine POM must mark `onnxruntime` optional.
 
+The rules jar is also held **binary compatible with the previous release**: `rulesJVM/assertRulesBinaryCompatible`
+(driven by `mima-core`; MiMa has no sbt 2 plugin) compares the freshly built `dicechess-rules_3` with
+`RulesMimaBaseline` from `build.sbt` and fails `mise run check` and CI on any break. An intentional
+break is accepted with a `ProblemFilters.exclude` entry in `rulesMimaFilters`, each carrying the issue
+that justifies it. The release workflow's next-SNAPSHOT pull request moves `RulesMimaBaseline` to the
+version it has just released, so every release becomes the baseline of the next one. PRs touching
+`shared-rules/` or `js-rules/` get the `rules` label and their own *Rules* section in the generated
+release notes, so a rules-only consumer can see from the notes whether a release matters to it.
+
 Maven Central and npmjs.org are the public canonical registries. GitHub Packages remains a mirror
 for consumers who already use GitHub authentication.
 

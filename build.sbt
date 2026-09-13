@@ -43,8 +43,17 @@ ThisBuild / developers := List(
 
 val ScalaV       = "3.8.4"
 val OnnxRuntimeV = "1.29.0"
+// Previous release of com.fortemate:dicechess-rules_3 that the current rules row must stay binary
+// compatible with (#246). release.yaml moves it to the version it has just released; keep the
+// literal on this one line so that sed finds it.
+val RulesMimaBaseline = "0.12.0"
 
 // Fails the build when a coverage run produced no instrumentation metadata (#531).
+lazy val assertRulesBinaryCompatible =
+  taskKey[Unit]("Fail if dicechess-rules breaks binary compatibility with RulesMimaBaseline (#246)")
+lazy val rulesMimaFilters = settingKey[Seq[com.typesafe.tools.mima.core.Problem => Boolean]](
+  "Accepted binary incompatibilities of dicechess-rules; every entry carries an issue reference in a comment"
+)
 lazy val coverageDataCheck = taskKey[Unit]("Verify the coverage run actually instrumented the code")
 
 // Refuse to publish a jar that IS coverage-instrumented.
@@ -216,7 +225,57 @@ lazy val rules = (projectMatrix in file("shared-rules"))
     scalaVersions = Seq(ScalaV),
     settings = rulesLayout ++ publishGuards ++ Seq(
       coverageMinimumStmtTotal := 95, // measured 98.89 % statement coverage at the split (#218)
-      Test / exportJars        := false,
+      // Binary-compatibility gate (#246, ADR 009 addendum): the rules jar is compared with the previous
+      // release using mima-core. The baseline is retrieved ad hoc through dependencyResolution rather than as
+      // a libraryDependency: sbt drops a dependency on the project's own module id, and an ad-hoc retrieve
+      // keeps the baseline off the compile classpath and out of the published POM. An intentional break is
+      // accepted with a ProblemFilters.exclude entry in rulesMimaFilters, each with the issue that justifies it.
+      rulesMimaFilters            := Seq.empty,
+      assertRulesBinaryCompatible := Def.uncached {
+        import com.typesafe.tools.mima.lib.MiMaLib
+        val log     = streams.value.log
+        val mimaLog = new com.typesafe.tools.mima.core.util.log.Logging {
+          def verbose(msg: String): Unit = log.debug(msg)
+          def debug(msg: String): Unit   = log.debug(msg)
+          def warn(msg: String): Unit    = log.warn(msg)
+          def error(msg: String): Unit   = log.error(msg)
+        }
+        val conv       = fileConverter.value
+        val newJar     = conv.toPath((Compile / packageBin).value).toFile
+        val resolver   = dependencyResolution.value
+        val baselineId = ("com.fortemate" % "dicechess-rules_3" % RulesMimaBaseline)
+          .intransitive() // explicit _3: no scalaModuleInfo here
+        val retrieveDir  = target.value / "mima-baseline"
+        val baselineJars = resolver
+          .retrieve(resolver.wrapDependencyInModule(baselineId), retrieveDir, log)
+          .fold(
+            w =>
+              sys.error(s"could not resolve the rules baseline $RulesMimaBaseline: ${w.resolveException.getMessage}"),
+            identity
+          )
+        val oldJar: java.io.File = baselineJars
+          .find(f =>
+            f.getName.startsWith("dicechess-rules_3") && f.getName.endsWith(".jar") && !f.getName.contains("-sources")
+          )
+          .getOrElse(
+            sys.error(s"baseline jar dicechess-rules_3 $RulesMimaBaseline was not among ${baselineJars.map(_.getName)}")
+          )
+        val classpath = (Compile / fullClasspath).value.map(entry => conv.toPath(entry.data).toFile)
+        val problems  = new MiMaLib(classpath, mimaLog).collectProblems(oldJar, newJar, Nil)
+        val filters   = rulesMimaFilters.value
+        val remaining = problems.filter(problem => filters.forall(keep => keep(problem)))
+        if (remaining.nonEmpty)
+          sys.error(
+            s"""dicechess-rules ${version.value} is not binary compatible with $RulesMimaBaseline (${remaining.size} problem(s)):
+               |${remaining.map(p => "  " + p.description("current")).mkString("\n")}
+               |An intentional break needs a rulesMimaFilters entry with an issue reference, e.g.
+               |${remaining.flatMap(_.howToFilter).distinct.map("  " + _).mkString("\n")}""".stripMargin
+          )
+        log.info(
+          s"dicechess-rules ${version.value} is binary compatible with $RulesMimaBaseline (${problems.size} problem(s) reported, ${problems.size - remaining.size} accepted by filters)"
+        )
+      },
+      Test / exportJars := false,
       coverageDataCheckSetting,
       assertRulesPomHasNoThirdPartyDependencies := Def.uncached {
         val pomFile   = fileConverter.value.toPath(makePom.value).toFile
