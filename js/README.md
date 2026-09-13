@@ -20,6 +20,37 @@ An authenticated mirror is also available from
 
 ---
 
+## Two entries: the whole engine, or the rules alone
+
+The package has two entry points. They come from one build and share the code they have in common,
+so importing both in the same application loads the shared half once.
+
+| Import | What it gives you | What it loads |
+| :--- | :--- | :--- |
+| `@fortemate/dicechess-engine` | everything: `DiceChess`, `EngineFacade`, the bots, `getBestMove`, equity, doubling and draw decisions | 1,308,539 B (191,262 B gzipped) |
+| `@fortemate/dicechess-engine/rules` | the rules only: `getLegalUciMoves`, `generateMoves`, `applyMove`, `endTurn`, `perft`, `getPieceFromDice`, `canonicalKey` | 891,712 B (138,394 B gzipped) |
+
+Use `/rules` wherever the application validates, applies and renders moves but never asks the engine
+to *play* — a live game against another human, a board editor, an analysis view. The functions are
+identical in name and behaviour to their `DiceChess` counterparts, so migrating is one import:
+
+```javascript
+import { DiceChess } from '@fortemate/dicechess-engine/rules';
+
+const dfen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 PN";
+const legalMoves = DiceChess.getLegalUciMoves(dfen);
+const nextDfen = DiceChess.applyMove(dfen, "e2", "e4");
+```
+
+Both entries also export their functions as plain named exports
+(`import { getLegalUciMoves } from '@fortemate/dicechess-engine/rules'`), and each has its own
+TypeScript declarations (`dicechess-rules.d.ts` for the subpath).
+
+The WebAssembly package `@fortemate/dicechess-engine-wasm` has **no** `/rules` subpath: the Scala.js
+WebAssembly backend emits a single module, so that package ships the full API only.
+
+---
+
 ## Quick Start (JavaScript / TypeScript)
 
 The package is distributed as a standard ES Module (`type: "module"`).
@@ -94,7 +125,7 @@ const acceptDraw = DiceChess.shouldBotAcceptDraw(finalDfen);
 ## Features
 
 * **Complete Dice Chess Rules**: Implements turn sequencing, unblocking, promotion path calculations, and strict **Maximal Micro-moves Filtering**.
-* **Type-Safe**: Shipped with comprehensive TypeScript definition files (`.d.ts`) generated directly from the Scala compiler.
+* **Type-Safe**: Shipped with hand-written TypeScript definition files (`.d.ts`) for both entries, kept in step with the exported Scala.js API.
 * **Side-Effect Free**: Configured with `sideEffects: false` to allow advanced tree-shaking in modern bundlers like Vite, Webpack, and Rollup.
 * **Blazing Fast**: Optimized bitwise operations compiled via the advanced Scala.js optimizing linker.
 

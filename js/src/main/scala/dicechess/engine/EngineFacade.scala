@@ -3,6 +3,7 @@ package dicechess.engine
 
 import scala.scalajs.js.annotation.*
 import scala.scalajs.js
+import dicechess.engine.api.RulesOps
 import dicechess.engine.domain.*
 import dicechess.engine.movegen.MoveGenerator
 import scala.util.Random
@@ -118,33 +119,7 @@ object EngineFacade {
   @JSExport
   @JSExportTopLevel("applyMoveFacade")
   def applyMove(dfen: String, from: String, to: String, promotion: js.UndefOr[String]): js.UndefOr[String] =
-    if Option(dfen).isEmpty || Option(from).isEmpty || Option(to).isEmpty then js.undefined
-    else
-      FenParser.parse(dfen) match {
-        case Right(state) =>
-          (Square.fromNotation(from), Square.fromNotation(to)) match {
-            case (Some(fromSq), Some(toSq)) =>
-              // Generate all pseudo-legal moves for standard generation (no dice roll constraint to find the human's move)
-              val moves = MoveGenerator.generateAllMoves(state)
-
-              val moveOpt = moves.find { m =>
-                m.fromSquare == fromSq && m.toSquare == toSq &&
-                (!m.isPromotion || promotion.isEmpty ||
-                  m.promotionPieceType.exists(_.asNotation == promotion.get))
-              }
-
-              moveOpt match {
-                case Some(move) =>
-                  val newState = state.makeMove(move)
-                  FenParser.serialize(newState)
-                case None =>
-                  js.undefined
-              }
-            case _ => js.undefined
-          }
-        case Left(_) =>
-          js.undefined
-      }
+    RulesOps.applyMove(dfen, from, to, promotion)
 
   /** Explicitly ends the current turn to mark a clear boundary between players in a multi-micro-move sequence.
     *
@@ -160,11 +135,5 @@ object EngineFacade {
     */
   @JSExport
   @JSExportTopLevel("endTurnFacade")
-  def endTurn(dfen: String): js.UndefOr[String] =
-    if Option(dfen).isEmpty then js.undefined
-    else
-      FenParser.parse(dfen) match {
-        case Right(state) => FenParser.serialize(state.endTurn())
-        case Left(_)      => js.undefined
-      }
+  def endTurn(dfen: String): js.UndefOr[String] = RulesOps.endTurn(dfen)
 }

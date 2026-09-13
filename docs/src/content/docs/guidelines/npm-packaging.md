@@ -32,14 +32,16 @@ To select the most appropriate package for your application, consult the compari
 
 | Attribute | Pure JS (`@fortemate/dicechess-engine`) | WebAssembly (`@fortemate/dicechess-engine-wasm`) |
 | :--- | :--- | :--- |
-| **Compiled Files** | `dicechess-engine.js`, `dicechess-engine.d.ts` | `main.js`, `main.wasm`, `main.wasm.map`, `__loader.js`, `dicechess-engine.d.ts` |
-| **Download Size** | **1.37 MB** (uncompressed) | **~487 KB** total (472 KB `.wasm`) |
+| **Compiled Files** | `dicechess-engine.js`, `dicechess-rules.js`, `internal-<hash>.js`, `dicechess-engine.d.ts`, `dicechess-rules.d.ts` | `main.js`, `main.wasm`, `main.wasm.map`, `__loader.js`, `dicechess-engine.d.ts` |
+| **Entry points** | `.` (everything) and `./rules` (rules only) | `.` only — the Wasm backend emits a single module |
+| **Download Size** | **1.31 MB** for `.`, **892 KB** for `./rules` (uncompressed) | **~487 KB** total (472 KB `.wasm`) |
 | **Initialization** | Synchronous (immediate import) | Asynchronous (loads `.wasm` via top-level await) |
 | **Move Gen Speed** | Standard (e.g. 5,000 iterations: **112 ms**) | Fast (e.g. 5,000 iterations: **85 ms** / **1.3x speedup**) |
 | **Monte-Carlo Speed** | Standard (e.g. 10 rollouts: **7.38 s**) | Blazing Fast (e.g. 10 rollouts: **2.87 s** / **2.6x speedup**) |
 
 ### When to use which package?
 
+* **Use `@fortemate/dicechess-engine/rules` (Pure JS, rules only)** when the application validates, applies and renders moves but never asks the engine to *play*: a live game between two humans, a board editor, an analysis view. Same function names and behaviour, ~420 KB less to download, and nothing from the search package. See the [rules-only entry](/dicechess-engine/architecture/artifacts/#the-rules-only-entry).
 * **Use `@fortemate/dicechess-engine` (Pure JS)** for synchronous operations in the main browser thread. This includes real-time UI move validation (`applyMove`, `getLegalUciMoves`), board rendering, and simple turn transitions. It loads instantly and avoids asynchronous loader boilerplate or bundler configuration issues with `.wasm` binaries.
 * **Use `@fortemate/dicechess-engine-wasm` (Wasm)** in a background Web Worker for heavy computations. This includes Expectimax bot search (`getBestMove`) and Rao-Blackwellized Monte-Carlo equity simulations (`estimateEquity`).
 
@@ -54,7 +56,7 @@ Four `mise` tasks manage the packaging and distribution lifecycle:
 
 | Task | Description |
 | :--- | :--- |
-| `mise run package:prepare` | Build optimized pure JavaScript package and assemble the `dist/` directory |
+| `mise run package:prepare` | Build optimized pure JavaScript package, assemble the `dist/` directory, and check both entries (`.` and `./rules`) with `.mise/lib/check-npm-package-entries.mjs` |
 | `mise run package:prepare-wasm` | Build optimized WebAssembly package and assemble the `dist-wasm/` directory |
 | `mise run package:verify` | Dry-run both tarballs, validate their exact contents and metadata, install them into clean temporary projects, and import their entry points |
 | `mise run package:clean` | Remove both the `dist/` and `dist-wasm/` directories |

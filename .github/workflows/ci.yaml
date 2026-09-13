@@ -45,7 +45,9 @@ jobs:
             --strip-components=1 "shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
           shellcheck_bin="$PWD/$shellcheck_dir/shellcheck"
 
-          mapfile -d '' scripts < <(find .mise/lib .mise/tasks -type f -print0)
+          # Shell scripts only: .mise/lib also holds Node helpers (*.mjs), which shellcheck
+          # cannot parse and would report as a syntax error in an imaginary shell.
+          mapfile -d '' scripts < <(find .mise/lib .mise/tasks -type f ! -name '*.mjs' -print0)
           "$shellcheck_bin" "${scripts[@]}"
           ./actionlint -shellcheck="$shellcheck_bin" -color
 
@@ -71,6 +73,17 @@ jobs:
         run: sbt --version
       - name: scalafmt check
         run: sbt --server scalafmtCheckAll
+      # Assembling dist/ is the only place the module split (#222) is observable: it runs the
+      # linker, renames the two export roots to their published names and checks that `./rules`
+      # still answers like `.` while carrying none of the search package. It runs BEFORE the
+      # coverage step on purpose — `coverage` overrides per-project `coverageEnabled` for the
+      # rest of the sbt server's life, and a release bundle is never built from instrumented code.
+      - name: Build and check the npm package entries
+        env:
+          PACKAGE_VERSION: 0.0.0 # placeholder: this bundle is checked, never published
+        run: |
+          sbt --server rootJS/fullLinkJS
+          bash .mise/tasks/package/prepare
       - name: Run tests with Coverage
         run: bash .mise/lib/sbt-cold-cache.sh 'clean; coverage; testOnly *; rulesJVM/coverageDataCheck; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport'
       - name: Scaladoc

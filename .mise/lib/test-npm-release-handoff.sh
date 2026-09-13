@@ -16,29 +16,39 @@ RELEASE_TAG=v9.9.9
 COMMIT_SHA=1111111111111111111111111111111111111111
 mkdir -p "$JS_DIRECTORY" "$WASM_DIRECTORY"
 
+# The fixture mirrors the SHAPE of a released package, not its contents: the JavaScript package
+# carries two entries and a content-hashed internal chunk since the module split (#222), and
+# `package/verify` checks exactly that shape.
+FIXTURE_INTERNAL_CHUNK=internal-0123456789abcdef0123456789abcdef01234567.js
+
 write_manifest() {
   local destination=$1
   local package_name=$2
   local main_file=$3
+  local rules_file=${4:-}
   jq -n \
     --arg name "$package_name" \
     --arg main "$main_file" \
+    --arg rules "$rules_file" \
     '{
       name: $name,
       version: "9.9.9",
       type: "module",
       main: $main,
-      exports: {".": $main},
+      exports: ({".": $main} + (if $rules == "" then {} else {"./rules": $rules} end)),
       repository: {url: "git+https://github.com/fortemate/dicechess-engine.git"},
       publishConfig: {access: "public"}
     }' >"$destination/package.json"
 }
 
-write_manifest "$JS_DIRECTORY" '@fortemate/dicechess-engine' './dicechess-engine.js'
+write_manifest "$JS_DIRECTORY" '@fortemate/dicechess-engine' './dicechess-engine.js' './dicechess-rules.js'
 printf '%s\n' '# fixture' >"$JS_DIRECTORY/README.md"
 printf '%s\n' 'fixture licence text' >"$JS_DIRECTORY/LICENSE"
 printf '%s\n' 'export declare const fixture: true;' >"$JS_DIRECTORY/dicechess-engine.d.ts"
-printf '%s\n' 'export const fixture = true;' >"$JS_DIRECTORY/dicechess-engine.js"
+printf '%s\n' 'export declare const fixture: true;' >"$JS_DIRECTORY/dicechess-rules.d.ts"
+printf '%s\n' 'export const fixture = true;' >"$JS_DIRECTORY/$FIXTURE_INTERNAL_CHUNK"
+printf '%s\n' "export { fixture } from './$FIXTURE_INTERNAL_CHUNK';" >"$JS_DIRECTORY/dicechess-engine.js"
+printf '%s\n' "export { fixture } from './$FIXTURE_INTERNAL_CHUNK';" >"$JS_DIRECTORY/dicechess-rules.js"
 
 write_manifest "$WASM_DIRECTORY" '@fortemate/dicechess-engine-wasm' './main.js'
 printf '%s\n' '# fixture' >"$WASM_DIRECTORY/README.md"

@@ -24,7 +24,7 @@ via mise). If a tool is missing, run `bash scripts/jules-setup.sh` instead of in
 - Ships three artifacts per release: Maven Central jar `com.fortemate:dicechess-engine_3` (JVM), npmjs.org `@fortemate/dicechess-engine` (Scala.js, from `dist/`), and npmjs.org `@fortemate/dicechess-engine-wasm` (WebAssembly, from `dist-wasm/`). All three are also published to GitHub Packages as authenticated mirrors.
 - Published contracts consumed by dicechess-analytics, the play site, and bots:
   - The DFEN string format (FEN extended with a 7th field = remaining dice pool) — parser in `shared-rules/src/main/scala/dicechess/engine/domain/FenParser.scala`, canonicalization in `movegen/Dfen.scala`.
-  - Two exported JS objects: `DiceChess` (`js/src/main/scala/dicechess/engine/api/JsApi.scala`) and `EngineFacade` (`js/src/main/scala/dicechess/engine/EngineFacade.scala`), both typed by the hand-written `js/dicechess-engine.d.ts`.
+  - Two exported JS objects: `DiceChess` (`js/src/main/scala/dicechess/engine/api/JsApi.scala`) and `EngineFacade` (`js/src/main/scala/dicechess/engine/EngineFacade.scala`), both typed by the hand-written `js/dicechess-engine.d.ts`, plus the rules-only `DiceChess` of the `./rules` subpath (`js-rules/src/main/scala/dicechess/engine/api/RulesApi.scala`, typed by `js/dicechess-rules.d.ts`).
   - `JvmApi` (`jvm/src/main/scala/dicechess/engine/jvmapi/JvmApi.scala`) — the facade non-Scala JVM callers (Java, Kotlin) bind to, consumed by dicechess-bot-java. Everything outside it is Scala-shaped surface such consumers cannot use without reflection or unchecked casts, so treat the facade as the contract and the rest as internal. Its Java-callability is pinned by a Java-source test (`jvm/src/test/java/`) — a Scala-only test cannot catch a signature that stops being reachable from Java.
 - Changing any of these contracts is a cross-repo event — flag it in the PR description and treat as high blast radius.
 
@@ -38,7 +38,7 @@ via mise). If a tool is missing, run `bash scripts/jules-setup.sh` instead of in
   - `search/` — `Evaluator`, `BotRegistry` (six built-in bots + runtime `registerCustomBot`), `MonteCarloEquity`/`MonteCarloSearch`, `ExpectimaxSearch`, `OpeningBook`(+`Bot`/`Parser`), `TimeManager`/`TimeBudgetedSearch`, `DrawOfferLogic`, ONNX feature extractors (`OnnxFeatures`, `RichFeatures`, `KcpFeatures`, `KcpMobility*Features`, `RichPdiFeatures`, `RawBoardFeatures`).
 - `jvm/src/main/scala/dicechess/engine/` — entry point `Main.scala` (JLine REPL CLI, `cli/`), JVM-only ONNX inference bots (`search/OnnxEvalSearch.scala`, `OnnxExpectimaxSearch.scala` on onnxruntime), and `jvmapi/JvmApi.scala` — the Java/Kotlin-facing facade (the JVM row's counterpart to `js/`'s `EngineFacade`). ONNX bots are absent from the npm bundles.
 - `arena/src/main/scala/dicechess/engine/bench/` — non-published sbt project (`arena`): six arena runners (`BotMatchRunner`, `TimedArenaRunner`, `OpeningBookArenaRunner`, `OnnxArenaRunner`, `OnnxExpectimaxArenaRunner`, `OnnxTimedArenaRunner`), SPRT/pentanomial machinery, and measurement probes.
-- `js/` — Scala.js facade layer; `.wasm/` — the `rootWasm` project relinking the same sources to WebAssembly (ES2022 + WasmGC).
+- `js/` — Scala.js facade layer (`JsApi`/`DiceChess`, `EngineFacade`, and `RulesOps`, the rules-level implementation both export roots call); `js-rules/` — the rules-only export root (`RulesApi`, module `rules` → npm subpath `./rules`), compiled into `rootJS` **only**; `.wasm/` — the `rootWasm` project relinking `shared`+`js` to WebAssembly (ES2022 + WasmGC), which is why `js-rules/` must stay out of its source set: the Wasm backend refuses to emit multiple modules (#222).
 - `benchmark/` — JMH micro-benchmarks (excluded from coverage and publishing).
 - `docs/` — Astro + Starlight documentation site (see Documentation below).
 - There is no HTTP/WebSocket API, no database, and no effect system here — plain Scala 3 with opaque types; errors via `Either`.
@@ -67,7 +67,7 @@ mise run bench:js | bench:wasm | bench:all              # Node.js benchmarks (JS
 mise run arena [base] [games]                           # bot arena (BotMatchRunner)
 mise run arena:timed | arena:book                       # time-controlled / opening-book arenas
 mise run arena:evaluate [bot] [baseline] [fixtures]     # deterministic search scenario comparison
-mise run js:build | js:dev | wasm:build                 # bundles
+mise run js:build | js:dev | wasm:build                 # bundles (js uses fullLinkJS: a split link has no single output file)
 mise run publish:local                                  # JVM jar to local Ivy for downstream dev
 mise run docs:dev | docs:build                          # docs site (runs the doc generators first)
 sbt apiDocs/doc                                         # Scaladoc with COMPILED snippets — not in `mise run check`,
@@ -102,7 +102,7 @@ Common failure signatures:
   - Touched `.github/workflows/` → trigger the run manually with `gh workflow run ci.yaml`; such PRs have been
     observed not to trigger `pull_request` CI. `main` requires a PR and rejects deletion/force-push, but does not
     require approvals or status checks — extra care.
-  - Changed the JS API surface → update `js/dicechess-engine.d.ts` in the same PR.
+  - Changed the JS API surface → update `js/dicechess-engine.d.ts` (and `js/dicechess-rules.d.ts` when the change touches the rules subpath) in the same PR.
 
 ## Code conventions
 
@@ -139,6 +139,7 @@ Common failure signatures:
 - Turn maximality is measured in **dice consumed, not move count** — castling spends two dice in one move; the active color never changes within a turn. Regression suites: `TurnGeneratorSuite` (#347), `EnPassantMicroMoveSuite`.
 - The engine does **not** support Chess960 castling — squares e1/h1/a1 are hardcoded.
 - Root `package.json` version is dead weight — the real version comes from sbt at `package:prepare` time. Never "fix" or trust it.
+- The npm JS bundle is a **split link** (#222): `fullOptJS`/`fastOptJS` fail on it ("ReportToLinkerOutputAdapter") because they want one output file, so every entry point uses `fullLinkJS`/`fastLinkJS`. `package:prepare` renames the two public modules to `dicechess-engine.js` (`.`) and `dicechess-rules.js` (`./rules`), copies the shared `internal-<hash>.js` beside them, and runs `.mise/lib/check-npm-package-entries.mjs` — which fails the build if the rules entry ever reaches `BotRegistry`, `KingCaptureProbability` and friends. Adding an export root to `js/` (rather than `js-rules/`) breaks the Wasm row, which cannot have more than one module.
 - `BotRegistry` is a process-wide mutable singleton (`registerCustomBot`) — arena runners and the JS `registerOpeningBookBot` mutate global state; isolate tests that depend on registry contents.
 - The pinned scalafmt version in `mise.toml` must exactly match `version` in `.scalafmt.conf` — the native pre-commit CLI does not auto-dispatch versions.
 - Doc generators must run in ONE sbt session (`mise run docs:generate:all`); two parallel sbt boots collide on the server socket (#326).

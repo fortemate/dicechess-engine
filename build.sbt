@@ -1,5 +1,5 @@
 import sbt.{given, *}
-import org.scalajs.linker.interface.ESVersion
+import org.scalajs.linker.interface.{ESVersion, ModuleSplitStyle}
 import scala.jdk.CollectionConverters.*
 
 // =============================================================================
@@ -82,6 +82,16 @@ def layout(platformDir: String) = Seq(
     (ThisBuild / baseDirectory).value / "shared" / "src" / "test" / "resources",
     (ThisBuild / baseDirectory).value / platformDir / "src" / "test" / "resources"
   )
+)
+
+// The JS rules export root (`js-rules/`) belongs to rootJS ALONE. Its `@JSExportTopLevel(..., "rules")`
+// annotations create a second linker module, and the WebAssembly backend rejects that outright
+// ("The WebAssembly backend does not support multiple modules"), so rootWasm — which shares `layout("js")`
+// with rootJS — must never see these sources. The shared implementation they call lives in
+// `js/src/main/scala/dicechess/engine/api/RulesOps.scala` and stays in both rows (ADR 009 / #222).
+def jsRulesLayout = Seq(
+  Compile / unmanagedSourceDirectories += (ThisBuild / baseDirectory).value / "js-rules" / "src" / "main" / "scala",
+  Test / unmanagedSourceDirectories += (ThisBuild / baseDirectory).value / "js-rules" / "src" / "test" / "scala"
 )
 
 // The rules artifact has no platform-specific sources: one shared-rules/ root for every row.
@@ -305,10 +315,21 @@ lazy val root = (projectMatrix in file("."))
   )
   .jsPlatform(
     scalaVersions = Seq(ScalaV),
-    settings = layout("js") ++ Seq(
+    settings = layout("js") ++ jsRulesLayout ++ Seq(
       coverageEnabled                 := false,
       scalaJSUseMainModuleInitializer := false,
-      scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.ESModule) }
+      // Two export roots, one linker output (ADR 009 / #222): `DiceChess` in module `main` and the rules-only
+      // `DiceChess` in module `rules`, published as the `.` and `./rules` subpaths of the same npm package.
+      // FewestModules is what the split needs — one module per export root plus one internal module for the
+      // code both reach, so importing `./rules` never downloads `dicechess.engine.search`. The smaller-module
+      // styles were measured on these sources and rejected on the numbers, not on taste: SmallModulesFor
+      // ("dicechess") gives 960,709 B through `./rules` in 26 modules and SmallModulesFor("dicechess",
+      // "scala") 961,529 B in 50, against 891,712 B in 2 here — per-class modules cost more in boilerplate
+      // than the finer granularity saves.
+      scalaJSLinkerConfig ~= {
+        _.withModuleKind(ModuleKind.ESModule)
+          .withModuleSplitStyle(ModuleSplitStyle.FewestModules)
+      }
     )
   )
 
