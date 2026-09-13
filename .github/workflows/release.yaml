@@ -369,14 +369,15 @@ jobs:
             git push origin "$BRANCH"
 
             pr_url=$(gh pr create -R "$REPO" --base main --head "$BRANCH" \
-              --title "chore(release): bump version to $NEXT_SNAPSHOT" \
+              --title "chore(release): bump version to $NEXT_SNAPSHOT, rules baseline to $RELEASE_VERSION" \
               --body "Post-release bookkeeping for **$RELEASE_TAG**, opened automatically by \`Ops: Release\`.
 
           Sets the \`build.sbt\` version to \`$NEXT_SNAPSHOT\` so \`main\` carries the next
-          development version. Nothing else changes.
+          development version, and moves \`RulesMimaBaseline\` to \`$RELEASE_VERSION\` so the
+          rules binary-compatibility gate compares against the release just made. Nothing else changes.
 
           \`$RELEASE_TAG\`, its artifacts and its GitHub Release are already published —
-          this pull request only moves the version forward on \`main\`.")
+          this pull request only advances the version and the compatibility baseline on \`main\`.")
             echo "Opened $pr_url"
 
             # Pull-request events created by GITHUB_TOKEN require manual approval.
