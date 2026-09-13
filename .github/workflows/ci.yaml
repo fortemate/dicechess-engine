@@ -45,7 +45,9 @@ jobs:
             --strip-components=1 "shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
           shellcheck_bin="$PWD/$shellcheck_dir/shellcheck"
 
-          mapfile -d '' scripts < <(find .mise/lib .mise/tasks -type f -print0)
+          # Shell scripts only: .mise/lib also holds Node helpers (*.mjs), which shellcheck
+          # cannot parse and would report as a syntax error in an imaginary shell.
+          mapfile -d '' scripts < <(find .mise/lib .mise/tasks -type f ! -name '*.mjs' -print0)
           "$shellcheck_bin" "${scripts[@]}"
           ./actionlint -shellcheck="$shellcheck_bin" -color
 
