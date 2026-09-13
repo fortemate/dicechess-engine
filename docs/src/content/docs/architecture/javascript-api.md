@@ -5,6 +5,22 @@ description: Reference documentation for the Dice Chess Engine JavaScript API.
 
 The Dice Chess Engine exposes the `DiceChess` object to JavaScript consumers (like the `dicechess-lab` PWA frontend). This API provides functions for move generation, validation, and game state transitions.
 
+## Two entry points
+
+The npm package has two entries, and every function on this page that needs only the rules is on both:
+
+```javascript
+import { DiceChess } from '@fortemate/dicechess-engine';       // everything
+import { DiceChess } from '@fortemate/dicechess-engine/rules'; // rules only, ~420 KB smaller
+```
+
+The `./rules` subpath carries `getLegalUciMoves`, `generateMoves`, `applyMove`, `endTurn`, `perft`,
+`getPieceFromDice` and `canonicalKey` — identical in name and behaviour — and nothing that reaches
+the search package. Everything else below (`getBestMove`, bot discovery, time policies, the doubling
+and draw decisions, `estimateEquity`) lives on the full entry only. See
+[Published Artifacts](/dicechess-engine/architecture/artifacts/#the-rules-only-entry)
+for the sizes and the reason the WebAssembly package has no such subpath.
+
 ## `DiceChess`
 
 The primary interface for interacting with the engine from JavaScript/TypeScript.

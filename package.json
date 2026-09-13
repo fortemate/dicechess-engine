@@ -10,6 +10,11 @@
 			"types": "./dist/dicechess-engine.d.ts",
 			"import": "./dist/dicechess-engine.js",
 			"default": "./dist/dicechess-engine.js"
+		},
+		"./rules": {
+			"types": "./dist/dicechess-rules.d.ts",
+			"import": "./dist/dicechess-rules.js",
+			"default": "./dist/dicechess-rules.js"
 		}
 	},
 	"files": [

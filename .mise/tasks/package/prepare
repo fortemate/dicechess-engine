@@ -41,9 +41,48 @@ fi
 rm -rf -- dist
 mkdir -p dist
 
-# Copy assets to the distribution folder (sbt 2's shared target/out/ layout, not js/target/)
-cp target/out/sjs1/scala-3.*/dicechess-engine/dicechess-engine-opt/main.js dist/dicechess-engine.js
+# Locate the Scala.js linker output (sbt 2's shared target/out/ layout, not js/target/). One
+# directory, always: a second one would mean two Scala versions in target/ and a coin flip over
+# which bundle gets published.
+shopt -s nullglob
+LINKER_OUTPUTS=(target/out/sjs1/scala-3.*/dicechess-engine/dicechess-engine-opt)
+if [[ ${#LINKER_OUTPUTS[@]} -ne 1 ]]; then
+  echo "error: expected exactly one Scala.js linker output directory, found ${#LINKER_OUTPUTS[@]}" >&2
+  printf '         %s\n' "${LINKER_OUTPUTS[@]}" >&2
+  echo "       run 'sbt clean' and rebuild with 'mise run js:build'" >&2
+  exit 1
+fi
+LINKER_OUTPUT=${LINKER_OUTPUTS[0]}
+
+# Since #222 the link is split into modules: `main.js` and `rules.js` are the two export roots
+# (npm subpaths `.` and `./rules`) and the remaining files are the internal chunk they share.
+# The two entries keep their historical published names, which is only safe because the linker
+# never imports a public module by name — it imports the internal chunks by relative path. Prove
+# that instead of assuming it: a renamed entry that something imports would break on install.
+CROSS_IMPORTS=$(grep -l -e '"\./main\.js"' -e '"\./rules\.js"' "$LINKER_OUTPUT"/*.js || true)
+if [[ -n "$CROSS_IMPORTS" ]]; then
+  echo "error: a linked module imports ./main.js or ./rules.js by name, so renaming the entries would break it:" >&2
+  printf '         %s\n' "$CROSS_IMPORTS" >&2
+  exit 1
+fi
+
+# Copy assets to the distribution folder
+for MODULE in "$LINKER_OUTPUT"/*.js; do
+  case "$(basename "$MODULE")" in
+    main.js) cp "$MODULE" dist/dicechess-engine.js ;;
+    rules.js) cp "$MODULE" dist/dicechess-rules.js ;;
+    *) cp "$MODULE" "dist/$(basename "$MODULE")" ;;
+  esac
+done
+for ENTRY in dicechess-engine.js dicechess-rules.js; do
+  if [[ ! -f "dist/$ENTRY" ]]; then
+    echo "error: the linker produced no module for dist/$ENTRY" >&2
+    echo "       both export roots must link: DiceChess (module main) and the rules root (module rules)" >&2
+    exit 1
+  fi
+done
 cp js/dicechess-engine.d.ts dist/
+cp js/dicechess-rules.d.ts dist/
 cp js/README.md dist/README.md
 cp LICENSE dist/LICENSE
 
@@ -55,5 +94,12 @@ jq --arg ver "$CLEAN_VERSION" '
   .exports["."].types = "./dicechess-engine.d.ts" |
   .exports["."].import = "./dicechess-engine.js" |
   .exports["."].default = "./dicechess-engine.js" |
+  .exports["./rules"].types = "./dicechess-rules.d.ts" |
+  .exports["./rules"].import = "./dicechess-rules.js" |
+  .exports["./rules"].default = "./dicechess-rules.js" |
   del(.files)
 ' package.json > dist/package.json
+
+# Prove what was just assembled: both entries answer alike, and the rules entry carries no search
+# code. Printing the closure sizes here is also where the release log gets them (#222).
+node .mise/lib/check-npm-package-entries.mjs dist

@@ -120,13 +120,16 @@ run = "sbt scalafmtCheckAll"
 description = "📦 Publish the JVM artifact to the local Ivy repository (for downstream development)"
 run = "sbt rootJVM/publishLocal"
 
+# fullOptJS/fastOptJS produce ONE file and fail outright on a split link
+# ("ReportToLinkerOutputAdapter"), so the module-splitting bundle (#222) uses the directory-output
+# tasks. Same optimizer, same `<name>-opt/` directory — one file per linker module inside it.
 [tasks."js:build"]
 description = "📦 Build optimized JavaScript bundle"
-run = "sbt rootJS/fullOptJS"
+run = "sbt rootJS/fullLinkJS"
 
 [tasks."js:dev"]
 description = "📦 Build fast JavaScript bundle for local dev"
-run = "sbt rootJS/fastOptJS"
+run = "sbt rootJS/fastLinkJS"
 
 [tasks."package:clean"]
 description = "🧹 Remove the distribution folder"

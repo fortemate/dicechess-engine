@@ -286,7 +286,7 @@ jobs:
       - name: Build JavaScript package
         if: steps.npm_bundle_source.outputs.reuse != 'true'
         run: |
-          sbt --server rootJS/fullOptJS
+          sbt --server rootJS/fullLinkJS
           bash .mise/tasks/package/prepare
         env:
           # Pass the version explicitly — the tag already carries it. Letting the script

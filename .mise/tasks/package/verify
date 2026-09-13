@@ -40,7 +40,9 @@ bash "$(dirname "$0")/../../lib/verify-npm-release-bundle.sh" \
 
 verify_package() {
   local expected_name=$1
-  shift
+  # Comma-separated extra subpaths of the package to import (empty for a single-entry package).
+  local extra_subpaths=$2
+  shift 2
   local expected_files=("$@")
   local actual_files="$TEMP_DIRECTORY/actual-files.txt"
   local expected_files_list="$TEMP_DIRECTORY/expected-files.txt"
@@ -49,7 +51,9 @@ verify_package() {
 
   filename=$(jq -er --arg name "$expected_name" '.packages[] | select(.name == $name) | .filename' "$BUNDLE_DIRECTORY/manifest.json")
   tarball="$BUNDLE_DIRECTORY/$filename"
-  tar -tzf "$tarball" | sed -n 's#^package/##p' | sort >"$actual_files"
+  # The split link (#222) names its shared chunk after a content hash, so the hash is normalised
+  # away while the SHAPE stays pinned: exactly the listed files, and exactly one internal chunk.
+  tar -tzf "$tarball" | sed -n 's#^package/##p' | sed -E 's/^internal-[0-9a-f]+\.js$/internal-<hash>.js/' | sort >"$actual_files"
   printf '%s\n' "${expected_files[@]}" | sort >"$expected_files_list"
   diff -u "$expected_files_list" "$actual_files"
 
@@ -66,10 +70,11 @@ verify_package() {
   (cd "$consumer" && node --input-type=module - \
     "$consumer/node_modules/$expected_name/package.json" \
     "$expected_name" \
-    "${RELEASE_TAG#v}" <<'NODE'
+    "${RELEASE_TAG#v}" \
+    "$extra_subpaths" <<'NODE'
 import { readFile } from 'node:fs/promises';
 
-const [, , manifestPath, expectedName, expectedVersion] = process.argv;
+const [, , manifestPath, expectedName, expectedVersion, extraSubpaths] = process.argv;
 const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
 if (manifest.name !== expectedName) {
   throw new Error(`installed ${manifest.name}, expected ${expectedName}`);
@@ -84,20 +89,34 @@ if (manifest.publishConfig?.registry !== undefined || manifest.publishConfig?.ac
   throw new Error(`unsafe publishConfig for ${expectedName}`);
 }
 await import(expectedName);
+// Every declared subpath must resolve through the exports map of the INSTALLED package: a
+// package.json that lists `./rules` but ships no such module installs fine and fails at import.
+for (const subpath of extraSubpaths.split(',').filter(Boolean)) {
+  await import(`${expectedName}${subpath}`);
+}
 NODE
   )
 }
 
+# The JavaScript package ships two entries since #222: `.` (dicechess-engine.js) and `./rules`
+# (dicechess-rules.js), plus the internal chunk both import.
 verify_package \
   '@fortemate/dicechess-engine' \
+  '/rules' \
   LICENSE \
   README.md \
+  'internal-<hash>.js' \
   dicechess-engine.d.ts \
   dicechess-engine.js \
+  dicechess-rules.d.ts \
+  dicechess-rules.js \
   package.json
 
+# The WebAssembly package has ONE entry and cannot have more: the Wasm backend refuses to emit
+# multiple modules, so the rules subpath is JavaScript-only (#222).
 verify_package \
   '@fortemate/dicechess-engine-wasm' \
+  '' \
   LICENSE \
   README.md \
   __loader.js \

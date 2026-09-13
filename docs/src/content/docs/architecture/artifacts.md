@@ -20,7 +20,7 @@ them are **not part of any artifact** and are not documented here.
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `com.fortemate:dicechess-rules_3` (from 0.11.0) | Maven Central, GitHub Packages | `shared-rules/` | Scala standard library only | none (Scala API) | a server of truth, an analytics backend, a position editor |
 | `com.fortemate:dicechess-engine_3` | Maven Central, GitHub Packages | `shared/`, `jvm/` | `dicechess-rules_3` (same version); `onnxruntime` **optional** | `JvmApi` (Java, Kotlin) | bots, evaluation and training tools, anything that searches or scores |
-| `@fortemate/dicechess-engine` | npmjs.org, GitHub Packages | `shared-rules/`, `shared/`, `js/` | none | `DiceChess`, `EngineFacade` | browser and Node.js clients |
+| `@fortemate/dicechess-engine` | npmjs.org, GitHub Packages | `shared-rules/`, `shared/`, `js/`, `js-rules/` | none | `DiceChess`, `EngineFacade`; `DiceChess` (rules only) on the `./rules` subpath | browser and Node.js clients |
 | `@fortemate/dicechess-engine-wasm` | npmjs.org, GitHub Packages | same as above, WasmGC build | none | same as above | Web Workers running heavy search |
 | Android source path | no artifact | `shared-rules/`, `shared/`, `jvm/.../jvmapi` | Scala standard library | `JvmApi` + direct Scala calls | the on-device prototype |
 
@@ -98,7 +98,7 @@ result ships in the jar.
 ## The npm packages
 
 Both packages are one Scala.js link of `shared-rules/` + `shared/` + `js/`, differing only in the
-target (JavaScript versus WasmGC). They export the same API and share one hand-written
+target (JavaScript versus WasmGC). They export the same API, typed by the hand-written
 `dicechess-engine.d.ts`:
 
 - `DiceChess` — the primary facade: DFEN helpers, `getLegalUciMoves`, `applyMove`, `endTurn`, bot
@@ -113,10 +113,41 @@ the JS-versus-Wasm trade-offs are covered in
 [NPM Packaging & Local Integration](/dicechess-engine/guidelines/npm-packaging/); both tarballs carry
 `README.md` and `LICENSE`.
 
-A rules-only entry for JavaScript consumers is planned as a **subpath of the same package**
-(`@fortemate/dicechess-engine/rules`), produced by Scala.js module splitting rather than a second npm
-package — see [#222](https://github.com/fortemate/dicechess-engine/issues/222). Until it ships, JS
-consumers import the full bundle as today.
+### The rules-only entry
+
+The JavaScript package carries the JS counterpart of the rules/engine split — not as a second
+package, but as a **subpath of the same one**, `@fortemate/dicechess-engine/rules`. Scala.js links
+its two export roots into separate modules:
+
+| Subpath | Exports | Downloads |
+| :--- | :--- | :--- |
+| `.` | `DiceChess`, `EngineFacade` — everything, including the bots | 1,308,539 B (191,262 B gzipped) |
+| `./rules` | `DiceChess` with `getLegalUciMoves`, `generateMoves`, `applyMove`, `endTurn`, `perft`, `getPieceFromDice`, `canonicalKey` | 891,712 B (138,394 B gzipped) |
+
+```javascript
+// a live game between two humans, a board editor, an analysis view
+import { DiceChess } from '@fortemate/dicechess-engine/rules';
+```
+
+The function names and their behaviour are identical to their `.` counterparts, so a rules-only
+consumer migrates by changing the import specifier and nothing else. Both subpaths come from one
+link and import the same shared chunk, so an application that hosts both — `/live` next to a
+practice bot — loads the rules half once instead of twice, which is exactly what a second npm
+package could not do.
+
+What `./rules` cannot reach is the point of it: `BotRegistry`, the bots, `Evaluator`, the opening
+book, time management, `MonteCarloEquity`, `TurnGenerator` and `KingCaptureProbability` (with its
+scratch board) are in the `.` module only. `.mise/lib/check-npm-package-entries.mjs` proves it over
+the linked modules every time `dist/` is assembled, and fails the build otherwise.
+
+The trade is visible in the table: splitting a link costs the full entry about 17 % in bytes
+(8.8 % gzipped), because the optimiser cannot inline across a module boundary. It buys the rules-only
+consumer 20 % — and a `.` consumer pays nothing at runtime that it did not already carry.
+
+The WebAssembly package has **no** `./rules` subpath and cannot have one: the Scala.js WebAssembly
+backend rejects multiple modules outright (`The WebAssembly backend does not support multiple
+modules`). The rules export root therefore lives in `js-rules/`, a source root belonging to the
+JavaScript row alone, while the implementation it calls stays in `js/` and is compiled into both.
 
 ## The Android source path
 

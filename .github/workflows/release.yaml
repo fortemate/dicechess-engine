@@ -231,7 +231,7 @@ jobs:
       # js:build dependency first, then the script directly — no mise needed.
       - name: Build JavaScript package
         run: |
-          sbt --server rootJS/fullOptJS
+          sbt --server rootJS/fullLinkJS
           bash .mise/tasks/package/prepare
         env:
           # Pass the version explicitly — the workflow already knows it. Letting the script
@@ -313,7 +313,10 @@ jobs:
         run: |
           gh release create "$NEW_TAG" \
             dist/dicechess-engine.js \
+            dist/dicechess-rules.js \
+            dist/internal-*.js \
             dist/dicechess-engine.d.ts \
+            dist/dicechess-rules.d.ts \
             dist-wasm/main.js \
             dist-wasm/main.wasm \
             dist-wasm/__loader.js \

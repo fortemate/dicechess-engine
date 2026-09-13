@@ -24,6 +24,11 @@ import scala.scalajs.js.JSConverters.*
   *
   * This object is exported to JavaScript as `DiceChess`. It provides high-level functions for FEN parsing, move
   * generation, and validation, optimized for UI consumption.
+  *
+  * Its rules-level functions delegate to [[dicechess.engine.api.RulesOps]], which is also what the rules-only export
+  * root (`RulesApi` in `js-rules/`, npm subpath `./rules`) calls. Keep them delegating: inlining a body back here would
+  * leave a second copy in the `main` module, and a reference the other way round would pull this object — and with it
+  * the whole search package — into the module a rules-only host loads (#222).
   */
 @JSExportTopLevel("DiceChess")
 object JsApi:
@@ -64,14 +69,7 @@ object JsApi:
     */
   @JSExport
   @JSExportTopLevel("getLegalUciMoves")
-  def getLegalUciMoves(dfen: String): js.Array[String] =
-    if Option(dfen).isEmpty then js.Array()
-    else
-      FenParser.parse(dfen) match
-        case Left(_)      => js.Array()
-        case Right(state) =>
-          val allMoves = LegalMovesFilter.filterMaximalMoves(state)
-          allMoves.map(_.toUci).toJSArray
+  def getLegalUciMoves(dfen: String): js.Array[String] = RulesOps.getLegalUciMoves(dfen)
 
   /** Counts the number of leaf nodes at a given depth for a DFEN position.
     *
@@ -86,12 +84,7 @@ object JsApi:
     */
   @JSExport
   @JSExportTopLevel("perft")
-  def perft(dfen: String, depth: Int): Double =
-    if Option(dfen).isEmpty || depth < 0 then 0.0
-    else
-      FenParser.parse(dfen) match
-        case Left(_)      => 0.0
-        case Right(state) => dicechess.engine.movegen.Perft.countNodes(state, depth).toDouble
+  def perft(dfen: String, depth: Int): Double = RulesOps.perft(dfen, depth)
 
   /** Generates pseudo-legal moves for the active color and current dice pool.
     *
@@ -104,16 +97,7 @@ object JsApi:
     */
   @JSExport
   @JSExportTopLevel("generateMoves")
-  def generateMoves(dfen: String): js.Array[String] =
-    if Option(dfen).isEmpty then js.Array()
-    else
-      FenParser.parse(dfen) match
-        case Left(_)      => js.Array()
-        case Right(state) =>
-          val moves =
-            if state.dicePool.isEmpty then dicechess.engine.movegen.MoveGenerator.generateAllMoves(state)
-            else dicechess.engine.movegen.MoveGenerator.generateMoves(state)
-          moves.map(_.toUci).toJSArray
+  def generateMoves(dfen: String): js.Array[String] = RulesOps.generateMoves(dfen)
 
   /** Executes [[dicechess.engine.movegen.MoveGenerator.generateMoves]] in a tight loop for benchmarking, isolating the
     * hot path from repeated FEN parsing.
@@ -179,8 +163,7 @@ object JsApi:
     */
   @JSExport
   @JSExportTopLevel("getPieceFromDice")
-  def getPieceFromDice(dice: Int): String | Null =
-    PieceType.fromDice(dice).map(_.asNotation).orNull
+  def getPieceFromDice(dice: Int): String | Null = RulesOps.getPieceFromDice(dice)
 
   /** Registers a runtime bot that consults an opening book before delegating to an existing bot.
     *
@@ -320,7 +303,7 @@ object JsApi:
   @JSExport
   @JSExportTopLevel("applyMove")
   def applyMove(dfen: String, from: String, to: String, promotion: js.UndefOr[String]): js.UndefOr[String] =
-    dicechess.engine.EngineFacade.applyMove(dfen, from, to, promotion)
+    RulesOps.applyMove(dfen, from, to, promotion)
 
   /** Explicitly ends the current turn to mark a clear boundary between players in a multi-micro-move sequence.
     *
@@ -336,8 +319,7 @@ object JsApi:
     */
   @JSExport
   @JSExportTopLevel("endTurn")
-  def endTurn(dfen: String): js.UndefOr[String] =
-    dicechess.engine.EngineFacade.endTurn(dfen)
+  def endTurn(dfen: String): js.UndefOr[String] = RulesOps.endTurn(dfen)
 
   /** Determines whether the bot should offer a double before its dice roll.
     */
@@ -432,9 +414,7 @@ object JsApi:
     */
   @JSExport
   @JSExportTopLevel("canonicalKey")
-  def canonicalKey(dfen: String): js.UndefOr[String] =
-    if Option(dfen).isEmpty then js.undefined
-    else FenParser.parse(dfen).toOption.map(Symmetry.canonicalKey).orUndefined
+  def canonicalKey(dfen: String): js.UndefOr[String] = RulesOps.canonicalKey(dfen)
 
   private val DefaultEquityRollouts = 200
   private val DefaultEquityMaxPlies = 60
