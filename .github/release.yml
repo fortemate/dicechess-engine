@@ -2,6 +2,8 @@
 # by the standardized PR labels applied by .github/labeler.yml.
 changelog:
   categories:
+    - title: ♟️ Rules (dicechess-rules)
+      labels: [rules]
     - title: 🚀 New Features
       labels: [enhancement]
     - title: 🐛 Bug Fixes

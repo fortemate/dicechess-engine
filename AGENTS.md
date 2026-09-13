@@ -104,6 +104,8 @@ Common failure signatures:
     require approvals or status checks — extra care.
   - Changed the JS API surface → update `js/dicechess-engine.d.ts` (and `js/dicechess-rules.d.ts` when the change touches the rules subpath) in the same PR.
 
+- **Rules binary compatibility (#246):** `rulesJVM/assertRulesBinaryCompatible` (in `mise run check` and `ci.yaml`) compares the `dicechess-rules_3` jar with the previous release `RulesMimaBaseline` (`build.sbt`) using `mima-core`. A red gate means a public member of `shared-rules/` changed shape. Either restore compatibility or, for an intentional break, add `ProblemFilters.exclude[...]("...")` to `rulesMimaFilters` **with the issue reference in a comment** and say so in the PR — the failure message prints the exact filter line. Never edit `RulesMimaBaseline` by hand; `release.yaml` bumps it.
+
 ## Code conventions
 
 - Scala 3 "new" syntax enforced (scalafmt `convertToNewSyntax`, Scala3 dialect): braceless bodies with colons, extension methods, opaque types. `maxColumn` 120, 2-space indent, LF.

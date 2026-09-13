@@ -37,22 +37,30 @@ testing:
           - '**/src/test/**'
 
 # ── Domain labels from package paths ───────────────────────────────────────────
+# `rules` marks every change to the dicechess-rules artifact (#246): its own release-notes section
+# lets a rules-only consumer see whether a release carries anything for it.
+rules:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'shared-rules/**'
+          - 'js-rules/**'
 core-types:
   - changed-files:
       - any-glob-to-any-file:
-          - 'shared/src/main/scala/**/domain/**'
+          - 'shared-rules/src/main/scala/**/domain/**'
 move-gen:
   - changed-files:
       - any-glob-to-any-file:
-          - 'shared/src/main/scala/**/movegen/**'
+          - 'shared-rules/src/main/scala/**/movegen/**'
 turn-rules:
   - changed-files:
       - any-glob-to-any-file:
-          - 'shared/src/main/scala/**/search/TurnGenerator.scala'
+          - 'shared-rules/src/main/scala/**/search/TurnGenerator.scala'
 search:
   - changed-files:
       - any-glob-to-any-file:
           - 'shared/src/main/scala/**/search/**'
+          - 'jvm/src/main/scala/**/search/**'
 evaluation:
   - changed-files:
       - any-glob-to-any-file:
