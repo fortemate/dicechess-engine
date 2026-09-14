@@ -19,6 +19,16 @@ permissions:
 
 jobs:
   cla-check:
+    # The script below already returns immediately for bots and for owners,
+    # members and collaborators — but only after the job has started, and a
+    # started job is billed a whole minute however fast it exits. Hoisting the
+    # same test to the job level means it is never started at all. Behaviour is
+    # unchanged: the check still runs, on GitHub-hosted infrastructure, for the
+    # external contributors it exists for.
+    if: >-
+      !endsWith(github.event.pull_request.user.login, '[bot]') &&
+      !contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
+                github.event.pull_request.author_association)
     runs-on: ubuntu-latest
     steps:
       - name: Verify the PR author has signed the CLA
