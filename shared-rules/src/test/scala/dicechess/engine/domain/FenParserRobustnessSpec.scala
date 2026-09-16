@@ -38,7 +38,6 @@ class FenParserRobustnessSpec extends ScalaCheckSuite:
     Gen.listOf(loneSurrogateGen).map(_.mkString)
   )
 
-  // Arbitrary string generator including empty, printable, ascii, unicode (with supplementary code points & lone surrogates), and giant strings
   private val arbitraryStringGen: Gen[String] = Gen.oneOf(
     Gen.const(""),
     Gen.asciiStr,

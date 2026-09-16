@@ -199,7 +199,6 @@ object MoveGenerator {
       p &= p - 1
     }
 
-    // --- Castling (only for King) ---
     if pt == PieceType.King && !activePieces.isEmpty then {
       generateCastlingMoves(state, color, moves)
     }
