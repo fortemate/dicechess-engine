@@ -41,10 +41,8 @@ object MoveGenerator {
     * @return
     *   combined pseudo-legal move list for all piece types
     */
-  def generateAllMoves(state: GameState): List[Move] = {
-    val stateWithCastlingDice = state.withDicePool(List(PieceType.King.diceValue, PieceType.Rook.diceValue))
-    PieceType.all.flatMap(pt => generatePieceMoves(stateWithCastlingDice, pt))
-  }
+  def generateAllMoves(state: GameState): List[Move] =
+    PieceType.all.flatMap(pt => generatePieceMoves(state, pt))
 
   /** Dispatches move generation to the correct subsystem for `pieceType`.
     *
@@ -198,13 +196,14 @@ object MoveGenerator {
         a &= a - 1
       }
 
-      // --- Castling (only for King) ---
-      if pt == PieceType.King then {
-        generateCastlingMoves(state, color, moves)
-      }
-
       p &= p - 1
     }
+
+    // --- Castling (only for King) ---
+    if pt == PieceType.King && !activePieces.isEmpty then {
+      generateCastlingMoves(state, color, moves)
+    }
+
     moves.result()
   }
 

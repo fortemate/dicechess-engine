@@ -114,7 +114,7 @@ object MoveGenFixtures:
     "5k2/3P4/2K5/8/8/8/8/8 w - - 0 1 P"
       .titled("Pawn promotion")
       .describedAs(
-        "A pawn on the seventh rank can advance to the eighth rank and promote to any piece (usually a queen). In this case, with a roll of 1, the only legal move is d7d8, which results in a pawn promotion."
+        "A pawn on the seventh rank can advance to the eighth rank and promote to any piece. In this case, with a roll of 1, four promotion choices are generated (d7d8b, d7d8n, d7d8q, d7d8r)."
       )
       .shouldYield(
         "d7d8b",

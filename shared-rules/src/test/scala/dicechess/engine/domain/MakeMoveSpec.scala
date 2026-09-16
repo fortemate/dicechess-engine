@@ -516,7 +516,7 @@ class MakeMoveSpec extends FunSuite:
   test(
     "Turn: multiple double pawn pushes accumulate en-passant squares and expose en-passant captures to opponent in the next turn"
   ) {
-    // Custom board position: White pawns on a2, c2, e2; Black pawns on b4, d4.
+    // Board position with White pawns on rank 2 and Black pawns on b4, d4.
     val fen   = "rnbqkbnr/p1p1p1pp/8/8/1p1p4/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 PPP"
     val state = parse(fen)
 

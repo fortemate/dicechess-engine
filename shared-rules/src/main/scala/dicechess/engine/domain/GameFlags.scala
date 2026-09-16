@@ -245,5 +245,4 @@ object GameFlags:
         val survived = flags.removeDie(dieValue)
         if survived == flags then GameFlags.Invalid else survived
 
-    /** Exposes the underlying integer. */
     inline def value: Int = flags

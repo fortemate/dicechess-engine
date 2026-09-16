@@ -246,13 +246,13 @@ class FenParserSpec extends FunSuite:
   test("return Left for rank with fewer than 8 files") {
     val shortRank = "rnbqkbnr/ppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
     val parsed    = FenParser.parse(shortRank)
-    assertEquals(parsed, Left("Rank 6 must have 8 files, found 7"))
+    assertEquals(parsed, Left("Rank 7 must have 8 files, found 7"))
   }
 
   test("return Left for empty rank segment") {
     val emptyRank = "rnbqkbnr//8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
     val parsed    = FenParser.parse(emptyRank)
-    assertEquals(parsed, Left("Rank 6 must have 8 files, found 0"))
+    assertEquals(parsed, Left("Rank 7 must have 8 files, found 0"))
   }
 
   test("FenParser should round-trip valid empty board (eight '8' ranks)") {

@@ -48,13 +48,7 @@ object Symmetry:
     val cr        = state.flags.castlingRights
     val swappedCr = ((cr & 0x3) << 2) | ((cr & 0xc) >>> 2)
 
-    val flippedFlags = GameFlags.fromList(
-      color = state.activeColor.opponent,
-      castlingRights = swappedCr,
-      enPassantFiles = state.flags.enPassantFiles,
-      dicePool = state.flags.dicePool,
-      halfMoveClock = state.flags.halfMoveClock
-    )
+    val flippedFlags = state.flags.withActiveColor(state.activeColor.opponent).withCastlingRights(swappedCr)
 
     state.copy(
       whitePieces = flipVertical(state.blackPieces),

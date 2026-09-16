@@ -33,8 +33,8 @@ class KcpScratchBoardRoundTripSpec extends FunSuite:
     assertEquals(actual.fullMoveNumber, expected.fullMoveNumber, s"fullMoveNumber diverged in $context")
     assert(
       java.util.Arrays.equals(
-        actual.mailbox.asInstanceOf[Array[Int]],
-        expected.mailbox.asInstanceOf[Array[Int]]
+        actual.mailbox.toArray.asInstanceOf[Array[Int]],
+        expected.mailbox.toArray.asInstanceOf[Array[Int]]
       ),
       s"mailbox diverged in $context"
     )

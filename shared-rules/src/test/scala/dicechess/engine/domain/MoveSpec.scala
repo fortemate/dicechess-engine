@@ -63,3 +63,12 @@ class MoveSpec extends FunSuite:
     // Which is 1111 111111 111111 in binary (65535, or 0xFFFF)
     assert(encoded <= 0xffff)
   }
+
+  test("Move.apply should throw IllegalArgumentException for out-of-range flags") {
+    intercept[IllegalArgumentException] {
+      Move(Square('e', 2), Square('e', 4), -1)
+    }
+    intercept[IllegalArgumentException] {
+      Move(Square('e', 2), Square('e', 4), 16)
+    }
+  }

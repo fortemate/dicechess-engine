@@ -145,14 +145,14 @@ object FenParser {
         val char = rankStr.charAt(i)
         if char.isDigit then file += char.asDigit
         else
-          if file >= 8 then break(Left(s"Rank $rankIndex overflows 8 files"))
+          if file >= 8 then break(Left(s"Rank ${rankIndex + 1} overflows 8 files"))
           val (color, pt) = parsePieceChar(char)
           val sq          = Square.fromIndex(rankIndex * 8 + file)
           mailbox(sq.index) = Piece(color, pt)
           addPiece(color, pt, Bitboard.fromSquare(sq))
           file += 1
         i += 1
-      if file != 8 then break(Left(s"Rank $rankIndex must have 8 files, found $file"))
+      if file != 8 then break(Left(s"Rank ${rankIndex + 1} must have 8 files, found $file"))
 
     def parseRanks(ranks: Array[String])(using boundary.Label[Either[String, GameState]]): Unit =
       var r = 0

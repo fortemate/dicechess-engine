@@ -18,7 +18,7 @@ class KingCaptureProbabilitySuite extends FunSuite:
 
   test("kingCaptureProbability returns 0 when attacker has no piece on board") {
     // White king on e1, no black pieces. But Black can still roll dice — just nothing to move.
-    val fen   = "4k3/8/8/8/8/8/8/4K3 w - - 0 1"
+    val fen   = "8/8/8/8/8/8/8/4K3 w - - 0 1"
     val state = FenParser.parse(fen).fold(err => fail(s"Failed to parse FEN: $err"), identity)
     assertEquals(KingCaptureProbability.kingCaptureProbability(state, Color.White), 0.0)
   }

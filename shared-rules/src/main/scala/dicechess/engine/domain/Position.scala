@@ -28,7 +28,7 @@ private object Position:
     case _                                              => PieceType.Queen
   }
 
-  /** Computes the new castling-rights string after a move.
+  /** Computes the new castling-rights mask after a move.
     *
     * Applies two independent revocations in sequence:
     *
@@ -37,10 +37,8 @@ private object Position:
     *   2. **Moving piece** — a king move removes both rights for its color; a rook move from its home square removes
     *      only the matching right.
     *
-    * Returns `"-"` when no rights remain (FEN convention).
-    *
     * @param rights
-    *   current FEN castling-rights string (e.g. `"KQkq"`)
+    *   current 4-bit castling-rights integer mask
     * @param movingPiece
     *   the piece that is moving
     * @param from
@@ -52,7 +50,7 @@ private object Position:
     * @param isWhite
     *   `true` if the moving side is White
     * @return
-    *   updated castling-rights string, or `"-"` if none remain
+    *   updated 4-bit castling-rights integer mask
     */
   def updatedCastlingRights(
       rights: Int,

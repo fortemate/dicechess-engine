@@ -8,7 +8,7 @@ import dicechess.engine.domain.{Bitboard, Square}
   * **Magic Bitboards** provide O(1) attack-set lookup for blocking sliding pieces by encoding the current board
   * occupancy into an index via a precomputed *magic number* multiplier:
   *
-  * ```
+  * ```scala
   * index = ((occupancy & relevantMask) * magic) >>> (64 - relevantBits)
   * attack = table[offset + index]
   * ```
