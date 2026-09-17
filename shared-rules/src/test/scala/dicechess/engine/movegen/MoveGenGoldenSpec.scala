@@ -6,7 +6,7 @@ import dicechess.engine.domain.*
 
 /** Cross-platform golden specification for move generation.
   *
-  * Executes the 39 expert-vetted test cases defined in [[MoveGenFixtures]] across JVM, Scala.js, and WebAssembly.
+  * Executes the 40 expert-vetted test cases defined in [[MoveGenFixtures]] across JVM, Scala.js, and WebAssembly.
   *
   * Ref: #123
   */

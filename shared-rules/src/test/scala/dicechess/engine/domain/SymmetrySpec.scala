@@ -173,3 +173,19 @@ class SymmetrySpec extends ScalaCheckSuite:
     assertEquals(mirrored.mailbox(Square('d', 5)), Piece(Color.White, PieceType.King))   // e5 -> d5
     assertEquals(mirrored.mailbox(Square('c', 7)), Piece(Color.Black, PieceType.Knight)) // f7 -> c7
   }
+
+  test("colorFlip preserves exact dice slot layout including holes") {
+    val flagsWithHole = GameFlags(Color.White, 15, 0, 0, 3, 0, 0)
+    val state         = buildState(Nil, Color.White, 15, 0, 1).copy(flags = flagsWithHole)
+    assertEquals(state.flags.diceSlot1, 0)
+    assertEquals(state.flags.diceSlot2, 3)
+    assertEquals(state.flags.diceSlot3, 0)
+
+    val flipped       = Symmetry.colorFlip(state)
+    val doubleFlipped = Symmetry.colorFlip(flipped)
+
+    assertEquals(doubleFlipped.flags.diceSlot1, 0)
+    assertEquals(doubleFlipped.flags.diceSlot2, 3)
+    assertEquals(doubleFlipped.flags.diceSlot3, 0)
+    assertEquals(doubleFlipped, state)
+  }

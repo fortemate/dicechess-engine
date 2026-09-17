@@ -41,8 +41,5 @@ object TestBoard:
     squares.foldLeft(Bitboard.empty)((bb, sqStr) => bb | sqStr.bb)
 
   extension (s: String)
-    /** Converts a 2-character algebraic notation string to a Square. */
-    def sq: Square = Square.fromNotation(s).getOrElse(sys.error(s"Invalid square: $s"))
-
-    /** Converts a 2-character algebraic notation string to a Bitboard. */
+    def sq: Square   = Square.fromNotation(s).getOrElse(sys.error(s"Invalid square: $s"))
     def bb: Bitboard = Bitboard.fromSquare(s.sq)

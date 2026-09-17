@@ -26,12 +26,23 @@ class FenParserRobustnessSpec extends ScalaCheckSuite:
 
   private val printableCharGen: Gen[Char] = Gen.choose(32.toChar, 126.toChar)
 
-  // Arbitrary string generator including empty, printable, ascii, whitespace, and giant strings
+  private val supplementaryCodePointGen: Gen[String] =
+    Gen.choose(0x10000, 0x10ffff).map(cp => new String(Character.toChars(cp)))
+
+  private val loneSurrogateGen: Gen[Char] =
+    Gen.choose(0xd800.toChar, 0xdfff.toChar)
+
+  private val unicodeStringGen: Gen[String] = Gen.oneOf(
+    Gen.listOf(Gen.choose(0.toChar, 0xffff.toChar)).map(_.mkString),
+    Gen.listOf(supplementaryCodePointGen).map(_.mkString),
+    Gen.listOf(loneSurrogateGen).map(_.mkString)
+  )
+
   private val arbitraryStringGen: Gen[String] = Gen.oneOf(
     Gen.const(""),
     Gen.asciiStr,
     Gen.alphaNumStr,
-    Gen.listOf(Gen.choose(0.toChar, 255.toChar)).map(_.mkString),
+    unicodeStringGen,
     Gen.listOfN(2000, Gen.asciiChar).map(_.mkString),   // Giant ASCII string (~2KB)
     Gen.listOfN(5000, printableCharGen).map(_.mkString) // Giant string (~5KB)
   )

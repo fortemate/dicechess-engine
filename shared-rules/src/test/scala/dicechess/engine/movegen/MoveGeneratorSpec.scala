@@ -139,6 +139,16 @@ class MoveGeneratorSpec extends FunSuite:
     assert(!moves.exists(_.isCastling), "Castle must not be generated on a rotated board")
   }
 
+  test("castling moves are not duplicated when multiple kings are present") {
+    // White kings on e1 and e2, white rook on h1
+    val fen     = "4k3/8/8/8/8/8/4K3/R3K2R w KQ - 0 1"
+    val state   = parse(fen)
+    val moves   = MoveGenerator.generateAllMoves(state)
+    val castles = moves.filter(_.isCastling)
+    assertEquals(castles.count(_.flags == Move.KingCastle), 1)
+    assertEquals(castles.count(_.flags == Move.QueenCastle), 1)
+  }
+
   // ── generatePawnMoves: early return ───────────────────────────────────────
 
   test("generateMoves returns Nil when no pawns of active color") {

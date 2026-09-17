@@ -50,6 +50,7 @@ object Move:
 
   /** Constructs a new encoded Move from origin, destination, and flags. */
   def apply(from: Square, to: Square, flags: Int): Move =
+    require(flags >= 0 && flags <= 15, s"Invalid move flags: $flags")
     (flags << FlagsShift) | (Square.index(from) << FromShift) | Square.index(to)
 
   /** Constructs a new quiet Move. */

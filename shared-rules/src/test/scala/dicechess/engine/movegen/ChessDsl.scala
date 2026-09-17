@@ -5,7 +5,7 @@ import dicechess.engine.domain.*
 
 /** Data structure representing a single Chess move generator test case.
   *
-  * The dice pool is embedded in the 7th field of `fen` (e.g., `"... w KQkq - 0 1 16"` for dice `[1, 6]`) and parsed
+  * The dice pool is embedded in the 7th field of `fen` (e.g., `"... w KQkq - 0 1 PK"` for dice `[1, 6]`) and parsed
   * automatically by [[dicechess.engine.domain.FenParser]].
   *
   * @param fen
