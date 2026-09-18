@@ -121,10 +121,29 @@ class SessionContractSpec extends FunSuite:
 
   test("a model configured by path alone is still opened unchecked"):
     // The check is a property of having loaded a package, not a new requirement on every caller: the arena runners
-    // pass paths and must keep working.
-    val bot = new OnnxExpectimaxSearch(ContractFixtures.valueModel.toString, narrow, FeatureSchema.Kcp13.extract)
-    try assert(bot.findBestMove(endgame).isDefined)
-    finally bot.close()
+    // pass paths and must keep working. The fixture here is deliberately the one the contract REJECTS — a batch axis
+    // fixed at one row — because a conforming model could not tell this test apart from one where the path-based
+    // constructor had quietly started validating.
+    val refusedByContract = ModelPackage
+      .loadFiles(ContractFixtures.staticBatchModel, ContractFixtures.staticBatchManifest, engineVersion)
+      .getOrElse(fail("the static-batch fixture must load"))
+    assert(
+      OnnxEvalSearch.fromPackage(refusedByContract).isLeft,
+      "precondition: the package route refuses this graph"
+    )
+
+    // Neither entry point searches with it: an unchecked graph is exactly one that may not survive inference, which is
+    // the trade a path-based caller makes. What is asserted is that construction is allowed to happen at all.
+    val onePly = new OnnxEvalSearch(ContractFixtures.staticBatchModel.toString, FeatureSchema.Kcp13.extract)
+    onePly.close()
+    val bot = new OnnxExpectimaxSearch(ContractFixtures.staticBatchModel.toString, narrow, FeatureSchema.Kcp13.extract)
+    bot.close()
+
+    // And the conforming model still plays through the same unchecked path, so the entry point is not merely tolerant
+    // of bad graphs but unchanged for good ones.
+    val playing = new OnnxExpectimaxSearch(ContractFixtures.valueModel.toString, narrow, FeatureSchema.Kcp13.extract)
+    try assert(playing.findBestMove(endgame).isDefined)
+    finally playing.close()
 
   test("fromPackage populates each hook's contract so its session is checked too"):
     val collapse = ModelPackage
