@@ -134,8 +134,10 @@ resolution where it matters.
 
 The full contract — manifest fields, roles, validation order, and what is refused when — is
 documented in [Model Serving Contract](/dicechess-engine/architecture/search/10-model-contract/).
-`ModelPackage.load` performs every check before a position reaches the model, and
-`OnnxModelContract.validate` checks the loaded graph against the manifest.
+`ModelPackage.load` performs every manifest check before a position reaches the model.
+`OnnxModelContract.validate` checks a loaded graph against its manifest, but no bot runs it on its own
+session yet — see the failure-behaviour section of that page and
+[#258](https://github.com/fortemate/dicechess-engine/issues/258).
 
 ---
 
@@ -231,9 +233,11 @@ golden corpus of probe vectors, which `Kcp13ParitySpec` replays from the engine 
 ### Inference latency
 
 Session-run cost is dominated by per-call overhead (the JNI boundary and graph setup), not by the
-number of rows, which is why every call site here is batched: folding N positions into one
-`[N, F]` tensor is far cheaper than N runs of one row. `OnnxEvalSearch.onnxEvalBatch` is the
-primitive, and the chance-node expansion deduplicates leaves by position before calling it.
+number of rows: folding N positions into one `[N, F]` tensor is far cheaper than N runs of one row.
+`OnnxEvalSearch.onnxEvalBatch` is the primitive, and the chance-node expansion deduplicates leaves by
+position before calling it. Not every call site is batched — the untimed one-ply path scores candidate
+by candidate through `onnxEval`, one `[1, F]` run each, where the deadline path and the chance-node
+expansion both batch.
 
 For a feature set with capture-probability columns, extraction — not inference — is the budget:
 each such column integrates over the 216 dice outcomes of the next roll.

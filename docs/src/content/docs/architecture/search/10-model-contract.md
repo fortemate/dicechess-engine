@@ -13,8 +13,8 @@ older engine extracted differently. ONNX Runtime will happily load and score all
 That is the problem this contract solves. Every mis-wiring listed above produces a bot that starts,
 logs nothing, and plays worse than it measured — the most expensive kind of defect this project can
 ship, because it is invisible until a ladder result contradicts an offline metric. The engine
-therefore refuses to serve a model that does not describe itself, and the description is checked
-before any position reaches it.
+therefore refuses to serve a model that does not describe itself, and the manifest is checked before
+any position reaches it.
 
 The contract is shared with `dicechess-training` (which writes the manifests) and with the private
 evaluation service (which serves the `kcp-13` position model today), so one artifact describes
@@ -54,7 +54,9 @@ engineVersion)` takes two arbitrary paths for an arena run or a test fixture.
 | `calibration` | no | `temperature`, `brierScore`, `logLoss`, `calibratedOn` — advisory |
 | `provenance` | no | free-form producer metadata (training run, dataset digest, commit) |
 
-Unknown fields are ignored, so a producer can add metadata without breaking older engines.
+Unknown fields are ignored, so a producer can add metadata without breaking older engines. A field the *declared* version does not
+define is the opposite case and is refused: a `1.0.0` manifest carrying `modelRole` would mean one thing here
+and be ignored by every reader that only knows `1.0.0` — one file, two meanings.
 
 ### Versions
 
@@ -148,11 +150,14 @@ A fixed batch dimension is rejected even when it is 1: the search scores a whole
 call, so a graph that accepts one row per run would fail at the first batch — at run time, under a
 deadline, instead of at load time.
 
-The batch axis matters for a second reason: the engine feeds a session **by name** and reads the
-first output **by position**. A graph whose output is named something else is still scored, which is
-exactly how a Python exporter and this JVM loader can disagree without either one failing. The
-repository's own older fixtures name their output `variable`; the contract check rejects them by
-name.
+Names matter for a second reason: the engine feeds a session **by the name the graph declares** and
+reads the first output **by position**. A graph whose output is named something the manifest never
+mentions is therefore still scored, which is exactly how a Python exporter and this JVM loader can
+disagree without either one failing. The repository's own older fixtures are that case: they name
+their output `variable` while their manifests leave `outputName` at the default, and the contract
+check rejects the mismatch by name instead of scoring whatever tensor comes first. A graph that
+declares `outputName: "variable"` is a different matter and is served — the rule is agreement between
+manifest and graph, not a list of blessed names.
 
 ---
 
@@ -172,12 +177,20 @@ Checked at load, before a session exists:
 7. the requested role matches the declared role;
 8. the model file's SHA-256 matches `modelSha256`.
 
-Checked once a session exists, before the first inference: the graph's input and output names, dtypes
-and shapes (`ModelPackage.validateSession`).
-
 The order is deliberate — the cheapest checks and the ones with the clearest messages run first, and
 the digest is verified before a graph is opened, so a model that is simply not the model the manifest
 describes never gets loaded at all.
+
+Checked once a session exists: the graph's input and output names, dtypes and shapes
+(`ModelPackage.validateSession`). **That check is not yet on the serving path**, and the asymmetry is
+worth stating plainly rather than leaving a reader to assume it. `ModelPackage.load` never opens a
+graph, and every bot here — `OnnxEvalSearch` included — creates its session privately from a path. So
+a host that loads a package and wires it into a bot today gets checks 1–8 and nothing more: a graph
+that contradicts its own manifest is accepted at load and fails inside the first `session.run`, under
+a move deadline, with the runtime's message instead of the contract's. Running the graph check is
+currently the host's call, on a session the host owns;
+[#258](https://github.com/fortemate/dicechess-engine/issues/258) moves it into session construction so
+that no serving path can skip it.
 
 ---
 
@@ -198,7 +211,9 @@ val loaded = ModelPackage.load(
 loaded match
   case Left(error)    => println(s"refusing to serve: $error")
   case Right(pkg) =>
-    // The extractor comes from the manifest's schema, not from the call site.
+    // The extractor comes from the manifest's schema, not from the call site. Note what this does
+    // NOT do: OnnxEvalSearch opens its own private session and never runs the graph check, so the
+    // tensor contract is unverified here — see Failure behaviour above, and #258.
     Using.resource(new OnnxEvalSearch(pkg.modelPath.toString, pkg.extract)) { bot =>
       // ...
     }
