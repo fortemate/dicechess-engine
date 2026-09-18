@@ -57,7 +57,7 @@ class OnnxExpectimaxSearchSpec extends FunSuite:
     val sessionFactory: OnnxExpectimaxSearchInitialization.SessionFactory = (_, features) =>
       sessionsCreated += 1
       new OnnxEvalSearch(modelPath, features)
-    val (mainSession, rescoreSession, expectimax) = OnnxExpectimaxSearchInitialization.initialize(
+    val (sessions, expectimax) = OnnxExpectimaxSearchInitialization.initialize(
       modelPath,
       ExpectimaxConfig(),
       OnnxFeatures.extract,
@@ -71,11 +71,10 @@ class OnnxExpectimaxSearchSpec extends FunSuite:
     )
     try
       assertEquals(sessionsCreated, 1)
-      assert(rescoreSession.isEmpty)
+      assert(sessions.rescore.isEmpty)
+      assert(sessions.collapse.isEmpty)
       assert(expectimax.findBestMove(state).isDefined)
-    finally
-      rescoreSession.foreach(_.close())
-      mainSession.close()
+    finally sessions.closeAll()
 
   test("RootRescoreModel validates the closed weight interval before session initialization"):
     intercept[IllegalArgumentException](RootRescoreModel("unused", OnnxFeatures.extract, weight = -0.1))
@@ -123,3 +122,79 @@ class OnnxExpectimaxSearchSpec extends FunSuite:
     val bot = new OnnxExpectimaxSearch(modelPath, ExpectimaxConfig(), OnnxFeatures.extract, preRankWithModel = true)
     try assert(bot.findBestMove(state).isDefined)
     finally bot.close()
+
+  // --- chance collapse (#78) -------------------------------------------------------------------
+
+  private def collapsePackage(manifest: java.nio.file.Path) =
+    dicechess.engine.model.ModelPackage
+      .loadFiles(
+        dicechess.engine.model.ContractFixtures.valueModel,
+        manifest,
+        dicechess.engine.model.ContractFixtures.EngineVersion
+      )
+      .getOrElse(fail(s"fixture package must load: $manifest"))
+
+  test("wires a third session for the chance-collapse model, with its own feature schema, and closes all of them"):
+    // The leaf model here is the 7-wide synthetic one and the collapse model the 13-wide kcp-13 fixture: two schemas
+    // in one bot, which only works if each session is handed its own extractor.
+    val collapse = CollapseModel
+      .fromPackage(collapsePackage(dicechess.engine.model.ContractFixtures.collapseManifest))
+      .getOrElse(fail("the collapse fixture must be accepted"))
+    val bot = new OnnxExpectimaxSearch(
+      modelPath,
+      ExpectimaxConfig(),
+      OnnxFeatures.extract,
+      Some(RootRescoreModel(modelPath, OnnxFeatures.extract, weight = 0.5)),
+      chanceCollapse = Some(collapse.copy(extractFeatures = KcpFeatures.extract))
+    )
+    try assert(bot.findBestMove(state).isDefined)
+    finally bot.close() // must not throw closing three sessions
+
+  test("no chance-collapse session is created unless the hook is configured"):
+    var sessionsCreated                                                   = 0
+    val sessionFactory: OnnxExpectimaxSearchInitialization.SessionFactory = (_, features) =>
+      sessionsCreated += 1
+      new OnnxEvalSearch(modelPath, features)
+
+    def initialize(collapse: Option[CollapseModel]) =
+      OnnxExpectimaxSearchInitialization.initialize(
+        modelPath,
+        ExpectimaxConfig(),
+        OnnxFeatures.extract,
+        OnnxSearchOptions(chanceCollapse = collapse),
+        sessionFactory = sessionFactory
+      )
+
+    val (without, _) = initialize(None)
+    try
+      assertEquals(sessionsCreated, 1)
+      assert(without.collapse.isEmpty)
+    finally without.closeAll()
+
+    sessionsCreated = 0
+    val (withHook, expectimax) = initialize(Some(CollapseModel(modelPath, OnnxFeatures.extract)))
+    try
+      assertEquals(sessionsCreated, 2, "one leaf session plus the collapse model's own")
+      assert(withHook.collapse.isDefined)
+      assert(expectimax.findBestMove(state).isDefined)
+    finally withHook.closeAll()
+
+  test("a model trained for another role cannot be wired as the chance-collapse model"):
+    val valueModel = collapsePackage(dicechess.engine.model.ContractFixtures.valueManifest)
+    val refused    = CollapseModel.fromPackage(valueModel).swap.getOrElse(fail("expected a rejection"))
+    assert(refused.contains("modelRole 'position-value' cannot serve as 'chance-collapse'"), refused)
+
+  test("closing reaches every session even when one of them fails, and reports the first failure"):
+    val closeFailure = new IllegalStateException("collapse session close failed")
+    var leafClosed   = false
+    val leaf         = new OnnxEvalSearch(modelPath, OnnxFeatures.extract):
+      override def close(): Unit =
+        super.close()
+        leafClosed = true
+    val failing = new OnnxEvalSearch(modelPath, OnnxFeatures.extract):
+      override def close(): Unit =
+        super.close()
+        Failure(closeFailure).get
+    val thrown = intercept[IllegalStateException](OnnxSearchSessions(leaf, collapse = Some(failing)).closeAll())
+    assert(thrown eq closeFailure)
+    assert(leafClosed, "a failing close must not leak the sessions after it")

@@ -533,3 +533,196 @@ class ExpectimaxSearchSpec extends FunSuite:
     val move       = search().findBestMove(state, Random(42)).map(s => uci(s.moves))
     val greedyMove = GreedySearch.findBestMove(state, Random(42)).map(s => uci(s.moves))
     assert(move.isDefined && move != greedyMove, s"expected expectimax decision to decline hanging grab, got $move")
+
+  // --- chance collapse (#78) -------------------------------------------------------------------
+  // The hook replaces the whole chance node with one batched call, so these tests are about what the search stops
+  // doing (expanding, pruning, caching) and about which semantics survive the substitution.
+
+  /** The hanging-grab position: `GreedySearch` takes a1a7, the exact 2-ply search declines it. */
+  private val grabPosition = "1r4k1/p4ppp/8/8/8/8/5PPP/R5K1 w - - 0 1"
+
+  private def collapsed(
+      collapse: ChanceCollapse,
+      config: ExpectimaxConfig = ExpectimaxConfig(),
+      rootRescore: Option[RootRescore] = None,
+      tt: Option[TranspositionTable] = None,
+      leafBatch: (Array[GameState], Color) => Array[Int] = materialBatch,
+      statsSink: RootSearchStats => Unit = ExpectimaxSearch.NoStats
+  ) =
+    ExpectimaxSearch(
+      leafBatch,
+      config,
+      rootRescore,
+      ExpectimaxSearch.materialBatch,
+      statsSink,
+      tt,
+      Some(collapse)
+    )
+
+  /** Every candidate turn's resulting position, the states the collapse model is handed. */
+  private def afterTurnStates(state: GameState): List[GameState] =
+    TurnGenerator
+      .generateAllLegalTurnPaths(state)
+      .map(path => path.foldLeft(state)((s, move) => s.makeMove(move)).endTurn())
+
+  test("a collapsed root answers every candidate in one batched call and never reaches the leaf evaluator"):
+    val state         = parse(grabPosition).withDicePool(List(2, 2, 4))
+    var leafCalls     = 0
+    var collapseCalls = 0
+    var collapsedRows = 0
+    var stats         = Option.empty[RootSearchStats]
+    val bot           = collapsed(
+      ChanceCollapse { (states, color) =>
+        collapseCalls += 1
+        collapsedRows += states.length
+        materialBatch(states, color)
+      },
+      config = ExpectimaxConfig(candidateLimit = 4),
+      leafBatch = { (states, color) =>
+        leafCalls += 1
+        materialBatch(states, color)
+      },
+      statsSink = s => stats = Some(s)
+    )
+    assert(bot.findBestMove(state, Random(0)).isDefined)
+    val s = stats.getOrElse(fail("expected stats"))
+    assertEquals(collapseCalls, 1, "the whole candidate set is one batch")
+    assertEquals(collapsedRows, s.candidatesSelected)
+    assertEquals(leafCalls, 0, "no chance node is expanded, so the leaf evaluator is never called")
+    assertEquals(s.candidatesCollapsed, s.candidatesSelected)
+    assertEquals(s.candidatesCompleted, 0, "a collapsed candidate did no expansion work")
+    assertEquals(s.cutoffs, 0, "there is nothing left for Star pruning to cut")
+    assert(!s.deadlineTruncated, s"every selected candidate was answered, got $s")
+
+  test("the collapse model's value decides the move, not the expansion it replaced"):
+    // A model that scores the afterstate by material alone is exactly the one-ply opinion the 2-ply search overrules.
+    // Collapsed, the search plays the grab it otherwise declines — which is the point: the value now comes from the
+    // model, and a test that could not tell the two apart would not be testing the hook at all.
+    val state = parse(grabPosition).withDicePool(List(2, 2, 4))
+    val move  = collapsed(ChanceCollapse(materialBatch)).findBestMove(state, Random(0)).map(s => uci(s.moves))
+    assertEquals(move, Some("a1a7"))
+    assertEquals(search().findBestMove(state, Random(0)).map(s => uci(s.moves)).exists(_ != "a1a7"), true)
+
+  test("a collapsed candidate is scored on the model's own axis"):
+    val state  = parse(grabPosition).withDicePool(List(2, 2, 4))
+    val scored = collapsed(ChanceCollapse((states, _) => Array.fill(states.length)(4242)))
+      .findBestMove(state, Random(0))
+      .getOrElse(fail("expected a turn"))
+    assertEquals(scored.score, 4242)
+
+  test("an already expired deadline never calls the collapse model and leaves the move to the pre-ranker"):
+    val state         = parse(grabPosition).withDicePool(List(2, 2, 4))
+    var collapseCalls = 0
+    var stats         = Option.empty[RootSearchStats]
+    val bot           = collapsed(
+      ChanceCollapse { (states, color) =>
+        collapseCalls += 1
+        materialBatch(states, color)
+      },
+      statsSink = s => stats = Some(s)
+    )
+    val result = bot.findBestMove(state, System.nanoTime() - 1, Random(0))
+    assert(result.isDefined, "the anytime contract still owes a legal turn")
+    assertEquals(collapseCalls, 0)
+    val s = stats.getOrElse(fail("expected stats"))
+    assertEquals(s.candidatesCollapsed, 0)
+    assertEquals(s.candidatesAbandoned, 1)
+    assert(s.fellBackToPreRank, s"expected the pre-rank fallback, got $s")
+
+  test("a batch of the wrong size is refused rather than ranked against the wrong candidates"):
+    val state = parse(grabPosition).withDicePool(List(2, 2, 4))
+    var stats = Option.empty[RootSearchStats]
+    val bot   = collapsed(
+      ChanceCollapse((states, _) => Array.fill(states.length - 1)(100)),
+      statsSink = s => stats = Some(s)
+    )
+    val result = bot.findBestMove(state, Random(0))
+    assert(result.isDefined, "the search still returns a legal turn")
+    val s = stats.getOrElse(fail("expected stats"))
+    assertEquals(s.candidatesCollapsed, 0, "a misaligned batch ranks nothing")
+    assertEquals(s.candidatesAbandoned, 1)
+
+  test("a transposition table is left untouched by a collapsed root"):
+    val state = parse(grabPosition).withDicePool(List(2, 2, 4))
+    val table = new TranspositionTable(256)
+    var stats = Option.empty[RootSearchStats]
+    val bot   = collapsed(ChanceCollapse(materialBatch), tt = Some(table), statsSink = s => stats = Some(s))
+    assert(bot.findBestMove(state, Random(0)).isDefined)
+    val s = stats.getOrElse(fail("expected stats"))
+    assertEquals(s.ttProbes, 0, "a collapsed value is not the exact expectation the table stores")
+    assertEquals(s.ttHits, 0)
+    assert(
+      afterTurnStates(state).forall(after => table.probe(after.zobristHash).isEmpty),
+      "no collapsed value may be stored where an exact expectation is expected"
+    )
+
+  test("root rescoring blends with the collapsed value exactly as it blends with an expanded one"):
+    // Weight one hands the decision to the rescorer, so the grab it prefers must win over a flat collapse model.
+    val state   = parse(grabPosition).withDicePool(List(2, 2, 4))
+    val rescore = RootRescore((states, color) => states.map(s => Evaluator.evaluateMaterial(s, color) * 10), 1.0)
+    val move    = collapsed(ChanceCollapse((states, _) => Array.fill(states.length)(0)), rootRescore = Some(rescore))
+      .findBestMove(state, Random(0))
+      .map(s => uci(s.moves))
+    assertEquals(move, Some("a1a7"))
+
+  test("the loss guard keeps a rescorer from rescuing a line that loses our king on some roll"):
+    // Black's rook on e8 sees down an open e-file to the white king on e1, and no pawn move can change that: every
+    // candidate's resulting position is lost on any roll giving Black a rook die. The exact search records exactly
+    // that as a loss taint and refuses to blend a rescore into it, at any weight.
+    val state  = parse("4r2k/8/8/8/8/8/P6P/4K3 w - - 0 1").withDicePool(List(1, 1, 1))
+    val afters = afterTurnStates(state)
+    assert(afters.nonEmpty, "precondition: the position has candidate turns")
+    assert(
+      afters.forall(after => KingCaptureProbability.kingCaptureProbability(after, Color.White) > 0.0),
+      "precondition: every candidate is lost on some roll"
+    )
+    val rescore  = RootRescore((states, _) => Array.fill(states.length)(9000), 1.0)
+    val collapse = (lossGuard: Boolean) =>
+      collapsed(
+        ChanceCollapse((states, _) => Array.fill(states.length)(500), lossGuard),
+        rootRescore = Some(rescore)
+      ).findBestMove(state, Random(0)).map(_.score)
+    assertEquals(collapse(false), Some(9000), "without the guard the rescorer decides")
+    assertEquals(collapse(true), Some(500), "with the guard the lost line keeps its own value")
+
+  test("the loss guard leaves an untainted candidate's rescoring alone"):
+    val state  = parse("4k3/8/8/8/8/8/P6P/4K3 w - - 0 1").withDicePool(List(1, 1, 1))
+    val afters = afterTurnStates(state)
+    assert(
+      afters.forall(after => KingCaptureProbability.kingCaptureProbability(after, Color.White) == 0.0),
+      "precondition: a lone king cannot capture ours"
+    )
+    val rescore = RootRescore((states, _) => Array.fill(states.length)(9000), 1.0)
+    val scored  = collapsed(
+      ChanceCollapse((states, _) => Array.fill(states.length)(500), lossGuard = true),
+      rootRescore = Some(rescore)
+    ).findBestMove(state, Random(0)).map(_.score)
+    assertEquals(scored, Some(9000))
+
+  test("an immediate king capture is still taken without consulting the collapse model"):
+    val state         = parse("k7/8/8/8/8/8/8/R3K3 w - - 0 1").withDicePool(List(1, 1, 4))
+    var collapseCalls = 0
+    var stats         = Option.empty[RootSearchStats]
+    val bot           = collapsed(
+      ChanceCollapse { (states, color) =>
+        collapseCalls += 1
+        materialBatch(states, color)
+      },
+      statsSink = s => stats = Some(s)
+    )
+    val chosen = bot.findBestMove(state, Random(0)).getOrElse(fail("expected a turn"))
+    assertEquals(chosen.score, SearchScoring.TerminalWinScore)
+    assertEquals(chosen.moves.last.toSquare.toNotation, "a8")
+    assertEquals(collapseCalls, 0, "the win shortcut sits above the hook")
+    assertEquals(stats.map(_.candidatesCollapsed), Some(0))
+
+  test("a forced pass is still a pass under a collapsed root"):
+    val state = parse("4k3/8/8/8/8/8/8/4K3 w - - 0 1").withDicePool(List(2, 2, 2))
+    assertEquals(afterTurnStates(state), Nil, "precondition: no legal turn for this roll")
+    var collapseCalls = 0
+    val bot           = collapsed(ChanceCollapse { (states, color) =>
+      collapseCalls += 1
+      materialBatch(states, color)
+    })
+    assertEquals(bot.findBestMove(state, Random(0)), None)
+    assertEquals(collapseCalls, 0)

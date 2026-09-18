@@ -2,8 +2,9 @@
 package dicechess.engine.search
 
 import dicechess.engine.domain.{Color, GameState}
+import dicechess.engine.model.{ModelPackage, ModelRole}
 
-import scala.util.Random
+import scala.util.{Random, Try}
 
 /** A second ONNX model that rescores [[ExpectimaxSearch]]'s root candidates (see [[RootRescore]]) rather than
   * evaluating chance-node leaves — a tactically sharp but leaf-prohibitive model (e.g. trained on
@@ -24,6 +25,42 @@ final case class RootRescoreModel(
 ):
   require(weight >= 0.0 && weight <= 1.0, s"weight must be in [0, 1], got $weight")
 
+/** A model that answers a root candidate's whole chance node in one row instead of an expansion of the opponent's 56
+  * weighted dice outcomes — wired as [[ChanceCollapse]], whose Scaladoc states what the hook keeps and what it gives
+  * up.
+  *
+  * It gets its own ONNX session, never the leaf model's: the two answer different questions (an expectation over the
+  * opponent's roll versus the value of one position), so a model in this slot is a different artifact with a different
+  * training target, and [[CollapseModel.fromPackage]] refuses one whose manifest says otherwise.
+  *
+  * @param modelPath
+  *   path to the chance-collapse model, independent of the main model
+  * @param extractFeatures
+  *   this model's own feature extractor
+  * @param lossGuard
+  *   whether to re-establish the exact search's loss-taint rule with one [[KingCaptureProbability]] search per root
+  *   candidate — see [[ChanceCollapse.lossGuard]]
+  */
+final case class CollapseModel(
+    modelPath: String,
+    extractFeatures: (GameState, Color) => Array[Float],
+    lossGuard: Boolean = false
+)
+
+object CollapseModel:
+
+  /** Configures the hook from a validated model package, refusing an artifact trained for a different role.
+    *
+    * The manifest has already proved which extractor these bytes expect, so the caller does not choose one: a package
+    * that reached this point carries its own, and passing the wrong one is no longer possible.
+    */
+  def fromPackage(pkg: ModelPackage, lossGuard: Boolean = false): Either[String, CollapseModel] =
+    Either.cond(
+      pkg.role == ModelRole.ChanceCollapse,
+      CollapseModel(pkg.modelPath.toString, pkg.extract, lossGuard),
+      s"${pkg.modelPath}: modelRole '${pkg.role.id}' cannot serve as '${ModelRole.ChanceCollapse.id}'"
+    )
+
 /** Search-tuning options for ONNX-backed expectimax search.
   *
   * @param statsSink
@@ -34,12 +71,15 @@ final case class RootRescoreModel(
   *   whether to pre-rank root candidates using the main model instead of material
   * @param tt
   *   optional transposition table for caching evaluated search states
+  * @param chanceCollapse
+  *   optional model replacing each root candidate's exact chance-node expansion
   */
 final case class OnnxSearchOptions(
     statsSink: RootSearchStats => Unit = _ => (),
     rootRescore: Option[RootRescoreModel] = None,
     preRankWithModel: Boolean = false,
-    tt: Option[TranspositionTable] = None
+    tt: Option[TranspositionTable] = None,
+    chanceCollapse: Option[CollapseModel] = None
 )
 
 /** A configurable two- or three-ply expectimax bot whose leaf evaluator is an externally-trained model (LightGBM, via
@@ -57,12 +97,17 @@ final case class OnnxSearchOptions(
   * "opinion" candidate selection should defer to. See [[ExpectimaxSearch]]'s `preRank` parameter for why: widening
   * `candidateLimit` only compensates for a crude (material) pre-ranker; a sharper one attacks the actual bottleneck.
   *
+  * `chanceCollapse` wires a model in place of the chance-node expansion itself — the layer that costs hundreds to
+  * thousands of leaf evaluations per candidate. It is a third, independent session, and with it `searchDepth`, the
+  * transposition table and Star pruning have nothing left to do at the root: see [[ChanceCollapse]].
+  *
   * `statsSink` is forwarded to the underlying [[ExpectimaxSearch]] — one [[RootSearchStats]] per move, so a production
   * host can log how many candidates its deadline really allowed (the difference between the configured limit and the
   * width actually searched on slow hardware).
   *
-  * Owns the ONNX session(s) — the main model's, and the rescorer's when configured with positive weight; call [[close]]
-  * when done. Not safe for concurrent calls, matching every other bot here.
+  * Owns its ONNX session(s) — the main model's, the rescorer's when configured with positive weight, and the
+  * chance-collapse model's when configured; call [[close]] when done. Not safe for concurrent calls, matching every
+  * other bot here.
   */
 final class OnnxExpectimaxSearch(
     modelPath: String,
@@ -71,11 +116,12 @@ final class OnnxExpectimaxSearch(
     rootRescore: Option[RootRescoreModel] = None,
     preRankWithModel: Boolean = false,
     statsSink: RootSearchStats => Unit = ExpectimaxSearch.NoStats,
-    tt: Option[TranspositionTable] = None
+    tt: Option[TranspositionTable] = None,
+    chanceCollapse: Option[CollapseModel] = None
 ) extends TimeBudgetedSearch
     with AutoCloseable:
 
-  private val (onnx, rescoreOnnx, expectimax) = OnnxExpectimaxSearchInitialization.initialize(
+  private val (sessions, expectimax) = OnnxExpectimaxSearchInitialization.initialize(
     modelPath,
     config,
     extractFeatures,
@@ -83,7 +129,8 @@ final class OnnxExpectimaxSearch(
       statsSink = statsSink,
       rootRescore = rootRescore,
       preRankWithModel = preRankWithModel,
-      tt = tt
+      tt = tt,
+      chanceCollapse = chanceCollapse
     )
   )
 
@@ -96,9 +143,32 @@ final class OnnxExpectimaxSearch(
   override def findBestMove(state: GameState, deadlineNanos: Long, random: Random): Option[ScoredSequence] =
     expectimax.findBestMove(state, deadlineNanos, random)
 
-  override def close(): Unit =
-    onnx.close()
-    rescoreOnnx.foreach(_.close())
+  override def close(): Unit = sessions.closeAll()
+
+/** The ONNX sessions one [[OnnxExpectimaxSearch]] owns, held together so that closing cannot forget one.
+  *
+  * Each optional session is absent exactly when its hook is unconfigured (or, for the rescorer, disabled by a zero
+  * weight) — the type is the record of which native resources this bot actually opened.
+  */
+final private[search] case class OnnxSearchSessions(
+    leaf: OnnxEvalSearch,
+    rescore: Option[OnnxEvalSearch] = None,
+    collapse: Option[OnnxEvalSearch] = None
+):
+
+  def all: List[OnnxEvalSearch] = leaf :: (rescore.toList ++ collapse.toList)
+
+  /** Closes every session, then reports the first failure with the rest suppressed.
+    *
+    * Closing in sequence with no guard would leak a native session whenever an earlier `close` failed — the sessions
+    * after it would never be reached — and a bot that has just failed to shut one model down is exactly when the others
+    * need closing most.
+    */
+  def closeAll(): Unit =
+    val failures = all.flatMap(session => Try(session.close()).failed.toOption)
+    failures.headOption.foreach: first =>
+      failures.tail.foreach(first.addSuppressed)
+      throw first // scalafix:ok(DisableSyntax.throw)
 
 private[search] object OnnxExpectimaxSearchInitialization:
 
@@ -113,33 +183,41 @@ private[search] object OnnxExpectimaxSearchInitialization:
       extractFeatures: (GameState, Color) => Array[Float],
       options: OnnxSearchOptions = OnnxSearchOptions(),
       sessionFactory: SessionFactory = DefaultSessionFactory
-  ): (OnnxEvalSearch, Option[OnnxEvalSearch], ExpectimaxSearch) =
-    val onnx              = sessionFactory(modelPath, extractFeatures)
+  ): (OnnxSearchSessions, ExpectimaxSearch) =
+    val leaf              = sessionFactory(modelPath, extractFeatures)
     val activeRootRescore = options.rootRescore.filter(_.weight > 0.0)
-    var rescoreOnnx       = Option.empty[OnnxEvalSearch]
+    var sessions          = OnnxSearchSessions(leaf)
     try
-      rescoreOnnx = activeRootRescore.map(r => sessionFactory(r.modelPath, r.extractFeatures))
+      sessions = sessions.copy(
+        rescore = activeRootRescore.map(model => sessionFactory(model.modelPath, model.extractFeatures)),
+        collapse = options.chanceCollapse.map(model => sessionFactory(model.modelPath, model.extractFeatures))
+      )
       val expectimax = new ExpectimaxSearch(
-        (states, color) => onnx.onnxEvalBatch(states, color),
+        (states, color) => leaf.onnxEvalBatch(states, color),
         config,
         for
-          session <- rescoreOnnx
-          r       <- activeRootRescore
-        yield RootRescore((states, color) => session.onnxEvalBatch(states, color), r.weight),
-        if options.preRankWithModel then (states, color) => onnx.onnxEvalBatch(states, color)
+          session <- sessions.rescore
+          model   <- activeRootRescore
+        yield RootRescore((states, color) => session.onnxEvalBatch(states, color), model.weight),
+        if options.preRankWithModel then (states, color) => leaf.onnxEvalBatch(states, color)
         else ExpectimaxSearch.materialBatch,
         options.statsSink,
-        options.tt
+        options.tt,
+        for
+          session <- sessions.collapse
+          model   <- options.chanceCollapse
+        yield ChanceCollapse((states, color) => session.onnxEvalBatch(states, color), model.lossGuard)
       )
-      (onnx, rescoreOnnx, expectimax)
+      (sessions, expectimax)
     catch
       case error: Throwable =>
-        rescoreOnnx.foreach(closeSuppressing(_, error))
-        closeSuppressing(onnx, error)
+        closeSuppressing(sessions, error)
         throw error // scalafix:ok(DisableSyntax.throw)
 
-  private def closeSuppressing(session: OnnxEvalSearch, originalError: Throwable): Unit =
-    try session.close()
-    catch
-      case closeError: Throwable =>
-        if closeError ne originalError then originalError.addSuppressed(closeError)
+  /** Closes what was opened while a later session or the search itself failed, without losing the original error. */
+  private def closeSuppressing(sessions: OnnxSearchSessions, originalError: Throwable): Unit =
+    sessions.all.reverse.foreach: session =>
+      try session.close()
+      catch
+        case closeError: Throwable =>
+          if closeError ne originalError then originalError.addSuppressed(closeError)

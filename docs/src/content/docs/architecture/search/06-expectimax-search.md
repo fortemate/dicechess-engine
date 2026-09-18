@@ -131,6 +131,13 @@ final case class ExpectimaxConfig(
 - `exactOnlyMode`: Restricts TT reuse/stores to exact entries; useful for correctness comparisons.
 - `searchDepth`: Selects the implemented two- or three-ply tree. Depth 2 is the compatibility default; other values are rejected.
 
+The constructor also takes the optional seams the search is extended through: a root rescorer (`rootRescore`), a
+batched pre-ranker (`preRank`, material by default), a statistics sink, a transposition table, and
+`chanceCollapse` — a model that replaces the chance-node expansion itself. All of them are absent by default, and
+absent means this page's search runs exactly as described. See
+[Production Hooks](/dicechess-engine/architecture/search/07-onnx-integration/#production-hooks) for what the
+collapse hook keeps and what it gives up.
+
 ---
 
 ## Bot Registry Integration
