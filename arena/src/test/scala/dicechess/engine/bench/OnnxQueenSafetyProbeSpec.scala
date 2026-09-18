@@ -9,6 +9,7 @@ import scala.concurrent.duration.*
 import scala.util.Using
 
 import dicechess.engine.domain.*
+import dicechess.engine.json.Json
 import munit.FunSuite
 
 class OnnxQueenSafetyProbeSpec extends FunSuite:

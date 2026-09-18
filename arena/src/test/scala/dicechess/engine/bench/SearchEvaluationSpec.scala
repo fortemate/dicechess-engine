@@ -4,6 +4,7 @@ package dicechess.engine.bench
 import java.nio.file.Files
 
 import dicechess.engine.domain.{FenParser, GameState, Move, Square}
+import dicechess.engine.json.Json
 import dicechess.engine.search.{ScoredSequence, SearchAlgorithm, SearchScoring}
 import munit.FunSuite
 

@@ -6,6 +6,7 @@ import scala.util.Random
 
 import com.monovore.decline.Command
 import dicechess.engine.domain.*
+import dicechess.engine.json.Json
 import dicechess.engine.search.*
 import munit.FunSuite
 

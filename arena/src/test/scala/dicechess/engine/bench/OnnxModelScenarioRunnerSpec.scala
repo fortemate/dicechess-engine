@@ -4,6 +4,7 @@ package dicechess.engine.bench
 import java.nio.file.Files
 import scala.concurrent.duration.*
 
+import dicechess.engine.json.Json
 import dicechess.engine.search.BotRegistry
 import munit.FunSuite
 

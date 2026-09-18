@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-package dicechess.engine.bench
+package dicechess.engine.json
 
-/** Minimal JSON value model, encoder, and decoder backing the arena runners' optional `--json` machine-readable report
-  * (#521).
+/** Minimal JSON value model, encoder, and decoder — the one JSON implementation in this repository (#521).
   *
-  * Hand-rolled rather than pulling in a JSON library: the engine has no JSON dependency anywhere else, and the report
-  * shapes here are small and fully under this module's control. [[parse]] parses JSON syntax for reports and fixture
-  * catalogs; [[SearchFixtureCatalog.parse]] validates the versioned fixture schema.
+  * Hand-rolled rather than pulling in a JSON library: the engine deliberately has no JSON dependency, and every shape
+  * read or written here is small and fully under this repository's control — the arena runners' optional `--json`
+  * machine-readable reports and their fixture catalogs, and the ONNX model manifests of
+  * [[dicechess.engine.model.ModelManifest]]. [[Json.parse]] parses JSON syntax; each consumer validates its own
+  * versioned schema on top of the parsed value.
+  *
+  * `private[engine]` on purpose: the published jar carries it as an internal utility, not as public API, so the engine
+  * never has to keep a JSON model binary compatible for downstream callers.
   */
-enum Json derives CanEqual:
+private[engine] enum Json derives CanEqual:
   case JNull
   case JBool(value: Boolean)
   case JInt(value: Long)
@@ -40,7 +44,7 @@ enum Json derives CanEqual:
     case Json.JArr(items) => Some(items)
     case _                => None
 
-object Json:
+private[engine] object Json:
   def obj(fields: (String, Json)*): Json = JObj(fields.toList)
   def arr(items: Json*): Json            = JArr(items.toList)
   def str(value: String): Json           = JStr(value)

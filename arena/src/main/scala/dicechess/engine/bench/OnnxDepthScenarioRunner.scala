@@ -6,6 +6,7 @@ import scala.util.Using
 import cats.implicits.*
 import com.monovore.decline.*
 
+import dicechess.engine.json.Json
 import dicechess.engine.search.ExpectimaxConfig
 
 /** Deterministic scenario-suite evaluator comparing an ONNX model at expectimax **depth 3 vs depth 2**.

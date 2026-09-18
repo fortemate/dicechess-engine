@@ -3,6 +3,7 @@ package dicechess.engine.bench
 
 import com.sun.net.httpserver.{HttpExchange, HttpHandler, HttpServer}
 import dicechess.engine.domain.*
+import dicechess.engine.json.Json
 import dicechess.engine.search.*
 import munit.FunSuite
 
