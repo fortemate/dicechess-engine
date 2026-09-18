@@ -193,6 +193,45 @@ class ModelManifestSpec extends FunSuite:
     )
     assert(rejection(ModelManifest.validate(valid, "0.12.1-SNAPSHOT")).startsWith("invalid engine version"))
 
+  test("a legacy manifest may not carry a field its own version does not define"):
+    val text = s"""{
+      "manifestVersion": "1.0.0", "modelId": "m", "modelSha256": "${"7" * 64}",
+      "modelRole": "chance-collapse", "featureSchema": "kcp-13", "featureCount": 13,
+      "engineCompatibility": ">=0.12.0"
+    }"""
+    // Honouring it would make one file mean chance-collapse here and position-value to every 1.0.0-only reader.
+    assertEquals(rejection(ModelManifest.parse(text)), "manifestVersion 1.0.0 does not define field 'modelRole'")
+    val withPerspective = s"""{
+      "manifestVersion": "1.0.0", "modelId": "m", "modelSha256": "${"7" * 64}",
+      "perspective": "side-to-move", "featureSchema": "kcp-13", "featureCount": 13,
+      "engineCompatibility": ">=0.12.0"
+    }"""
+    assertEquals(
+      rejection(ModelManifest.parse(withPerspective)),
+      "manifestVersion 1.0.0 does not define field 'perspective'"
+    )
+
+  test("the version grammar admits exactly what the other two implementations admit"):
+    def accepts(constraint: String, version: String) =
+      ModelManifest.validate(valid.copy(engineCompatibility = constraint), version).isRight
+    // A ten-digit component fits in an Int and is accepted by the evaluation service's parser; rejecting it here on a
+    // digit-count rule would split the grammar.
+    assert(accepts(">=1000000000.0.0", "1000000000.0.0"))
+    // One that does not fit is refused, as it is there.
+    assert(
+      rejection(ModelManifest.validate(valid, "99999999999.0.0")).startsWith("invalid engine version"),
+      "an out-of-range component must be refused"
+    )
+    // Non-ASCII decimal digits are digits to Char.isDigit and not to the evaluation service's `\\d`; the narrower
+    // reading is the shared one.
+    assert(rejection(ModelManifest.validate(valid, "\u0663.0.0")).startsWith("invalid engine version"))
+    assert(
+      rejection(ModelManifest.validate(valid.copy(engineCompatibility = ">=\u0663.0.0"), engineVersion))
+        .startsWith("invalid engineCompatibility")
+    )
+    // Leading zeros parse as their value on all three sides.
+    assert(accepts("0012.0.0", "12.0.0"))
+
   test("the digest is computed over the model bytes and compared case-insensitively"):
     val manifest = ModelManifest.load(ContractFixtures.valueManifest).getOrElse(fail("fixture must parse"))
     val digest   = ModelManifest.computeSha256(ContractFixtures.valueModel).getOrElse(fail("fixture must digest"))

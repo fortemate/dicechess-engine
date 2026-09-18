@@ -11,7 +11,7 @@ import scala.util.{Try, Using}
 /** Calibration metadata of a probability-valued model. Advisory — the engine records it and never applies it, because
   * scaling a score the search only ever compares against other scores of the same model changes nothing.
   *
-  * Field names and the `temperature` default mirror the deployed evaluation service's `CalibrationMetadata`, so one
+  * Field names and the `temperature` default mirror the deployed evaluation service's calibration metadata, so one
   * artifact's manifest is readable by both without a translation step.
   */
 final case class ModelCalibration(
@@ -46,7 +46,9 @@ final case class ModelCalibration(
   *     cannot say which of them it is.
   *
   * Unknown fields are ignored on purpose: a newer producer may add metadata this engine has no use for, and refusing to
-  * load over it would make every manifest addition a breaking change.
+  * load over it would make every manifest addition a breaking change. A field a *declared* version does not define is
+  * the opposite case and is refused: a `1.0.0` manifest carrying `modelRole` would mean one thing here and another to
+  * every reader that only knows `1.0.0`.
   *
   * @param modelSha256
   *   64 hex characters over the ONNX file's bytes — the manifest describes exactly one file and can be pinned in a
@@ -206,13 +208,20 @@ object ModelManifest:
       read = stream.read(buffer)
     digest.digest().map(byte => f"${byte & 0xff}%02x").mkString
 
-  /** A field that `1.1.0` requires and `1.0.0` never carried: present wins, absent falls back to the legacy default
-    * only for a legacy manifest, so a current manifest cannot omit it and be quietly assumed.
+  /** A field that `1.1.0` requires and `1.0.0` never defined.
+    *
+    * Three cases, and the third is the interesting one. Present under `1.1.0` wins; absent under `1.0.0` falls back to
+    * the legacy default, so a current manifest cannot omit it and be quietly assumed. Present under `1.0.0` is
+    * **refused**: every `1.0.0`-only reader — the evaluation service today, the training repository's Python contract —
+    * ignores a field its version does not define, so honouring it here would make one file mean `chance-collapse` to
+    * this engine and `position-value` to everything else. A manifest that wants to state a role declares `1.1.0`.
     */
   private def versioned(json: Json, name: String, version: String, legacyDefault: String): Either[String, String] =
     ManifestFields
       .optionalString(json, name)
       .flatMap:
+        case Some(_) if version == LegacyVersion =>
+          Left(s"manifestVersion $version does not define field '$name'")
         case Some(value)                      => Right(value)
         case None if version == LegacyVersion => Right(legacyDefault)
         case None                             => Left(s"manifestVersion $version requires field '$name'")
@@ -339,12 +348,23 @@ private object EngineCompatibility:
 
   private def parseVersion(version: String): Either[String, Version] =
     version.split("\\.", -1).toList match
-      case List(major, minor, patch) if List(major, minor, patch).forall(isNumber) =>
-        Right(Version(major.toInt, minor.toInt, patch.toInt))
+      case List(major, minor, patch) if List(major, minor, patch).forall(isAsciiDigits) =>
+        (major.toIntOption, minor.toIntOption, patch.toIntOption) match
+          case (Some(parsedMajor), Some(parsedMinor), Some(parsedPatch)) =>
+            Right(Version(parsedMajor, parsedMinor, parsedPatch))
+          case _ => Left(s"invalid semantic version '$version'; a component does not fit in an Int")
       case _ => Left(s"invalid semantic version '$version'; expected MAJOR.MINOR.PATCH")
 
-  private def isNumber(part: String): Boolean =
-    part.nonEmpty && part.length <= 9 && part.forall(_.isDigit)
+  /** Whether a version component is a non-empty run of ASCII digits.
+    *
+    * Not `Char.isDigit`, which also accepts Arabic-Indic, Devanagari and every other Unicode decimal digit. The
+    * evaluation service's Java regex `\d` accepts only ASCII, and a grammar whose three implementations answer
+    * differently for any string is not the shared grammar this class claims to implement — so the narrower reading
+    * wins. The range is checked by parsing rather than by capping the digit count, which is what the other
+    * implementations do and what keeps a ten-digit component from being rejected here and accepted there.
+    */
+  private def isAsciiDigits(part: String): Boolean =
+    part.nonEmpty && part.forall(character => character >= '0' && character <= '9')
 
   private def satisfied(current: Version, operator: String, required: Version): Boolean =
     val comparison =
