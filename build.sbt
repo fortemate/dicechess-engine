@@ -42,7 +42,7 @@ ThisBuild / developers := List(
 // Local publishing (publishM2, publishLocal) bypasses signing and needs no env vars.
 
 val ScalaV       = "3.8.4"
-val OnnxRuntimeV = "1.29.0"
+val OnnxRuntimeV = "1.30.0"
 // Previous release of com.fortemate:dicechess-rules_3 that the current rules row must stay binary
 // compatible with (#246). release.yaml moves it to the version it has just released; keep the
 // literal on this one line so that sed finds it.
