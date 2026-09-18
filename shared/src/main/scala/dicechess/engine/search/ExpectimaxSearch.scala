@@ -47,6 +47,41 @@ final case class ExpectimaxConfig(
 final case class RootRescore(evalBatch: (Array[GameState], Color) => Array[Int], weight: Double):
   require(weight >= 0.0 && weight <= 1.0, s"weight must be in [0, 1], got $weight")
 
+/** Learned replacement for a root candidate's chance node: instead of expanding the opponent's 56 weighted dice
+  * outcomes and their replies, one batched call scores the position each candidate reaches and returns that expectation
+  * directly.
+  *
+  * This is the search's most expensive layer by orders of magnitude — every candidate pays hundreds to thousands of
+  * leaf evaluations for one number — so a model that predicts that number turns a chance node into a single row of a
+  * batch. It is off by default and has to be enabled explicitly, because it trades an exact expectation for an
+  * estimate: what comes back is what the model thinks the expansion would have produced.
+  *
+  * What it keeps: the immediate-king-capture shortcut and the forced pass above it, pre-ranking and its deterministic
+  * order, the random tie-break, the deadline's meaning (the batch is indivisible and is not started once the deadline
+  * has passed, so the anytime fallback to the pre-ranker's pick is unchanged), and root rescoring.
+  *
+  * What it gives up: Star1/Star2 pruning and the transposition table have nothing to prune or store — a collapsed value
+  * is a different quantity from the exact expectation the table holds at that depth, so the table is left untouched
+  * rather than mixed — and [[ExpectimaxConfig.searchDepth]] has no effect, since no tree is built below the root.
+  *
+  * It also gives up per-roll knowledge, and with it the one rule [[RootRescore]] treats as inviolable: a candidate that
+  * loses our king on some roll must never be rescued by a rescorer. `lossGuard` restores exactly that rule without
+  * expanding anything — [[KingCaptureProbability]] answers "can the opponent capture our king on their next roll" over
+  * the same 56 multisets, exactly (king-capture paths ignore the maximum micro-moves rule, so its depth-first search is
+  * not an estimate), at one 216-outcome search per root candidate. Leave it off for a pure collapse; turn it on when a
+  * rescorer is configured at a positive weight, or the rescorer can outvote a lost line.
+  *
+  * @param evalBatch
+  *   scores the positions the candidates reach, from the root mover's perspective, on the same Int axis as the search's
+  *   own `evalBatch` — the value means "the expectation of this chance node", not "the value of this leaf"
+  * @param lossGuard
+  *   whether to re-establish the loss-taint rule described above
+  */
+final case class ChanceCollapse(
+    evalBatch: (Array[GameState], Color) => Array[Int],
+    lossGuard: Boolean = false
+)
+
 /** One move's root telemetry from [[ExpectimaxSearch]]: how wide the decision node really was.
   *
   * `candidatesCompleted < candidatesSelected` means the wall-clock deadline truncated the anytime loop — the move was
@@ -64,8 +99,10 @@ final case class RootRescore(evalBatch: (Array[GameState], Color) => Array[Int],
   * @param candidatesSelected
   *   how many turns survived pre-ranking (at most the candidate limit)
   * @param candidatesCompleted
-  *   how many selected candidates were fully expanded through the chance node — the only ones whose values are
-  *   comparable, and therefore the only ones ranked
+  *   how many selected candidates were fully expanded through the chance node. Ranking needs comparable values, and a
+  *   full expansion is one way to get one; a transposition-table hit ([[RootSearchStats.ttHits]]) and a collapsed
+  *   candidate ([[RootSearchStats.candidatesCollapsed]]) are the other two, and are counted separately because they did
+  *   no expansion work
   * @param candidatesAbandoned
   *   candidates whose chance node was cut mid-expansion by the deadline (at most one: the search stops afterwards).
   *   Their partial expectation is discarded rather than ranked, so this counts work paid for and thrown away — a
@@ -82,17 +119,23 @@ final case class RootSearchStats(
     // Transposition-table telemetry, kept strictly apart from the expansion counters above: a TT-resolved candidate
     // did zero chance-node work this move, so folding it into candidatesCompleted/cutoffs would corrupt the
     // effective-width metric this record exists to measure and distort every A/B width comparison built on it.
-    ttProbes: Int = 0, // candidates for which the table was consulted (tt configured)
-    ttHits: Int = 0,   // candidates resolved by an EXACT entry — ranked, but never expanded
-    ttCutoffs: Int = 0 // candidates rejected by a stored UPPER bound before any expansion
+    ttProbes: Int = 0,  // candidates for which the table was consulted (tt configured)
+    ttHits: Int = 0,    // candidates resolved by an EXACT entry — ranked, but never expanded
+    ttCutoffs: Int = 0, // candidates rejected by a stored UPPER bound before any expansion
+    // Candidates a configured [[ChanceCollapse]] resolved in one batched call. Ranked like completed ones and kept out
+    // of candidatesCompleted for the same reason ttHits are: they did no chance-node work, and folding them in would
+    // report a searched width that never happened.
+    candidatesCollapsed: Int = 0
 ):
   /** Whether the deadline cut the loop short of the selected candidate set. */
-  def deadlineTruncated: Boolean = candidatesCompleted + cutoffs + ttHits + ttCutoffs < candidatesSelected
+  def deadlineTruncated: Boolean =
+    candidatesCompleted + cutoffs + ttHits + ttCutoffs + candidatesCollapsed < candidatesSelected
 
   /** The deadline elapsed before a single candidate could be scored, so the turn came from the pre-ranker alone — the
     * search contributed nothing beyond candidate selection.
     */
-  def fellBackToPreRank: Boolean = candidatesCompleted == 0 && ttHits == 0 && candidatesAbandoned > 0
+  def fellBackToPreRank: Boolean =
+    candidatesCompleted == 0 && ttHits == 0 && candidatesCollapsed == 0 && candidatesAbandoned > 0
 
 /** Configurable two- or three-ply expectimax search for Dice Chess.
   *
@@ -128,6 +171,10 @@ final case class RootSearchStats(
   *   receives one [[RootSearchStats]] per `findBestMove` call. Defaults to a no-op so the hot path pays nothing beyond
   *   a single call; a real sink lets a host (arena runner, production bot) observe how many candidates the deadline
   *   actually allowed — see [[RootSearchStats]] for why that matters.
+  * @param chanceCollapse
+  *   when present, replaces every root candidate's exact chance-node expansion with one batched model call — see
+  *   [[ChanceCollapse]] for what that keeps and what it gives up. Absent by default, and absent means the exact search
+  *   runs unchanged: the collapsed path is a separate branch that the default configuration never enters.
   */
 final class ExpectimaxSearch(
     evalBatch: (Array[GameState], Color) => Array[Int],
@@ -135,7 +182,8 @@ final class ExpectimaxSearch(
     rootRescore: Option[RootRescore] = None,
     preRank: (Array[GameState], Color) => Array[Int] = ExpectimaxSearch.materialBatch,
     statsSink: RootSearchStats => Unit = ExpectimaxSearch.NoStats,
-    tt: Option[TranspositionTable] = None
+    tt: Option[TranspositionTable] = None,
+    chanceCollapse: Option[ChanceCollapse] = None
 ) extends TimeBudgetedSearch:
 
   import ExpectimaxSearch.*
@@ -233,6 +281,17 @@ final class ExpectimaxSearch(
       deadlineNanos: Long,
       expansion: RootExpansion
   ): Unit =
+    chanceCollapse match
+      case Some(collapse) => collapseRootCandidates(candidates, myColor, deadlineNanos, expansion, collapse)
+      case None           => expandRootCandidatesExactly(candidates, myColor, deadlineNanos, expansion)
+
+  /** The exact expansion: one chance node per candidate, pruned and cached as configured. */
+  private def expandRootCandidatesExactly(
+      candidates: RootCandidates,
+      myColor: Color,
+      deadlineNanos: Long,
+      expansion: RootExpansion
+  ): Unit =
     val entries             = candidates.entries
     val activeRootRescore   = rootRescoreValues(entries, myColor, deadlineNanos)
     val expiredBeforeChance = expired(deadlineNanos)
@@ -254,6 +313,61 @@ final class ExpectimaxSearch(
       )
       i += 1
       if continue && expired(deadlineNanos) then continue = false
+
+  /** The collapsed expansion: the whole candidate set is resolved by one batched model call.
+    *
+    * The deadline is handled exactly as the exact path handles it, and for the same reason: the rescore batch and the
+    * collapse batch are both indivisible, so neither is started once the deadline has passed, and a deadline that lands
+    * before them leaves the move to the pre-ranker's top pick with `candidatesAbandoned = 1`.
+    *
+    * Every candidate in the batch is comparable — they are all the same estimate of the same quantity — so all of them
+    * are ranked, and none of them touches the transposition table.
+    */
+  private def collapseRootCandidates(
+      candidates: RootCandidates,
+      myColor: Color,
+      deadlineNanos: Long,
+      expansion: RootExpansion,
+      collapse: ChanceCollapse
+  ): Unit =
+    val entries           = candidates.entries
+    val resultStates      = entries.map(_._2)
+    val activeRootRescore = rootRescoreValues(entries, myColor, deadlineNanos)
+    if expired(deadlineNanos) then expansion.abandoned = 1
+    else
+      val values = collapse.evalBatch(resultStates, myColor)
+      // A model that answers with a different number of rows than it was given has broken the batching contract, and
+      // the rows it did return cannot be trusted to line up: an off-by-one batch would rank every candidate with its
+      // neighbour's value, which is worse than not searching at all. Nothing is ranked, and the move falls back to the
+      // pre-ranker's pick exactly as a deadline landing before the first candidate would leave it.
+      if values.length != entries.length then expansion.abandoned = 1
+      else
+        var i = 0
+        while i < entries.length do
+          val lossTainted = collapse.lossGuard && losesKingOnSomeRoll(resultStates(i), myColor)
+          expansion.rank(entries(i)._1, collapsedRootValue(values(i), lossTainted, activeRootRescore, i))
+          expansion.collapsed += 1
+          i += 1
+
+  /** A collapsed candidate's ranking score: the model's expectation, blended with the root rescore unless this line
+    * loses our king on some roll — the same rule, and the same arithmetic, as the exact path's `blendedRootValue`.
+    */
+  private def collapsedRootValue(
+      value: Int,
+      lossTainted: Boolean,
+      activeRootRescore: Option[(Double, Array[Int])],
+      index: Int
+  ): Double =
+    activeRootRescore match
+      case Some((weight, values)) if !lossTainted => blendRootScore(value.toDouble, values(index).toDouble, weight)
+      case _                                      => value.toDouble
+
+  /** Whether any dice outcome lets the opponent capture our king from `afterTurn`, which is exactly what the exact
+    * expansion records as a loss taint — obtained from [[KingCaptureProbability]]'s 216-outcome search instead of from
+    * 56 chance-node expansions, because a collapsed candidate never expands one.
+    */
+  private def losesKingOnSomeRoll(afterTurn: GameState, myColor: Color): Boolean =
+    KingCaptureProbability.kingCaptureProbability(afterTurn, myColor) > 0.0
 
   /** The rescore weight paired with one score per candidate, or `None` when no rescorer is configured, weight zero
     * disabled it, or the deadline elapsed before the batch could start.
@@ -348,6 +462,7 @@ final class ExpectimaxSearch(
     * candidates, and the best blended score so far — which is the alpha every later candidate prunes against.
     */
   final private class RootExpansion:
+    var collapsed    = 0
     var completed    = 0
     var abandoned    = 0
     var cutoffs      = 0
@@ -378,7 +493,8 @@ final class ExpectimaxSearch(
         probeCutoffs,
         ttProbes,
         ttHits,
-        ttCutoffs
+        ttCutoffs,
+        collapsed
       )
 
   /** The expectation, over the 56 weighted dice outcomes, of the opponent's best reply value (from `myColor`'s view),
