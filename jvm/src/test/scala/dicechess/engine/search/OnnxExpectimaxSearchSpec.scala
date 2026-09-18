@@ -198,3 +198,31 @@ class OnnxExpectimaxSearchSpec extends FunSuite:
     val thrown = intercept[IllegalStateException](OnnxSearchSessions(leaf, collapse = Some(failing)).closeAll())
     assert(thrown eq closeFailure)
     assert(leafClosed, "a failing close must not leak the sessions after it")
+
+  test("a session that fails to open closes the ones already opened, not only the leaf"):
+    val creationFailure = new IllegalStateException("third session creation failed")
+    var created         = 0
+    var closed          = List.empty[Int]
+    val sessionFactory: OnnxExpectimaxSearchInitialization.SessionFactory = (path, features) =>
+      created += 1
+      if created == 3 then Failure(creationFailure).get
+      else
+        val index = created
+        new OnnxEvalSearch(path, features):
+          override def close(): Unit =
+            super.close()
+            closed = index :: closed
+
+    val thrown = intercept[IllegalStateException]:
+      OnnxExpectimaxSearchInitialization.initialize(
+        modelPath,
+        ExpectimaxConfig(),
+        OnnxFeatures.extract,
+        OnnxSearchOptions(
+          rootRescore = Some(RootRescoreModel(modelPath, OnnxFeatures.extract, weight = 0.5)),
+          chanceCollapse = Some(CollapseModel(modelPath, OnnxFeatures.extract))
+        ),
+        sessionFactory = sessionFactory
+      )
+    assert(thrown eq creationFailure)
+    assertEquals(closed.sorted, List(1, 2), "both the leaf session and the rescorer's must be closed")

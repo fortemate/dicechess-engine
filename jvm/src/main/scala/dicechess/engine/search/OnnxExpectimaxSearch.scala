@@ -188,9 +188,12 @@ private[search] object OnnxExpectimaxSearchInitialization:
     val activeRootRescore = options.rootRescore.filter(_.weight > 0.0)
     var sessions          = OnnxSearchSessions(leaf)
     try
-      sessions = sessions.copy(
-        rescore = activeRootRescore.map(model => sessionFactory(model.modelPath, model.extractFeatures)),
-        collapse = options.chanceCollapse.map(model => sessionFactory(model.modelPath, model.extractFeatures))
+      // One assignment per session, not one copy for both: a session has to be recorded in `sessions` before the next
+      // creation can throw, or the error path closes the leaf and leaks everything opened after it.
+      sessions =
+        sessions.copy(rescore = activeRootRescore.map(model => sessionFactory(model.modelPath, model.extractFeatures)))
+      sessions = sessions.copy(collapse =
+        options.chanceCollapse.map(model => sessionFactory(model.modelPath, model.extractFeatures))
       )
       val expectimax = new ExpectimaxSearch(
         (states, color) => leaf.onnxEvalBatch(states, color),
