@@ -5,7 +5,6 @@ import dicechess.engine.domain.*
 import dicechess.engine.search.{OnnxEvalSearch, PreRankModel}
 import org.openjdk.jmh.annotations.*
 
-import java.nio.file.{Files, Path, StandardCopyOption}
 import java.util.concurrent.TimeUnit
 import scala.compiletime.uninitialized
 
@@ -26,7 +25,7 @@ import scala.compiletime.uninitialized
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
 @Warmup(iterations = 3, time = 1, timeUnit = TimeUnit.SECONDS)
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
-@Fork(1)
+@Fork(2)
 @State(Scope.Thread)
 class ModelPreRankBatchBenchmark:
 
@@ -38,12 +37,7 @@ class ModelPreRankBatchBenchmark:
 
   @Setup(Level.Trial)
   def setup(): Unit =
-    val modelFile = Files.createTempFile("prerank-batch-bench", ".onnx")
-    modelFile.toFile.deleteOnExit()
-    val resource = getClass.getResourceAsStream("/synthetic_test_model.onnx")
-    try Files.copy(resource, modelFile, StandardCopyOption.REPLACE_EXISTING)
-    finally resource.close()
-    bot = new OnnxEvalSearch(modelFile.toString)
+    bot = new OnnxEvalSearch(BenchmarkModelFixture.unpack("prerank-batch-bench").toString)
     val pool = BenchmarkPositions.AllPositions.values.toArray.map(BenchmarkPositions.parse)
     states = Array.tabulate(rows)(i => pool(i % pool.length))
 

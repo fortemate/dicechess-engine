@@ -138,34 +138,35 @@ micro-move sequences for a given set of dice.
 
 ## 5. Model Hook Budgets (`ModelHookBenchmark`, `ModelPreRankBatchBenchmark`)
 
-Captured on **2026-09-18** for the production model hooks (#78). These two suites were added after the baseline above and measured on a different host and JDK, so their environment is stated here rather than inherited from the top of this file:
+Captured on **2026-09-19** for the production model hooks (#78). These two suites were added after the baseline above and measured on a different host and JDK, so their environment is stated here rather than inherited from the top of this file:
 
 - **JMH Version:** 1.37
 - **VM Version:** JDK 25.0.4.1, OpenJDK 64-Bit Server VM (25.0.4.1+1-LTS)
-- **Parameters:** Warmup: 3 iterations (1s), Measurement: 5 iterations (1s), Fork: 2, 1 Thread.
+- **Parameters:** Warmup: 3 iterations (1s), Measurement: 5 iterations (1s), Fork: 2, 1 Thread — the classes' own annotations, so `mise run bench:filter ModelHookBenchmark` reproduces this exactly.
 - **Model:** the repository's synthetic ONNX fixture (`synthetic_test_model.onnx`, 7 material features). Its own compute is negligible **by design** — that is what makes these numbers the *search work the hook removes* rather than a statement about any trained network.
-- The host was not otherwise idle. A first single-fork pass on the same machine measured the same figures with error bars up to 20× wider; the two-fork numbers below are the ones to compare against.
+- **Position:** `4k3/8/8/8/8/8/PPP5/4KN2 w - -` with dice `1,2,6` — three pawns, a knight and a king against a lone king. Chosen so the root offers more legal turns than the widest candidate limit; the trial setup asserts it, because a position with fewer legal turns than `candidateLimit` would make the wider settings silently measure the same narrow root.
+- The host was not otherwise idle.
 
 ### 5.1 Chance collapse vs exact expansion (Average Time, lower is better, `us/op`)
 
 | `candidateLimit` | `exactRoot` | `collapsedRoot` | Ratio |
 |------------------|-------------|-----------------|-------|
-| `1` | `399.297 ± 13.713` | `6.586 ± 0.512` | `61×` |
-| `4` | `1753.286 ± 226.144` | `9.559 ± 2.228` | `183×` |
-| `8` | `2127.615 ± 56.424` | `8.726 ± 0.265` | `244×` |
+| `1` | `820.014 ± 57.019` | `196.675 ± 20.138` | `4.2×` |
+| `4` | `2859.484 ± 187.228` | `194.366 ± 6.798` | `14.7×` |
+| `8` | `5500.363 ± 298.441` | `197.373 ± 7.418` | `27.9×` |
 
 ### 5.2 Pre-rank batching (Average Time, lower is better, `us/op`)
 
 | Rows | `oneShot` | `chunked` (bound 256) | `chunkedTight` (bound 32) |
 |------|-----------|-----------------------|---------------------------|
-| `64` | `44.143 ± 2.425` | `43.686 ± 0.502` | `42.032 ± 0.392` |
-| `256` | `152.699 ± 4.024` | `153.470 ± 3.571` | `169.709 ± 1.724` |
-| `1024` | `587.649 ± 9.343` | `604.936 ± 12.326` | `681.056 ± 15.072` |
+| `64` | `49.338 ± 6.854` | `49.304 ± 3.049` | `44.282 ± 1.375` |
+| `256` | `165.311 ± 6.593` | `166.685 ± 4.332` | `173.633 ± 4.409` |
+| `1024` | `644.359 ± 32.744` | `680.698 ± 29.165` | `689.944 ± 17.238` |
 
 ### Key Observations
 
-- **The collapsed root is nearly flat in the candidate limit** (6.6–9.6 us across 1→8) because its cost is one batched session run plus the pre-rank pass. The exact root is not: it grows 5.3× from limit 1 to limit 8, since every added candidate pays its own 56-roll chance node.
-- **The hook's budget is two to three orders of magnitude**, and this is the conservative end: a real network raises the collapsed side once per candidate and the exact side once per *leaf*, so a heavier model widens the ratio.
-- **Bounding the pre-rank batch is close to free at the default bound.** At or below 256 rows no chunking happens at all (identical to `oneShot`, within error); at 1024 rows the 256-row bound costs `+2.9%`.
-- **A tight bound is not free:** 32 rows per run costs `+11%` at 256 rows and `+16%` at 1024, which is the per-call overhead the batching exists to amortize. 256 is the default for that reason.
+- **The collapsed root is flat in the candidate limit** (195–197 us across 1→8) because what it pays is turn generation plus one material pre-rank over *every* legal turn, plus one batched session run over the selected candidates. The exact root is not: it grows `6.7×` from limit 1 to limit 8, since every added candidate pays its own 56-roll chance node.
+- **The hook's budget is one order of magnitude at realistic width**, not the two to three an earlier measurement on a five-move position suggested. That earlier fixture could not reach the wider limits at all, and its sparseness also hid the cost both sides share. The honest statement is narrower and more useful: the hook removes the chance-node expansion, not the candidate generation — so its value grows with the candidate limit and with the opponent's reply count, and is smallest where the root is narrow.
+- **This is still the conservative end** for a trained model: a real network raises the collapsed side once per candidate and the exact side once per *leaf*.
+- **Bounding the pre-rank batch costs a few per cent at the top of the range.** At 1024 rows the 256-row bound costs `+5.6%` and a 32-row bound `+7.1%`; at or below the bound no chunking happens and the numbers coincide within error. The default is 256 because the per-call overhead it amortizes is real but small at these widths.
 - Absolute figures are host-specific; the ratios are the transferable part. Re-measure on the host that will serve the model — `mise run bench:filter ModelHookBenchmark`, `mise run bench:filter ModelPreRankBatchBenchmark`.

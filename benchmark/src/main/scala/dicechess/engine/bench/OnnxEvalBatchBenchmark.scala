@@ -5,7 +5,6 @@ import dicechess.engine.domain.*
 import dicechess.engine.search.OnnxEvalSearch
 import org.openjdk.jmh.annotations.*
 
-import java.nio.file.{Files, StandardCopyOption}
 import java.util.concurrent.TimeUnit
 import scala.compiletime.uninitialized
 
@@ -35,13 +34,7 @@ class OnnxEvalBatchBenchmark:
 
   @Setup(Level.Trial)
   def setup(): Unit =
-    // OnnxEvalSearch loads from a filesystem path, so unpack the classpath resource to a temp file first.
-    val modelFile = Files.createTempFile("onnx-bench-model", ".onnx")
-    modelFile.toFile.deleteOnExit()
-    val resource = getClass.getResourceAsStream("/synthetic_test_model.onnx")
-    try Files.copy(resource, modelFile, StandardCopyOption.REPLACE_EXISTING)
-    finally resource.close()
-    bot = new OnnxEvalSearch(modelFile.toString)
+    bot = new OnnxEvalSearch(BenchmarkModelFixture.unpack("onnx-bench-model").toString)
     // Cycle the standard positions up to batchSize so the batch carries real variety.
     val pool = BenchmarkPositions.AllPositions.values.toArray.map(BenchmarkPositions.parse)
     states = Array.tabulate(batchSize)(i => pool(i % pool.length))
