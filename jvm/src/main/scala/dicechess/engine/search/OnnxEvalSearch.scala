@@ -37,6 +37,21 @@ class OnnxEvalSearch(
   private val env     = OrtEnvironment.getEnvironment
   private val session = env.createSession(modelPath, new OrtSession.SessionOptions())
 
+  /** The name this graph declares its input under.
+    *
+    * `OrtSession.run` takes a name → tensor map, and this used to pass the literal `"input"`. Every model in this
+    * repository happens to use that name, but the serving contract lets a manifest declare another one (`inputName` —
+    * see [[dicechess.engine.model.ModelManifest]]), so a conforming graph could pass every contract check and then fail
+    * inside the first run with an unknown-input error from the native runtime. Reading the name off the session is both
+    * the fix and the simpler statement of intent: feed the input the graph actually has.
+    *
+    * The contract admits exactly one input; the fallback keeps a graph that declares none from failing here rather than
+    * where the runtime can say why.
+    */
+  private val inputName: String =
+    val declared = session.getInputNames
+    if declared.isEmpty then OnnxEvalSearch.DefaultInputName else declared.iterator.next()
+
   /** The model's raw output is a probability in [0, 1]; scaling by this keeps every score far below
     * [[SearchScoring.TerminalWinScore]] (`Int.MaxValue`) while preserving enough resolution to discriminate between
     * close positions.
@@ -53,7 +68,7 @@ class OnnxEvalSearch(
   private def runScaled(features: Array[Array[Float]]): Array[Int] =
     val inputTensor = OnnxTensor.createTensor(env, features)
     try
-      val result = session.run(Collections.singletonMap("input", inputTensor))
+      val result = session.run(Collections.singletonMap(inputName, inputTensor))
       try result.get(0).getValue.asInstanceOf[Array[Array[Float]]].map(row => (row(0) * ScoreScale).toInt)
       finally result.close()
     finally inputTensor.close()
@@ -161,3 +176,8 @@ object OnnxEvalSearch:
     * many rows, in the same spirit as [[onnxEvalBatch]].
     */
   private[search] val BatchSize = 32
+
+  /** Input name assumed when a graph declares none — the serving contract's default, so the error a caller sees comes
+    * from the runtime describing the real graph rather than from this class guessing.
+    */
+  private val DefaultInputName = "input"

@@ -90,6 +90,37 @@ class Kcp13ParitySpec extends FunSuite:
         assert(math.abs(scaled - target) <= 1, s"probe ${probe.id}: engine $scaled vs Python $target")
     finally bot.close()
 
+  test("a graph is fed by the name it declares, not by the literal 'input'"):
+    // Same weights, tensors named `features` / `win_probability`, and a manifest that declares them. The contract
+    // accepts such a graph, so the engine has to be able to serve it: before this was wired, OnnxEvalSearch passed the
+    // literal "input" and the run failed inside onnxruntime with an unknown-input error.
+    val manifest = ModelManifest.load(ContractFixtures.renamedTensorsManifest).getOrElse(fail("fixture must parse"))
+    assertEquals(manifest.inputName, "features")
+    assertEquals(manifest.outputName, "win_probability")
+    assertEquals(
+      ModelPackage
+        .loadFiles(
+          ContractFixtures.renamedTensorsModel,
+          ContractFixtures.renamedTensorsManifest,
+          ContractFixtures.EngineVersion
+        )
+        .map(_.schema.id),
+      Right(FeatureSchema.Kcp13.id)
+    )
+
+    val renamed = new OnnxEvalSearch(ContractFixtures.renamedTensorsModel.toString, FeatureSchema.Kcp13.extract)
+    val default = new OnnxEvalSearch(ContractFixtures.valueModel.toString, FeatureSchema.Kcp13.extract)
+    try
+      probes.foreach: probe =>
+        assertEquals(
+          renamed.onnxEval(probe.state, probe.color),
+          default.onnxEval(probe.state, probe.color),
+          s"probe ${probe.id}: renaming the tensors must not change the score"
+        )
+    finally
+      renamed.close()
+      default.close()
+
   /** One batched run of the fixture model, decoded the way the contract states its output: `[batch, 1]` FLOAT. */
   private def runSession(rows: Array[Array[Float]]): List[Double] =
     val env = OrtEnvironment.getEnvironment

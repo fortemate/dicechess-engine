@@ -32,13 +32,21 @@ FEATURE_COUNT = 13
 INPUT_NAME = "input"
 OUTPUT_NAME = "output"
 MODEL_FILE = "synthetic_kcp13_value_test_model.onnx"
+RENAMED_MODEL_FILE = "synthetic_kcp13_renamed_tensors_test_model.onnx"
+RENAMED_INPUT_NAME = "features"
+RENAMED_OUTPUT_NAME = "win_probability"
 PARITY_FILE = "synthetic_kcp13_value_parity.json"
 ENGINE_COMPATIBILITY = ">=0.12.0 <1.0.0"
 
 # One weight per kcp-13 column, in KcpFeatures.columnNames order. Signs are the plausible ones (a king
 # capture chance for us is good, one against us is bad) so a reader can sanity-check the fixture, but the
 # magnitudes are arbitrary: this is a wiring and parity fixture, never a trained model.
-WEIGHTS = [0.5, 0.3, 0.3, 0.2, 0.15, 0.1, 0.005, 0.02, 0.02, 2.0, -2.0, 0.5, -0.5]
+#
+# king_safety_diff (column 8) carries a deliberately small weight. Its range is an order of magnitude wider
+# than every other column's (probes reach -2000), and at 0.02 two of the nine probes drove the sigmoid to
+# exactly 0.0 — rows on which no Python/JVM disagreement could ever show up, because both sides saturate.
+# At 0.0002 every probe lands inside (0.09, 0.77) and the seven unsaturated expected values are unchanged.
+WEIGHTS = [0.5, 0.3, 0.3, 0.2, 0.15, 0.1, 0.005, 0.02, 0.0002, 2.0, -2.0, 0.5, -0.5]
 BIAS = -0.1
 
 # Probe positions with the 13-column vectors the engine extracts for them, copied from the train/serve
@@ -103,18 +111,28 @@ PROBES = [
 ]
 
 
-def make_model() -> onnx.ModelProto:
+def make_model(
+    graph_name: str = "synthetic-kcp13-value",
+    input_name: str = INPUT_NAME,
+    output_name: str = OUTPUT_NAME,
+) -> onnx.ModelProto:
+    """The same weights under configurable tensor names.
+
+    The renamed variant exists to prove that a conforming graph is fed by the name its manifest declares rather than
+    by the literal ``input``: identical weights mean the two models must score identically, so a difference can only
+    come from the plumbing.
+    """
     weights = helper.make_tensor("weights", TensorProto.FLOAT, [FEATURE_COUNT, 1], WEIGHTS)
     bias = helper.make_tensor("bias", TensorProto.FLOAT, [1], [BIAS])
     graph = helper.make_graph(
         [
-            helper.make_node("MatMul", [INPUT_NAME, "weights"], ["weighted"]),
+            helper.make_node("MatMul", [input_name, "weights"], ["weighted"]),
             helper.make_node("Add", ["weighted", "bias"], ["logit"]),
-            helper.make_node("Sigmoid", ["logit"], [OUTPUT_NAME]),
+            helper.make_node("Sigmoid", ["logit"], [output_name]),
         ],
-        "synthetic-kcp13-value",
-        [helper.make_tensor_value_info(INPUT_NAME, TensorProto.FLOAT, ["batch", FEATURE_COUNT])],
-        [helper.make_tensor_value_info(OUTPUT_NAME, TensorProto.FLOAT, ["batch", 1])],
+        graph_name,
+        [helper.make_tensor_value_info(input_name, TensorProto.FLOAT, ["batch", FEATURE_COUNT])],
+        [helper.make_tensor_value_info(output_name, TensorProto.FLOAT, ["batch", 1])],
         [weights, bias],
     )
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)], ir_version=8)
@@ -122,7 +140,14 @@ def make_model() -> onnx.ModelProto:
     return model
 
 
-def manifest(digest: str, model_id: str, version: str, role: str | None) -> dict:
+def manifest(
+    digest: str,
+    model_id: str,
+    version: str,
+    role: str | None,
+    input_name: str = INPUT_NAME,
+    output_name: str = OUTPUT_NAME,
+) -> dict:
     common = {
         "manifestVersion": version,
         "modelId": model_id,
@@ -144,8 +169,8 @@ def manifest(digest: str, model_id: str, version: str, role: str | None) -> dict
     return {
         **common,
         "modelRole": role,
-        "inputName": INPUT_NAME,
-        "outputName": OUTPUT_NAME,
+        "inputName": input_name,
+        "outputName": output_name,
         "perspective": "side-to-move",
     }
 
@@ -173,6 +198,24 @@ def main() -> None:
     write_json(
         base / "synthetic_kcp13_collapse_manifest.json",
         manifest(digest, "synthetic-kcp13-collapse", "1.1.0", "chance-collapse"),
+    )
+
+    renamed_path = base / RENAMED_MODEL_FILE
+    onnx.save(
+        make_model("synthetic-kcp13-renamed", RENAMED_INPUT_NAME, RENAMED_OUTPUT_NAME),
+        renamed_path,
+    )
+    print(f"wrote {renamed_path.name}")
+    write_json(
+        base / "synthetic_kcp13_renamed_tensors_manifest.json",
+        manifest(
+            hashlib.sha256(renamed_path.read_bytes()).hexdigest(),
+            "synthetic-kcp13-renamed",
+            "1.1.0",
+            "position-value",
+            RENAMED_INPUT_NAME,
+            RENAMED_OUTPUT_NAME,
+        ),
     )
 
     rows = np.asarray([probe["features"] for probe in PROBES], dtype=np.float32)

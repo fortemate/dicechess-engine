@@ -1,7 +1,7 @@
 {
   "manifestVersion": "1.1.0",
   "modelId": "synthetic-kcp13-renamed",
-  "modelSha256": "d15f105649fc59f01f2149aae3bf7531ae0adbea4b5bc3e2f79d5a6f86697994",
+  "modelSha256": "b368eec5dc8c72330566a75f444de4edaf231650204a53afa934679c40a539da",
   "featureSchema": "kcp-13",
   "featureCount": 13,
   "engineCompatibility": ">=0.12.0 <1.0.0",

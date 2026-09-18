@@ -16,7 +16,14 @@ class FeatureSchemaSpec extends FunSuite:
     FeatureSchema.all.foreach: schema =>
       val row = schema.extract(position, Color.White)
       assertEquals(row.length, schema.featureCount, s"schema ${schema.id} extracted ${row.length} features")
-      assertEquals(schema.columnNames.length, schema.featureCount, s"schema ${schema.id} column count")
+      // featureCount IS columnNames.length, so asserting that would prove nothing; what a manifest's schema id has to
+      // resolve to is a layout in which every column is addressable — distinct and named.
+      assertEquals(
+        schema.columnNames.distinct.length,
+        schema.columnNames.length,
+        s"schema ${schema.id} has duplicate column names"
+      )
+      assert(schema.columnNames.forall(_.trim.nonEmpty), s"schema ${schema.id} has a blank column name")
 
   test("schema ids are unique and resolvable, and an unknown id lists the known ones"):
     val ids = FeatureSchema.all.map(_.id)

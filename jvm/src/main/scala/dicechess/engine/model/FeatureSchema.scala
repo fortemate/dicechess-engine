@@ -69,8 +69,11 @@ object FeatureSchema:
   val RawBoard768: FeatureSchema =
     new FeatureSchema(RawBoardFeatures.schemaId, RawBoardFeatures.columnNames, RawBoardFeatures.extract)
 
-  /** Every schema a manifest may name, cheapest first — the order in which their extraction cost grows, which is also
-    * the order a reader of an error message finds useful.
+  /** Every schema a manifest may name, ordered by input width.
+    *
+    * Width, not extraction cost: `raw-board-768-v1` is the widest and among the cheapest to extract (twelve bitboards,
+    * no move generation), while `kcp-13`'s four capture-probability columns each integrate over 216 dice outcomes. The
+    * two orders are not the same one, and [[FeatureSchema.find]] sorts by id for its error message anyway.
     */
   val all: List[FeatureSchema] =
     List(Material7, Rich9, RichPdi11, Kcp13, KcpMobility27, KcpMobilityPawns31, RawBoard768)

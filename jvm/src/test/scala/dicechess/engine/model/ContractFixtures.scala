@@ -31,6 +31,13 @@ object ContractFixtures:
   /** Same bytes, declared for a different role: the fixture the role gate is tested with. */
   def collapseManifest: Path = path("/synthetic_kcp13_collapse_manifest.json")
 
+  /** The same weights under non-default tensor names (`features` / `win_probability`), with a manifest that declares
+    * them — the pair that proves a graph is fed by the name it declares rather than by the literal `input`.
+    */
+  def renamedTensorsModel: Path = path("/synthetic_kcp13_renamed_tensors_test_model.onnx")
+
+  def renamedTensorsManifest: Path = path("/synthetic_kcp13_renamed_tensors_manifest.json")
+
   /** Probe vectors plus the outputs Python's ONNX Runtime produced for them. */
   def parityVectors: Path = path("/synthetic_kcp13_value_parity.json")
 

@@ -2,7 +2,7 @@
   "schema": "kcp-13",
   "perspective": "side-to-move",
   "model": "synthetic_kcp13_value_test_model.onnx",
-  "modelSha256": "7ea07fe31a1a5442c12e97f9738492b780132b10c76614da4a6a345ff9249614",
+  "modelSha256": "e078ff34038d02b504b1d9a68535f88d6860ef1ce464a9168bc3db5b7950d980",
   "generator": "jvm/src/test/resources/generate_model_contract_fixtures.py",
   "runtime": "onnxruntime 1.29.0 (Python, CPUExecutionProvider)",
   "featureSource": "dicechess-training tests/fixtures/kcp13/golden-engine-0.12.0.json",
@@ -146,7 +146,7 @@
         0.0,
         0.0
       ],
-      "output": 0.0
+      "output": 0.0929957926273346
     },
     {
       "id": "rook-queen-attack-w",
@@ -167,7 +167,7 @@
         0.4212963,
         0.0
       ],
-      "output": 0.0
+      "output": 0.1525282859802246
     },
     {
       "id": "passed-pawn-w",
