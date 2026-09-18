@@ -1700,8 +1700,11 @@ object ExpectimaxSearch:
   private[search] val NoStats: RootSearchStats => Unit = _ => ()
 
   /** Default root pre-ranker: material, applied per state — the search's historical, hardcoded behaviour, now just
-    * expressed as a batch so it fits the same injectable shape as any other pre-ranker. `private[search]` (not fully
-    * private) so JVM-only wiring in this package (e.g. [[OnnxExpectimaxSearch]]) can fall back to it explicitly.
+    * expressed as a batch so it fits the same injectable shape as any other pre-ranker.
+    *
+    * Public because `preRank` is: a host that supplies its own pre-ranker needs to be able to name the default it is
+    * replacing — to fall back to it when its model is unavailable, or to compare against it — and an external caller
+    * had no way to do that while this was package-private.
     */
-  private[search] def materialBatch(states: Array[GameState], color: Color): Array[Int] =
+  def materialBatch(states: Array[GameState], color: Color): Array[Int] =
     states.map(Evaluator.evaluateMaterial(_, color))

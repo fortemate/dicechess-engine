@@ -38,6 +38,9 @@ object ContractFixtures:
 
   def renamedTensorsManifest: Path = path("/synthetic_kcp13_renamed_tensors_manifest.json")
 
+  /** Same bytes again, declared for the pre-ranking role. */
+  def preRankManifest: Path = path("/synthetic_kcp13_prerank_manifest.json")
+
   /** Probe vectors plus the outputs Python's ONNX Runtime produced for them. */
   def parityVectors: Path = path("/synthetic_kcp13_value_parity.json")
 

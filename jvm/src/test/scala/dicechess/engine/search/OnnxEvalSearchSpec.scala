@@ -193,3 +193,64 @@ class OnnxEvalSearchSpec extends FunSuite:
       assertEquals(result.get.moves, targetChunk1Path, "chosen move must be candidate 35 from chunk 1")
     finally bot.close()
   }
+
+  // --- bounded batching (#78) ------------------------------------------------------------------
+
+  /** Seven positions spanning wide material swings, so a chunk written at the wrong offset cannot pass unnoticed. (The
+    * fixture model is a tree ensemble fitted on noise, so neighbouring inputs may share a leaf — the test asserts the
+    * scores vary, not that all seven differ.)
+    */
+  private val ladder: Array[GameState] =
+    Array(
+      "4k3/8/8/8/8/8/8/4K3 w - -",
+      "4k3/8/8/8/8/8/PPPPPPPP/4K3 w - -",
+      "4k3/pppppppp/8/8/8/8/8/4K3 w - -",
+      "3qk3/8/8/8/8/8/8/4K3 w - -",
+      "4k3/8/8/8/8/8/8/3QK3 w - -",
+      "r3k2r/8/8/8/8/8/8/R3K2R w - -",
+      "4k3/8/8/8/8/8/8/RNBQK3 w - -"
+    ).map(fen => FenParser.parse(fen).toOption.getOrElse(fail(s"unparseable fixture FEN: $fen")))
+
+  /** Counts session runs by intercepting the one method every batch funnels through. */
+  private def countingBot(): (OnnxEvalSearch, () => Int) =
+    var runs = 0
+    val bot  = new OnnxEvalSearch(modelPath):
+      override def onnxEvalBatch(states: Array[GameState], color: Color): Array[Int] =
+        runs += 1
+        super.onnxEvalBatch(states, color)
+    (bot, () => runs)
+
+  test("chunked batching returns exactly the scores one batch would, at every chunk boundary") {
+    val bot = new OnnxEvalSearch(modelPath)
+    try
+      val expected = bot.onnxEvalBatch(ladder, Color.White).toList
+      assert(expected.distinct.length > 2, s"precondition: the fixture must produce varying scores, got $expected")
+      for chunkSize <- 1 to 9 do
+        assertEquals(
+          bot.onnxEvalBatchChunked(ladder, Color.White, chunkSize).toList,
+          expected,
+          s"chunkSize $chunkSize changed the scores"
+        )
+    finally bot.close()
+  }
+
+  test("chunked batching splits the work into as many session runs as the bound implies") {
+    val (bot, runs) = countingBot()
+    try
+      bot.onnxEvalBatchChunked(ladder, Color.White, 3)
+      assertEquals(runs(), 3, "seven rows at three per run")
+      bot.onnxEvalBatchChunked(ladder, Color.White, 7)
+      assertEquals(runs(), 4, "a bound at the row count is one run")
+      bot.onnxEvalBatchChunked(ladder, Color.White, 64)
+      assertEquals(runs(), 5, "a bound above the row count does not chunk at all")
+    finally bot.close()
+  }
+
+  test("an empty batch is empty whatever the bound, and a non-positive bound is rejected") {
+    val bot = new OnnxEvalSearch(modelPath)
+    try
+      assertEquals(bot.onnxEvalBatchChunked(Array.empty, Color.White, 4).toList, Nil)
+      intercept[IllegalArgumentException](bot.onnxEvalBatchChunked(ladder, Color.White, 0))
+      intercept[IllegalArgumentException](bot.onnxEvalBatchChunked(ladder, Color.White, -1))
+    finally bot.close()
+  }
