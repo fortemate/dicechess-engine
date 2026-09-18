@@ -18,6 +18,12 @@ import dicechess.engine.domain.*
   */
 object KcpFeatures:
 
+  /** Stable id of this feature contract. Unversioned, unlike the newer sets: `kcp-13` is the id the deployed evaluation
+    * service and the training repository's serving contract already use, and re-spelling it here would fork the
+    * contract rather than share it.
+    */
+  val schemaId: String = "kcp-13"
+
   /** [[RichFeatures.columnNames]] followed by the capture-probability columns, mover-perspective:
     *   - `*_attack` — probability the mover captures the opponent's king/queen on the mover's next roll;
     *   - `*_danger` — probability the opponent captures the mover's own king/queen on the opponent's next roll.

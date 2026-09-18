@@ -37,6 +37,9 @@ import dicechess.engine.domain.*
   */
 object RawBoardFeatures:
 
+  /** Stable id of this feature contract — see [[OnnxFeatures.schemaId]] for why it is versioned. */
+  val schemaId: String = "raw-board-768-v1"
+
   /** Piece planes: 6 piece types for the mover, then 6 for the opponent. */
   val PlaneCount = 12
 

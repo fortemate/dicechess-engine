@@ -14,6 +14,20 @@ import dicechess.engine.domain.*
   */
 object OnnxFeatures:
 
+  /** Stable id of this feature contract, as a model manifest's `featureSchema` field names it (the JVM-only
+    * `dicechess.engine.model` package resolves that id back to this extractor). Versioned because a column added here
+    * would change what every trained model's input means, and a model trained on the old layout must then fail to load
+    * rather than be fed a different vector under the same name.
+    */
+  val schemaId: String = "material-7-v1"
+
+  /** Column names in [[extract]]'s order, the layout the private training pipeline calls `MATERIAL_COLUMNS`. Kept here,
+    * and asserted to be [[RichFeatures.columnNames]]' prefix, so the material block has one definition rather than a
+    * copy per feature set built on top of it.
+    */
+  val columnNames: List[String] =
+    List("p_diff", "n_diff", "b_diff", "r_diff", "q_diff", "material_diff", "total_material")
+
   private val PawnValue   = 1
   private val KnightValue = 3
   private val BishopValue = 3

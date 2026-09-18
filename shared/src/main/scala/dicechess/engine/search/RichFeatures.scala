@@ -24,6 +24,9 @@ import dicechess.engine.movegen.MoveGenerator
   */
 object RichFeatures:
 
+  /** Stable id of this feature contract — see [[OnnxFeatures.schemaId]] for why it is versioned. */
+  val schemaId: String = "rich-9-v1"
+
   /** Column names in the exact order [[extract]] returns values: the material block (aligned with the training
     * pipeline's `MATERIAL_COLUMNS`) followed by the positional columns. The enrichment step writes CSV headers from
     * this list, so training and serving agree on layout.

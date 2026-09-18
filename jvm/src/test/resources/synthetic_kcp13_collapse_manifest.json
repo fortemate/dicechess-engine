@@ -1,0 +1,20 @@
+{
+  "manifestVersion": "1.1.0",
+  "modelId": "synthetic-kcp13-collapse",
+  "modelSha256": "7ea07fe31a1a5442c12e97f9738492b780132b10c76614da4a6a345ff9249614",
+  "featureSchema": "kcp-13",
+  "featureCount": 13,
+  "engineCompatibility": ">=0.12.0 <1.0.0",
+  "calibration": {
+    "temperature": 1.0
+  },
+  "provenance": {
+    "generator": "jvm/src/test/resources/generate_model_contract_fixtures.py",
+    "purpose": "engine #78 model-contract test fixture",
+    "trained": "false"
+  },
+  "modelRole": "chance-collapse",
+  "inputName": "input",
+  "outputName": "output",
+  "perspective": "side-to-move"
+}

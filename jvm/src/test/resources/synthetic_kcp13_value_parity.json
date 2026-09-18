@@ -1,0 +1,215 @@
+{
+  "schema": "kcp-13",
+  "perspective": "side-to-move",
+  "model": "synthetic_kcp13_value_test_model.onnx",
+  "modelSha256": "7ea07fe31a1a5442c12e97f9738492b780132b10c76614da4a6a345ff9249614",
+  "generator": "jvm/src/test/resources/generate_model_contract_fixtures.py",
+  "runtime": "onnxruntime 1.29.0 (Python, CPUExecutionProvider)",
+  "featureSource": "dicechess-training tests/fixtures/kcp13/golden-engine-0.12.0.json",
+  "columns": [
+    "p_diff",
+    "n_diff",
+    "b_diff",
+    "r_diff",
+    "q_diff",
+    "material_diff",
+    "total_material",
+    "mobility_diff",
+    "king_safety_diff",
+    "king_capture_attack",
+    "king_capture_danger",
+    "queen_capture_attack",
+    "queen_capture_danger"
+  ],
+  "probes": [
+    {
+      "id": "start-w",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -",
+      "side": "w",
+      "features": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        78.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "output": 0.5719960927963257
+    },
+    {
+      "id": "start-b",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq -",
+      "side": "b",
+      "features": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        78.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "output": 0.5719960927963257
+    },
+    {
+      "id": "kings-only-w",
+      "fen": "4k3/8/8/8/8/8/8/4K3 w - -",
+      "side": "w",
+      "features": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "output": 0.4750208258628845
+    },
+    {
+      "id": "knight-up-w",
+      "fen": "r1bqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -",
+      "side": "w",
+      "features": [
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        3.0,
+        75.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "output": 0.7099208831787109
+    },
+    {
+      "id": "knight-up-w-twin",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/R1BQKBNR b KQkq -",
+      "side": "b",
+      "features": [
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        3.0,
+        75.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "output": 0.7099208831787109
+    },
+    {
+      "id": "rook-king-danger-w",
+      "fen": "4k3/8/8/8/8/8/4r3/4K3 w - -",
+      "side": "w",
+      "features": [
+        0.0,
+        0.0,
+        0.0,
+        -1.0,
+        0.0,
+        -5.0,
+        5.0,
+        -13.0,
+        -2000.0,
+        0.0,
+        0.4212963,
+        0.0,
+        0.0
+      ],
+      "output": 0.0
+    },
+    {
+      "id": "rook-queen-attack-w",
+      "fen": "k7/8/8/4q3/8/8/8/K3R3 w - -",
+      "side": "w",
+      "features": [
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        -1.0,
+        -4.0,
+        14.0,
+        -17.0,
+        -2000.0,
+        0.018518519,
+        0.4212963,
+        0.4212963,
+        0.0
+      ],
+      "output": 0.0
+    },
+    {
+      "id": "passed-pawn-w",
+      "fen": "k7/4P3/8/8/8/8/8/4K3 w - -",
+      "side": "w",
+      "features": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        1.0,
+        6.0,
+        0.0,
+        0.2777778,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "output": 0.7650476694107056
+    },
+    {
+      "id": "sample-mid-b",
+      "fen": "r1bk4/ppp3pp/8/1BP5/2P5/8/R2K2QP/4R3 b - -",
+      "side": "b",
+      "features": [
+        2.0,
+        0.0,
+        0.0,
+        -1.0,
+        -1.0,
+        -12.0,
+        38.0,
+        -36.0,
+        0.0,
+        0.0,
+        0.14814815,
+        0.074074075,
+        0.0
+      ],
+      "output": 0.1916600465774536
+    }
+  ]
+}
