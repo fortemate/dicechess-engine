@@ -99,8 +99,8 @@ from.
 | `chance-collapse` | the expectation a chance node would compute | the position a turn reaches, before the next roll |
 | `move-prerank` | a score per candidate turn, used for ordering only | a candidate turn's resulting position |
 
-A `chance-collapse` model is consumed by the search's collapse hook and a `position-value` model by its leaf
-evaluator or root rescorer — see
+A `chance-collapse` model is consumed by the search's collapse hook, a `move-prerank` model by its dedicated
+pre-ranker, and a `position-value` model by its leaf evaluator or root rescorer — see
 [Production Hooks](/dicechess-engine/architecture/search/07-onnx-integration/#production-hooks).
 
 The roles are not interchangeable even at equal tensor width: `position-value` is a probability,

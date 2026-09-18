@@ -169,9 +169,47 @@ than paying a per-candidate search for a value nothing reads. The guard pass is 
 `KingCaptureProbability` takes no deadline of its own, so the clock is checked between candidates, and a pass that runs
 out of time ranks nothing at all — a half-guarded set would apply the rule to some candidates and not to others.
 
+### Dedicated move pre-ranker
+
+Only the top `candidateLimit` turns are expanded, so whatever orders the mover's legal turns decides what the search
+ever looks at. Material has always done that ordering, and a sharper pre-ranker attacks the real bottleneck — widening
+`candidateLimit` only pays for a crude one, at linear cost.
+
+```scala
+val preRank = PreRankModel.fromPackage(pkg, chunkSize = 256) // pkg.role must be move-prerank
+
+val bot = new OnnxExpectimaxSearch(
+  modelPath = leafModelPath,
+  preRankModel = preRank.toOption
+)
+```
+
+Three configurations of the same seam, in order of specificity:
+
+| Configuration | Sessions | Ordering opinion |
+| --- | --- | --- |
+| default | one | material |
+| `preRankWithModel = true` | one | the leaf model, reused |
+| `preRankModel = Some(…)` | two | a model trained for ranking |
+
+The last two are **alternatives**: configuring both is rejected at construction rather than silently resolved, because
+they set the same seam and a host that set both meant one of them.
+
+A dedicated session is the point, not an accident. Ordering candidates and valuing positions are different jobs — a
+ranker is trained on which turn is better, a value model on how good a position is — and two models that both emit one
+number per row are not interchangeable.
+
+**What bounds the cost is the feature schema, not the candidate limit.** The pre-rank pass sees *every* legal turn,
+routinely hundreds and sometimes thousands. At that width `material-7-v1` is a thousand cheap rows; `kcp-13` is a
+thousand 216-outcome capture-probability searches and not viable at this seam at all. The pass is also paid in full
+*before* the deadline is consulted — it has to be, since its output is what the anytime fallback plays — so a schema
+too expensive for the position's branching overruns the move budget before the search proper begins. `chunkSize`
+bounds the tensor, not the time.
+
 ### Failure behaviour
 
-- A model whose manifest declares another role is refused by `CollapseModel.fromPackage` before a session is opened.
+- A model whose manifest declares another role is refused by `CollapseModel.fromPackage` or
+  `PreRankModel.fromPackage` before a session is opened.
 - A batch that comes back with a different number of rows than it was given is refused wholesale: the rows cannot be
   trusted to line up (an off-by-one batch would rank every candidate with its neighbour's value), so nothing is ranked
   and the move falls back to the pre-ranker's pick. Reported as `collapseRejected`, deliberately not as
