@@ -75,7 +75,10 @@ final case class RootRescore(evalBatch: (Array[GameState], Color) => Array[Int],
   *   scores the positions the candidates reach, from the root mover's perspective, on the same Int axis as the search's
   *   own `evalBatch` — the value means "the expectation of this chance node", not "the value of this leaf"
   * @param lossGuard
-  *   whether to re-establish the loss-taint rule described above
+  *   whether to re-establish the loss-taint rule described above. It only has an effect while a [[RootRescore]] is
+  *   active at a positive weight — that rule is about what a rescorer may not rescue, and with no rescorer the
+  *   collapsed value is returned unchanged — so the search skips the work entirely in that case rather than paying a
+  *   216-outcome search per candidate for a value nothing reads.
   */
 final case class ChanceCollapse(
     evalBatch: (Array[GameState], Color) => Array[Int],
@@ -125,17 +128,26 @@ final case class RootSearchStats(
     // Candidates a configured [[ChanceCollapse]] resolved in one batched call. Ranked like completed ones and kept out
     // of candidatesCompleted for the same reason ttHits are: they did no chance-node work, and folding them in would
     // report a searched width that never happened.
-    candidatesCollapsed: Int = 0
+    candidatesCollapsed: Int = 0,
+    // The collapse model broke its batching contract (it answered with a different number of rows than it was given),
+    // so nothing was ranked and the move came from the pre-ranker. Kept apart from candidatesAbandoned because the two
+    // call for opposite responses: a deadline says the budget is too small, this says the model is wrong.
+    collapseRejected: Boolean = false
 ):
-  /** Whether the deadline cut the loop short of the selected candidate set. */
+  /** Whether the deadline cut the loop short of the selected candidate set. A rejected collapse batch leaves the same
+    * counters at zero without the clock having run out, so it is excluded rather than reported as truncation.
+    */
   def deadlineTruncated: Boolean =
-    candidatesCompleted + cutoffs + ttHits + ttCutoffs + candidatesCollapsed < candidatesSelected
+    !collapseRejected &&
+      candidatesCompleted + cutoffs + ttHits + ttCutoffs + candidatesCollapsed < candidatesSelected
 
-  /** The deadline elapsed before a single candidate could be scored, so the turn came from the pre-ranker alone — the
-    * search contributed nothing beyond candidate selection.
+  /** Nothing was scored, so the turn came from the pre-ranker alone — the search contributed nothing beyond candidate
+    * selection. True for either reason it can happen: the deadline elapsed first, or the collapse model's batch was
+    * refused. [[RootSearchStats.collapseRejected]] and [[RootSearchStats.candidatesAbandoned]] tell them apart.
     */
   def fellBackToPreRank: Boolean =
-    candidatesCompleted == 0 && ttHits == 0 && candidatesCollapsed == 0 && candidatesAbandoned > 0
+    candidatesCompleted == 0 && ttHits == 0 && candidatesCollapsed == 0 &&
+      (candidatesAbandoned > 0 || collapseRejected)
 
 /** Configurable two- or three-ply expectimax search for Dice Chess.
   *
@@ -338,16 +350,49 @@ final class ExpectimaxSearch(
       val values = collapse.evalBatch(resultStates, myColor)
       // A model that answers with a different number of rows than it was given has broken the batching contract, and
       // the rows it did return cannot be trusted to line up: an off-by-one batch would rank every candidate with its
-      // neighbour's value, which is worse than not searching at all. Nothing is ranked, and the move falls back to the
-      // pre-ranker's pick exactly as a deadline landing before the first candidate would leave it.
-      if values.length != entries.length then expansion.abandoned = 1
+      // neighbour's value, which is worse than not searching at all. Nothing is ranked and the move falls back to the
+      // pre-ranker's pick — reported as its own flag, because "the model is wrong" and "the budget was too small" are
+      // different problems for whoever reads the telemetry.
+      if values.length != entries.length then expansion.collapseRejected = true
       else
-        var i = 0
-        while i < entries.length do
-          val lossTainted = collapse.lossGuard && losesKingOnSomeRoll(resultStates(i), myColor)
-          expansion.rank(entries(i)._1, collapsedRootValue(values(i), lossTainted, activeRootRescore, i))
-          expansion.collapsed += 1
+        lossTaints(collapse, activeRootRescore, resultStates, myColor, deadlineNanos) match
+          case None          => expansion.abandoned = 1
+          case Some(tainted) =>
+            var i = 0
+            while i < entries.length do
+              expansion.rank(entries(i)._1, collapsedRootValue(values(i), tainted(i), activeRootRescore, i))
+              expansion.collapsed += 1
+              i += 1
+
+  /** Per-candidate loss taint for a collapsed root, or `None` when the deadline landed inside the pass.
+    *
+    * Two decisions live here. The guard runs **only when a rescorer is actually active**: without one,
+    * [[collapsedRootValue]] returns the model's value untouched, so a 216-outcome search per candidate would change
+    * neither the ranking nor the reported score — it would be pure latency, paid on the move's own clock. And the pass
+    * is **all-or-nothing**: the guard exists to stop a rescorer rescuing a line that loses our king, so ranking a
+    * half-guarded set would apply that rule to some candidates and not to others, which is worse than not ranking at
+    * all. [[KingCaptureProbability]] takes no deadline of its own, so the clock is checked between candidates — the
+    * same granularity the exact path checks between rolls.
+    */
+  private def lossTaints(
+      collapse: ChanceCollapse,
+      activeRootRescore: Option[(Double, Array[Int])],
+      resultStates: Array[GameState],
+      myColor: Color,
+      deadlineNanos: Long
+  ): Option[Array[Boolean]] =
+    if !collapse.lossGuard || activeRootRescore.isEmpty then Some(new Array[Boolean](resultStates.length))
+    else
+      val tainted    = new Array[Boolean](resultStates.length)
+      val checkClock = timed(deadlineNanos)
+      var i          = 0
+      var ranOut     = false
+      while i < resultStates.length && !ranOut do
+        if clockExpired(checkClock, deadlineNanos) then ranOut = true
+        else
+          tainted(i) = losesKingOnSomeRoll(resultStates(i), myColor)
           i += 1
+      Option.unless(ranOut)(tainted)
 
   /** A collapsed candidate's ranking score: the model's expectation, blended with the root rescore unless this line
     * loses our king on some roll — the same rule, and the same arithmetic, as the exact path's `blendedRootValue`.
@@ -462,16 +507,17 @@ final class ExpectimaxSearch(
     * candidates, and the best blended score so far — which is the alpha every later candidate prunes against.
     */
   final private class RootExpansion:
-    var collapsed    = 0
-    var completed    = 0
-    var abandoned    = 0
-    var cutoffs      = 0
-    var rollsSaved   = 0
-    var probeCutoffs = 0
-    var ttProbes     = 0
-    var ttHits       = 0
-    var ttCutoffs    = 0
-    var bestFinal    = Double.NegativeInfinity
+    var collapseRejected = false
+    var collapsed        = 0
+    var completed        = 0
+    var abandoned        = 0
+    var cutoffs          = 0
+    var rollsSaved       = 0
+    var probeCutoffs     = 0
+    var ttProbes         = 0
+    var ttHits           = 0
+    var ttCutoffs        = 0
+    var bestFinal        = Double.NegativeInfinity
 
     private val evaluated = List.newBuilder[(List[Move], Double)]
 
@@ -494,7 +540,8 @@ final class ExpectimaxSearch(
         ttProbes,
         ttHits,
         ttCutoffs,
-        collapsed
+        collapsed,
+        collapseRejected
       )
 
   /** The expectation, over the 56 weighted dice outcomes, of the opponent's best reply value (from `myColor`'s view),
@@ -1653,8 +1700,11 @@ object ExpectimaxSearch:
   private[search] val NoStats: RootSearchStats => Unit = _ => ()
 
   /** Default root pre-ranker: material, applied per state — the search's historical, hardcoded behaviour, now just
-    * expressed as a batch so it fits the same injectable shape as any other pre-ranker. `private[search]` (not fully
-    * private) so JVM-only wiring in this package (e.g. [[OnnxExpectimaxSearch]]) can fall back to it explicitly.
+    * expressed as a batch so it fits the same injectable shape as any other pre-ranker.
+    *
+    * Public because `preRank` is: a host that supplies its own pre-ranker needs to be able to name the default it is
+    * replacing — to fall back to it when its model is unavailable, or to compare against it — and an external caller
+    * had no way to do that while this was package-private.
     */
-  private[search] def materialBatch(states: Array[GameState], color: Color): Array[Int] =
+  def materialBatch(states: Array[GameState], color: Color): Array[Int] =
     states.map(Evaluator.evaluateMaterial(_, color))

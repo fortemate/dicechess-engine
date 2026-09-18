@@ -130,12 +130,16 @@ The chance node is the search's most expensive layer by orders of magnitude: eve
 expectation. A model trained to predict that number turns the whole layer into one row of a batch.
 
 ```scala
-val collapse = CollapseModel.fromPackage(pkg, lossGuard = true) // pkg.role must be chance-collapse
-
-val bot = new OnnxExpectimaxSearch(
-  modelPath = leafModelPath,
-  chanceCollapse = collapse.toOption
-)
+// fromPackage returns Left for a package whose manifest declares another role, and that refusal is the
+// point: `collapse.toOption` here would turn it into None and leave a bot that quietly runs the exact
+// search while looking configured.
+CollapseModel.fromPackage(pkg) match
+  case Left(error) => sys.error(s"refusing to enable chance collapse: $error")
+  case Right(collapse) =>
+    val bot = new OnnxExpectimaxSearch(
+      modelPath = leafModelPath,
+      chanceCollapse = Some(collapse)
+    )
 ```
 
 What it keeps, unchanged: the immediate-king-capture shortcut and the forced pass above it, pre-ranking and its
@@ -155,16 +159,66 @@ What it gives up:
 
 `lossGuard` restores the last row without expanding anything: `KingCaptureProbability` answers "can the opponent
 capture our king on their next roll" over the same 56 multisets, exactly — king-capture paths ignore the maximum
-micro-moves rule, so its depth-first search is not an estimate — at one 216-outcome search per root candidate. Leave it
-off for a pure collapse; turn it on whenever a root rescorer is configured at a positive weight, or the rescorer can
-outvote a line that is already lost.
+micro-moves rule, so its depth-first search is not an estimate — at one 216-outcome search per root candidate. Turn it
+on whenever a root rescorer is configured at a positive weight, or the rescorer can outvote a line that is already
+lost.
+
+It has an effect **only** while such a rescorer is active. The rule it restores is about what a rescorer may not
+rescue, and with no rescorer the collapsed value is returned unchanged, so the search skips the guard entirely rather
+than paying a per-candidate search for a value nothing reads. The guard pass is also all-or-nothing under a deadline:
+`KingCaptureProbability` takes no deadline of its own, so the clock is checked between candidates, and a pass that runs
+out of time ranks nothing at all — a half-guarded set would apply the rule to some candidates and not to others.
+
+### Dedicated move pre-ranker
+
+Only the top `candidateLimit` turns are expanded, so whatever orders the mover's legal turns decides what the search
+ever looks at. Material has always done that ordering, and a sharper pre-ranker attacks the real bottleneck — widening
+`candidateLimit` only pays for a crude one, at linear cost.
+
+```scala
+// As with the collapse hook, the Left is the point: fromPackage refuses a package whose manifest
+// declares another role, and `toOption` would turn that refusal into a bot that quietly pre-ranks by
+// material while looking configured.
+PreRankModel.fromPackage(pkg, chunkSize = 256) match
+  case Left(error) => sys.error(s"refusing to wire the pre-ranker: $error")
+  case Right(preRank) =>
+    val bot = new OnnxExpectimaxSearch(
+      modelPath = leafModelPath,
+      preRankModel = Some(preRank)
+    )
+```
+
+Three configurations of the same seam, in order of specificity:
+
+| Configuration | Sessions | Ordering opinion |
+| --- | --- | --- |
+| default | one | material |
+| `preRankWithModel = true` | one | the leaf model, reused |
+| `preRankModel = Some(…)` | two | a model trained for ranking |
+
+The last two are **alternatives**: configuring both is rejected at construction rather than silently resolved, because
+they set the same seam and a host that set both meant one of them.
+
+A dedicated session is the point, not an accident. Ordering candidates and valuing positions are different jobs — a
+ranker is trained on which turn is better, a value model on how good a position is — and two models that both emit one
+number per row are not interchangeable.
+
+**What bounds the cost is the feature schema, not the candidate limit.** The pre-rank pass sees *every* legal turn,
+routinely hundreds and sometimes thousands. At that width `material-7-v1` is a thousand cheap rows; `kcp-13` is a
+thousand 216-outcome capture-probability searches and not viable at this seam at all. The pass is also paid in full
+*before* the deadline is consulted — it has to be, since its output is what the anytime fallback plays — so a schema
+too expensive for the position's branching overruns the move budget before the search proper begins. `chunkSize`
+bounds the tensor, not the time.
 
 ### Failure behaviour
 
-- A model whose manifest declares another role is refused by `CollapseModel.fromPackage` before a session is opened.
+- A model whose manifest declares another role is refused by `CollapseModel.fromPackage` or
+  `PreRankModel.fromPackage` before a session is opened.
 - A batch that comes back with a different number of rows than it was given is refused wholesale: the rows cannot be
   trusted to line up (an off-by-one batch would rank every candidate with its neighbour's value), so nothing is ranked
-  and the move falls back to the pre-ranker's pick, reported as `candidatesAbandoned`.
+  and the move falls back to the pre-ranker's pick. Reported as `collapseRejected`, deliberately not as
+  `candidatesAbandoned`: "the model is wrong" and "the budget was too small" call for opposite responses, and a host
+  that cannot tell them apart will tune the wrong one.
 - Session creation that fails part-way closes whatever was already opened and reports the original error; `close()`
   reaches every session even when one of them fails.
 
@@ -172,7 +226,8 @@ outvote a line that is already lost.
 
 `RootSearchStats.candidatesCollapsed` counts candidates the model answered. They are ranked but deliberately kept out
 of `candidatesCompleted`, for the same reason transposition-table hits are: they did no chance-node work, and folding
-them in would report a searched width that never happened.
+them in would report a searched width that never happened. `collapseRejected` marks the one failure that is the
+model's rather than the clock's, and `fellBackToPreRank` is true for either.
 
 ### The exact-search comparison protocol
 

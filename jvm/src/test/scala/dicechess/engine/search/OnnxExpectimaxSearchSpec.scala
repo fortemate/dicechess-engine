@@ -198,3 +198,92 @@ class OnnxExpectimaxSearchSpec extends FunSuite:
     val thrown = intercept[IllegalStateException](OnnxSearchSessions(leaf, collapse = Some(failing)).closeAll())
     assert(thrown eq closeFailure)
     assert(leafClosed, "a failing close must not leak the sessions after it")
+
+  test("a session that fails to open closes the ones already opened, not only the leaf"):
+    val creationFailure = new IllegalStateException("third session creation failed")
+    var created         = 0
+    var closed          = List.empty[Int]
+    val sessionFactory: OnnxExpectimaxSearchInitialization.SessionFactory = (path, features) =>
+      created += 1
+      if created == 3 then Failure(creationFailure).get
+      else
+        val index = created
+        new OnnxEvalSearch(path, features):
+          override def close(): Unit =
+            super.close()
+            closed = index :: closed
+
+    val thrown = intercept[IllegalStateException]:
+      OnnxExpectimaxSearchInitialization.initialize(
+        modelPath,
+        ExpectimaxConfig(),
+        OnnxFeatures.extract,
+        OnnxSearchOptions(
+          rootRescore = Some(RootRescoreModel(modelPath, OnnxFeatures.extract, weight = 0.5)),
+          chanceCollapse = Some(CollapseModel(modelPath, OnnxFeatures.extract))
+        ),
+        sessionFactory = sessionFactory
+      )
+    assert(thrown eq creationFailure)
+    assertEquals(closed.sorted, List(1, 2), "both the leaf session and the rescorer's must be closed")
+
+  // --- dedicated move pre-ranker (#78) ---------------------------------------------------------
+
+  test("a dedicated pre-ranker scores every legal turn through its own session, in bounded chunks"):
+    // The bound is what is being tested: pre-ranking sees every legal turn, so without chunking this would be one
+    // tensor whose size follows the position's branching factor.
+    val chunkSize   = 2
+    var created     = 0
+    val preRankRows = scala.collection.mutable.ListBuffer.empty[Int]
+    val sessionFactory: OnnxExpectimaxSearchInitialization.SessionFactory = (path, features) =>
+      created += 1
+      val isPreRank = created == 2 // the leaf session is created first
+      new OnnxEvalSearch(path, features):
+        override def onnxEvalBatch(states: Array[GameState], color: Color): Array[Int] =
+          if isPreRank then preRankRows += states.length
+          super.onnxEvalBatch(states, color)
+
+    var stats                  = Option.empty[RootSearchStats]
+    val (sessions, expectimax) = OnnxExpectimaxSearchInitialization.initialize(
+      modelPath,
+      ExpectimaxConfig(),
+      OnnxFeatures.extract,
+      OnnxSearchOptions(
+        statsSink = s => stats = Some(s),
+        preRankModel = Some(PreRankModel(modelPath, OnnxFeatures.extract, chunkSize))
+      ),
+      sessionFactory = sessionFactory
+    )
+    try
+      assertEquals(created, 2, "the pre-ranker gets its own session, never the leaf model's")
+      assert(sessions.preRank.isDefined)
+      assert(expectimax.findBestMove(state).isDefined)
+      val legalTurns = stats.map(_.legalTurns).getOrElse(fail("expected stats"))
+      assert(legalTurns > chunkSize, s"precondition: the fixture position must exceed one chunk, got $legalTurns")
+      assertEquals(preRankRows.sum, legalTurns, "every legal turn is scored exactly once")
+      assert(preRankRows.forall(_ <= chunkSize), s"a chunk exceeded the bound: $preRankRows")
+    finally sessions.closeAll()
+
+  test("the two pre-ranking options are alternatives, not a pair"):
+    val model = PreRankModel(modelPath, OnnxFeatures.extract)
+    intercept[IllegalArgumentException](OnnxSearchOptions(preRankWithModel = true, preRankModel = Some(model)))
+    intercept[IllegalArgumentException](
+      new OnnxExpectimaxSearch(modelPath, preRankWithModel = true, preRankModel = Some(model))
+    )
+    OnnxSearchOptions(preRankWithModel = true)
+    OnnxSearchOptions(preRankModel = Some(model))
+
+  test("a pre-ranker's chunk bound must be positive"):
+    intercept[IllegalArgumentException](PreRankModel(modelPath, OnnxFeatures.extract, chunkSize = 0))
+    intercept[IllegalArgumentException](PreRankModel(modelPath, OnnxFeatures.extract, chunkSize = -8))
+
+  test("only a model trained for pre-ranking can be wired as the pre-ranker"):
+    val preRank = PreRankModel
+      .fromPackage(collapsePackage(dicechess.engine.model.ContractFixtures.preRankManifest))
+      .getOrElse(fail("the pre-rank fixture must be accepted"))
+    assertEquals(preRank.chunkSize, PreRankModel.DefaultChunkSize)
+    val refused = PreRankModel
+      .fromPackage(collapsePackage(dicechess.engine.model.ContractFixtures.collapseManifest))
+      .swap
+      .getOrElse(fail("expected a rejection"))
+    assert(refused.contains("modelRole 'chance-collapse' cannot serve as 'move-prerank'"), refused)

@@ -61,6 +61,53 @@ object CollapseModel:
       s"${pkg.modelPath}: modelRole '${pkg.role.id}' cannot serve as '${ModelRole.ChanceCollapse.id}'"
     )
 
+/** A model whose only job is to *order* the mover's legal turns, so the search expands the best
+  * [[ExpectimaxConfig.candidateLimit]] of them rather than the best the material proxy could find.
+  *
+  * It gets its own session on purpose. Ordering candidates and valuing positions are different jobs: a ranker is
+  * trained on which turn is better, a value model on how good a position is, and the two have different targets, can
+  * use different feature schemas, and are not interchangeable just because both emit one number per row. Reusing the
+  * leaf model for ranking is the cheaper option this repository already offers — `preRankWithModel` — and the two are
+  * alternatives, not a pair.
+  *
+  * **What bounds its cost is the feature schema, not this type.** Pre-ranking sees every legal turn, which in Dice
+  * Chess is routinely hundreds and can be thousands; at that width `material-7-v1` is a thousand cheap rows while
+  * `kcp-13` is a thousand 216-outcome capture-probability searches, which is not viable at this seam at all. The
+  * pre-rank pass is also paid in full *before* the deadline is consulted — it has to be, since its output is what the
+  * anytime fallback plays — so a schema too expensive for the position's candidate count overruns the move budget
+  * before the search proper begins.
+  *
+  * @param modelPath
+  *   path to the pre-ranking model, independent of the main model
+  * @param extractFeatures
+  *   this model's own feature extractor
+  * @param chunkSize
+  *   rows per session run, forwarded to [[OnnxEvalSearch.onnxEvalBatchChunked]]. A bound, not a tuned value: it keeps
+  *   one `[rows × F]` tensor from growing with the position's branching, and the throughput-optimal value depends on
+  *   the model and belongs in the host's configuration.
+  */
+final case class PreRankModel(
+    modelPath: String,
+    extractFeatures: (GameState, Color) => Array[Float],
+    chunkSize: Int = PreRankModel.DefaultChunkSize
+):
+  require(chunkSize > 0, s"chunkSize must be positive, got $chunkSize")
+
+object PreRankModel:
+
+  /** Default row bound per session run — large enough that per-call overhead stays amortized, small enough that the
+    * tensor does not follow the branching factor.
+    */
+  val DefaultChunkSize = 256
+
+  /** Configures the seam from a validated model package, refusing an artifact trained for a different role. */
+  def fromPackage(pkg: ModelPackage, chunkSize: Int = DefaultChunkSize): Either[String, PreRankModel] =
+    Either.cond(
+      pkg.role == ModelRole.MovePreRank,
+      PreRankModel(pkg.modelPath.toString, pkg.extract, chunkSize),
+      s"${pkg.modelPath}: modelRole '${pkg.role.id}' cannot serve as '${ModelRole.MovePreRank.id}'"
+    )
+
 /** Search-tuning options for ONNX-backed expectimax search.
   *
   * @param statsSink
@@ -73,14 +120,23 @@ object CollapseModel:
   *   optional transposition table for caching evaluated search states
   * @param chanceCollapse
   *   optional model replacing each root candidate's exact chance-node expansion
+  * @param preRankModel
+  *   optional dedicated model for ordering root candidates, in its own session
   */
 final case class OnnxSearchOptions(
     statsSink: RootSearchStats => Unit = _ => (),
     rootRescore: Option[RootRescoreModel] = None,
     preRankWithModel: Boolean = false,
     tt: Option[TranspositionTable] = None,
-    chanceCollapse: Option[CollapseModel] = None
-)
+    chanceCollapse: Option[CollapseModel] = None,
+    preRankModel: Option[PreRankModel] = None
+):
+  // Both configure the same seam, so a host that set both means one of them by mistake — and picking a winner here
+  // would hide that from the only person who knows which.
+  require(
+    !(preRankWithModel && preRankModel.isDefined),
+    "preRankWithModel and preRankModel are alternatives: the first reuses the leaf model, the second opens its own"
+  )
 
 /** A configurable two- or three-ply expectimax bot whose leaf evaluator is an externally-trained model (LightGBM, via
   * ONNX).
@@ -96,6 +152,10 @@ final case class OnnxSearchOptions(
   * instead of material — no second session, since the model already scoring the chance-node leaves is exactly the
   * "opinion" candidate selection should defer to. See [[ExpectimaxSearch]]'s `preRank` parameter for why: widening
   * `candidateLimit` only compensates for a crude (material) pre-ranker; a sharper one attacks the actual bottleneck.
+  *
+  * `preRankModel` wires a *dedicated* session for candidate ordering instead — see [[PreRankModel]] for why ranking and
+  * valuing are different jobs, and why its cost is bounded by the feature schema rather than by the candidate limit. It
+  * is an alternative to `preRankWithModel`, not a companion: configuring both is rejected.
   *
   * `chanceCollapse` wires a model in place of the chance-node expansion itself — the layer that costs hundreds to
   * thousands of leaf evaluations per candidate. It is a third, independent session, and with it `searchDepth`, the
@@ -117,7 +177,8 @@ final class OnnxExpectimaxSearch(
     preRankWithModel: Boolean = false,
     statsSink: RootSearchStats => Unit = ExpectimaxSearch.NoStats,
     tt: Option[TranspositionTable] = None,
-    chanceCollapse: Option[CollapseModel] = None
+    chanceCollapse: Option[CollapseModel] = None,
+    preRankModel: Option[PreRankModel] = None
 ) extends TimeBudgetedSearch
     with AutoCloseable:
 
@@ -130,7 +191,8 @@ final class OnnxExpectimaxSearch(
       rootRescore = rootRescore,
       preRankWithModel = preRankWithModel,
       tt = tt,
-      chanceCollapse = chanceCollapse
+      chanceCollapse = chanceCollapse,
+      preRankModel = preRankModel
     )
   )
 
@@ -153,10 +215,11 @@ final class OnnxExpectimaxSearch(
 final private[search] case class OnnxSearchSessions(
     leaf: OnnxEvalSearch,
     rescore: Option[OnnxEvalSearch] = None,
-    collapse: Option[OnnxEvalSearch] = None
+    collapse: Option[OnnxEvalSearch] = None,
+    preRank: Option[OnnxEvalSearch] = None
 ):
 
-  def all: List[OnnxEvalSearch] = leaf :: (rescore.toList ++ collapse.toList)
+  def all: List[OnnxEvalSearch] = leaf :: (rescore.toList ++ collapse.toList ++ preRank.toList)
 
   /** Closes every session, then reports the first failure with the rest suppressed.
     *
@@ -188,9 +251,15 @@ private[search] object OnnxExpectimaxSearchInitialization:
     val activeRootRescore = options.rootRescore.filter(_.weight > 0.0)
     var sessions          = OnnxSearchSessions(leaf)
     try
-      sessions = sessions.copy(
-        rescore = activeRootRescore.map(model => sessionFactory(model.modelPath, model.extractFeatures)),
-        collapse = options.chanceCollapse.map(model => sessionFactory(model.modelPath, model.extractFeatures))
+      // One assignment per session, not one copy for all of them: a session has to be recorded in `sessions` before
+      // the next creation can throw, or the error path closes the leaf and leaks everything opened after it.
+      sessions =
+        sessions.copy(rescore = activeRootRescore.map(model => sessionFactory(model.modelPath, model.extractFeatures)))
+      sessions = sessions.copy(collapse =
+        options.chanceCollapse.map(model => sessionFactory(model.modelPath, model.extractFeatures))
+      )
+      sessions = sessions.copy(preRank =
+        options.preRankModel.map(model => sessionFactory(model.modelPath, model.extractFeatures))
       )
       val expectimax = new ExpectimaxSearch(
         (states, color) => leaf.onnxEvalBatch(states, color),
@@ -199,8 +268,7 @@ private[search] object OnnxExpectimaxSearchInitialization:
           session <- sessions.rescore
           model   <- activeRootRescore
         yield RootRescore((states, color) => session.onnxEvalBatch(states, color), model.weight),
-        if options.preRankWithModel then (states, color) => leaf.onnxEvalBatch(states, color)
-        else ExpectimaxSearch.materialBatch,
+        preRanker(leaf, sessions, options),
         options.statsSink,
         options.tt,
         for
@@ -213,6 +281,24 @@ private[search] object OnnxExpectimaxSearchInitialization:
       case error: Throwable =>
         closeSuppressing(sessions, error)
         throw error // scalafix:ok(DisableSyntax.throw)
+
+  /** The batched pre-ranker the search orders its candidates with: a dedicated model's own session, the leaf model
+    * reused, or material — in that order of specificity, and never two of them, since the options reject that.
+    */
+  private def preRanker(
+      leaf: OnnxEvalSearch,
+      sessions: OnnxSearchSessions,
+      options: OnnxSearchOptions
+  ): (Array[GameState], Color) => Array[Int] =
+    val dedicated =
+      for
+        session <- sessions.preRank
+        model   <- options.preRankModel
+      yield (states: Array[GameState], color: Color) => session.onnxEvalBatchChunked(states, color, model.chunkSize)
+    dedicated.getOrElse(
+      if options.preRankWithModel then (states, color) => leaf.onnxEvalBatch(states, color)
+      else ExpectimaxSearch.materialBatch
+    )
 
   /** Closes what was opened while a later session or the search itself failed, without losing the original error. */
   private def closeSuppressing(sessions: OnnxSearchSessions, originalError: Throwable): Unit =

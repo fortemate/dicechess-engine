@@ -199,6 +199,10 @@ def main() -> None:
         base / "synthetic_kcp13_collapse_manifest.json",
         manifest(digest, "synthetic-kcp13-collapse", "1.1.0", "chance-collapse"),
     )
+    write_json(
+        base / "synthetic_kcp13_prerank_manifest.json",
+        manifest(digest, "synthetic-kcp13-prerank", "1.1.0", "move-prerank"),
+    )
 
     renamed_path = base / RENAMED_MODEL_FILE
     onnx.save(

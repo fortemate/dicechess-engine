@@ -91,6 +91,31 @@ class OnnxEvalSearch(
     if states.isEmpty then Array.emptyIntArray
     else runScaled(states.map(extractFeatures(_, color)))
 
+  /** [[onnxEvalBatch]] in bounded chunks: the same scores, in the same order, from several session runs instead of one.
+    *
+    * One tensor per call is right where the batch is bounded by the problem — a chance node's leaves, a root's
+    * candidate limit. It is wrong where the batch is bounded by the position: pre-ranking sees *every* legal turn, and
+    * Dice Chess routinely offers hundreds and can offer thousands, so a single run would allocate one `[thousands × F]`
+    * float tensor and hand the native runtime one uninterruptible call whose size no configuration bounds. Chunking
+    * bounds the tensor without changing a single score — inference here is row-independent, so the split is invisible
+    * to the model.
+    *
+    * @param chunkSize
+    *   maximum rows per session run; must be positive
+    */
+  def onnxEvalBatchChunked(states: Array[GameState], color: Color, chunkSize: Int): Array[Int] =
+    require(chunkSize > 0, s"chunkSize must be positive, got $chunkSize")
+    if states.length <= chunkSize then onnxEvalBatch(states, color)
+    else
+      val scores = new Array[Int](states.length)
+      var start  = 0
+      while start < states.length do
+        val end   = math.min(start + chunkSize, states.length)
+        val chunk = onnxEvalBatch(states.slice(start, end), color)
+        System.arraycopy(chunk, 0, scores, start, chunk.length)
+        start = end
+      scores
+
   override def findBestMove(state: GameState): Option[ScoredSequence] =
     findBestMove(state, new Random())
 
