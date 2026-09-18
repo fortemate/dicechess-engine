@@ -1,0 +1,20 @@
+{
+  "manifestVersion": "1.1.0",
+  "modelId": "synthetic-kcp13-renamed",
+  "modelSha256": "d15f105649fc59f01f2149aae3bf7531ae0adbea4b5bc3e2f79d5a6f86697994",
+  "featureSchema": "kcp-13",
+  "featureCount": 13,
+  "engineCompatibility": ">=0.12.0 <1.0.0",
+  "calibration": {
+    "temperature": 1.0
+  },
+  "provenance": {
+    "generator": "jvm/src/test/resources/generate_model_contract_fixtures.py",
+    "purpose": "engine #78 model-contract test fixture",
+    "trained": "false"
+  },
+  "modelRole": "position-value",
+  "inputName": "features",
+  "outputName": "win_probability",
+  "perspective": "side-to-move"
+}
