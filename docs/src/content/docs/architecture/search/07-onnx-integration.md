@@ -213,7 +213,8 @@ bounds the tensor, not the time.
 ### Failure behaviour
 
 - A model whose manifest declares another role is refused by `CollapseModel.fromPackage` or
-  `PreRankModel.fromPackage` before a session is opened.
+  `PreRankModel.fromPackage` before a session is opened; a model whose *graph* contradicts the manifest that came with
+  it is refused when its session opens, before the search is built.
 - A batch that comes back with a different number of rows than it was given is refused wholesale: the rows cannot be
   trusted to line up (an off-by-one batch would rank every candidate with its neighbour's value), so nothing is ranked
   and the move falls back to the pre-ranker's pick. Reported as `collapseRejected`, deliberately not as
@@ -312,10 +313,10 @@ resolution where it matters.
 
 The full contract — manifest fields, roles, validation order, and what is refused when — is
 documented in [Model Serving Contract](/dicechess-engine/architecture/search/10-model-contract/).
-`ModelPackage.load` performs every manifest check before a position reaches the model.
-`OnnxModelContract.validate` checks a loaded graph against its manifest, but no bot runs it on its own
-session yet — see the failure-behaviour section of that page and
-[#258](https://github.com/fortemate/dicechess-engine/issues/258).
+`ModelPackage.load` performs every manifest check before a position reaches the model, and a bot opened
+from a package — `OnnxEvalSearch.fromPackage`, `OnnxExpectimaxSearch.fromPackages` — additionally
+validates each session's loaded graph against its manifest before serving anything. A model configured
+by a bare path carries no manifest and is opened unchecked.
 
 ---
 

@@ -3,6 +3,7 @@ package dicechess.engine.search
 
 import ai.onnxruntime.{OnnxTensor, OrtEnvironment, OrtSession}
 import dicechess.engine.domain.*
+import dicechess.engine.model.{ModelManifest, ModelPackage, OnnxModelContract}
 
 import java.util.Collections
 import scala.util.Random
@@ -190,9 +191,34 @@ class OnnxEvalSearch(
       i = end
     (bestScore, bestPaths)
 
+  /** Checks this instance's own loaded graph against `manifest` — the tensor names, dtypes and shapes the manifest
+    * promises ([[dicechess.engine.model.OnnxModelContract]]).
+    *
+    * The session is private and stays private: a caller cannot validate "the session this bot uses" from outside, and
+    * validating a second, identical session would prove something about that one instead. This is the only way to check
+    * the graph that will actually serve the positions.
+    */
+  def validateContract(manifest: ModelManifest): Either[String, Unit] =
+    OnnxModelContract.validate(session, manifest)
+
   override def close(): Unit = session.close()
 
 object OnnxEvalSearch:
+
+  /** Opens a validated model package as a one-ply bot: the extractor comes from the manifest's feature schema, and the
+    * loaded graph is checked against the manifest before the instance is returned.
+    *
+    * This is the documented way to get the graph check for a bot built by hand. A mismatch closes the session and comes
+    * back as `Left` rather than surfacing at the first inference, which is the whole point of the contract —
+    * `ModelPackage.load` proves what the manifest says, this proves the graph agrees with it.
+    */
+  def fromPackage(pkg: ModelPackage): Either[String, OnnxEvalSearch] =
+    val bot = new OnnxEvalSearch(pkg.modelPath.toString, pkg.extract)
+    bot.validateContract(pkg.manifest) match
+      case Left(error) =>
+        bot.close()
+        Left(error)
+      case Right(_) => Right(bot)
 
   /** Chunk size for the deadline-checked batch loop in the timed
     * [[findBestMove(state:dicechess\.engine\.domain\.GameState,deadlineNanos:Long,random:scala\.util\.Random)*]] —

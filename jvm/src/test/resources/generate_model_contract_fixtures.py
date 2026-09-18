@@ -35,6 +35,7 @@ MODEL_FILE = "synthetic_kcp13_value_test_model.onnx"
 RENAMED_MODEL_FILE = "synthetic_kcp13_renamed_tensors_test_model.onnx"
 RENAMED_INPUT_NAME = "features"
 RENAMED_OUTPUT_NAME = "win_probability"
+STATIC_BATCH_MODEL_FILE = "synthetic_kcp13_static_batch_test_model.onnx"
 PARITY_FILE = "synthetic_kcp13_value_parity.json"
 ENGINE_COMPATIBILITY = ">=0.12.0 <1.0.0"
 
@@ -115,6 +116,7 @@ def make_model(
     graph_name: str = "synthetic-kcp13-value",
     input_name: str = INPUT_NAME,
     output_name: str = OUTPUT_NAME,
+    batch: str | int = "batch",
 ) -> onnx.ModelProto:
     """The same weights under configurable tensor names.
 
@@ -131,8 +133,8 @@ def make_model(
             helper.make_node("Sigmoid", ["logit"], [output_name]),
         ],
         graph_name,
-        [helper.make_tensor_value_info(input_name, TensorProto.FLOAT, ["batch", FEATURE_COUNT])],
-        [helper.make_tensor_value_info(output_name, TensorProto.FLOAT, ["batch", 1])],
+        [helper.make_tensor_value_info(input_name, TensorProto.FLOAT, [batch, FEATURE_COUNT])],
+        [helper.make_tensor_value_info(output_name, TensorProto.FLOAT, [batch, 1])],
         [weights, bias],
     )
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)], ir_version=8)
@@ -219,6 +221,22 @@ def main() -> None:
             "position-value",
             RENAMED_INPUT_NAME,
             RENAMED_OUTPUT_NAME,
+        ),
+    )
+
+    # A graph the engine must refuse: correct names and width, but a batch axis fixed at one row. The search scores a
+    # whole chance node in a single call, so such a model would fail at the first batch — under a deadline, at run
+    # time, which is exactly what the contract check exists to move to load time.
+    static_batch_path = base / STATIC_BATCH_MODEL_FILE
+    onnx.save(make_model("synthetic-kcp13-static-batch", batch=1), static_batch_path)
+    print(f"wrote {static_batch_path.name}")
+    write_json(
+        base / "synthetic_kcp13_static_batch_manifest.json",
+        manifest(
+            hashlib.sha256(static_batch_path.read_bytes()).hexdigest(),
+            "synthetic-kcp13-static-batch",
+            "1.1.0",
+            "position-value",
         ),
     )
 
