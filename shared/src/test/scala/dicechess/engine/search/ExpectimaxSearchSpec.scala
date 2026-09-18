@@ -640,7 +640,49 @@ class ExpectimaxSearchSpec extends FunSuite:
     assert(result.isDefined, "the search still returns a legal turn")
     val s = stats.getOrElse(fail("expected stats"))
     assertEquals(s.candidatesCollapsed, 0, "a misaligned batch ranks nothing")
-    assertEquals(s.candidatesAbandoned, 1)
+    // Reported as its own failure, not as a deadline: one says the model is wrong, the other says the budget is too
+    // small, and a host reading these counters acts differently on each.
+    assert(s.collapseRejected, s"expected a rejected batch, got $s")
+    assertEquals(s.candidatesAbandoned, 0)
+    assert(!s.deadlineTruncated, s"a rejected batch is not a deadline truncation, got $s")
+    assert(s.fellBackToPreRank, s"the move came from the pre-ranker, got $s")
+
+  test("the loss guard is skipped when nothing could be rescued"):
+    // With no active rescorer the collapsed value is returned unchanged, so the guard cannot affect the ranking — and
+    // the search must not pay a 216-outcome search per candidate for a value nothing reads. The observable half is
+    // that the outcome is identical with the guard on and off.
+    val guardless                     = parse("4r2k/8/8/8/8/8/P6P/4K3 w - - 0 1").withDicePool(List(1, 1, 1))
+    def scoreWith(lossGuard: Boolean) =
+      collapsed(ChanceCollapse((states, _) => Array.fill(states.length)(500), lossGuard))
+        .findBestMove(guardless, Random(0))
+        .map(_.score)
+    assertEquals(scoreWith(true), Some(500))
+    assertEquals(scoreWith(false), scoreWith(true))
+
+  test("a guard pass that runs out of clock ranks nothing rather than half the candidates"):
+    // The guard is what stops a rescorer rescuing a lost line, so a half-guarded ranking would apply that rule to some
+    // candidates and not to others. The collapse model here holds the clock past the deadline, which is what makes the
+    // test deterministic: the batch itself completes, and the guard pass then finds no time left.
+    val lost     = parse("4r2k/8/8/8/8/8/P6P/4K3 w - - 0 1").withDicePool(List(1, 1, 1))
+    val deadline = System.nanoTime() + 50_000_000L
+    var guarded  = Option.empty[RootSearchStats]
+    val bot      = collapsed(
+      ChanceCollapse(
+        { (states, _) =>
+          while System.nanoTime() < deadline do ()
+          Array.fill(states.length)(500)
+        },
+        lossGuard = true
+      ),
+      rootRescore = Some(RootRescore((states, _) => Array.fill(states.length)(9000), 1.0)),
+      statsSink = s => guarded = Some(s)
+    )
+    assert(bot.findBestMove(lost, deadline, Random(0)).isDefined, "the anytime contract still owes a legal turn")
+    val g = guarded.getOrElse(fail("expected stats"))
+    assertEquals(g.candidatesCollapsed, 0, "nothing may be ranked from a half-guarded set")
+    assertEquals(g.candidatesAbandoned, 1)
+    assert(!g.collapseRejected, s"the model kept its contract; only the clock ran out, got $g")
+    assert(g.fellBackToPreRank, s"expected the pre-rank fallback, got $g")
 
   test("a transposition table is left untouched by a collapsed root"):
     val state = parse(grabPosition).withDicePool(List(2, 2, 4))
