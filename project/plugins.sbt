@@ -8,4 +8,4 @@ addSbtPlugin("com.github.sbt" % "sbt-ci-release" % "1.12.0")
 // Note: sbt-projectmatrix is built into sbt 2 core (see build.sbt).
 
 // MiMa has no sbt 2 plugin build; the rules binary-compatibility gate (#246) drives mima-core directly.
-libraryDependencies += "com.typesafe" %% "mima-core" % "1.1.4"
+libraryDependencies += "com.typesafe" %% "mima-core" % "1.2.0"
