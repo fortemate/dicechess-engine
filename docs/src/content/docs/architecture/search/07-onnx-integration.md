@@ -130,12 +130,16 @@ The chance node is the search's most expensive layer by orders of magnitude: eve
 expectation. A model trained to predict that number turns the whole layer into one row of a batch.
 
 ```scala
-val collapse = CollapseModel.fromPackage(pkg, lossGuard = true) // pkg.role must be chance-collapse
-
-val bot = new OnnxExpectimaxSearch(
-  modelPath = leafModelPath,
-  chanceCollapse = collapse.toOption
-)
+// fromPackage returns Left for a package whose manifest declares another role, and that refusal is the
+// point: `collapse.toOption` here would turn it into None and leave a bot that quietly runs the exact
+// search while looking configured.
+CollapseModel.fromPackage(pkg) match
+  case Left(error) => sys.error(s"refusing to enable chance collapse: $error")
+  case Right(collapse) =>
+    val bot = new OnnxExpectimaxSearch(
+      modelPath = leafModelPath,
+      chanceCollapse = Some(collapse)
+    )
 ```
 
 What it keeps, unchanged: the immediate-king-capture shortcut and the forced pass above it, pre-ranking and its
@@ -155,16 +159,24 @@ What it gives up:
 
 `lossGuard` restores the last row without expanding anything: `KingCaptureProbability` answers "can the opponent
 capture our king on their next roll" over the same 56 multisets, exactly — king-capture paths ignore the maximum
-micro-moves rule, so its depth-first search is not an estimate — at one 216-outcome search per root candidate. Leave it
-off for a pure collapse; turn it on whenever a root rescorer is configured at a positive weight, or the rescorer can
-outvote a line that is already lost.
+micro-moves rule, so its depth-first search is not an estimate — at one 216-outcome search per root candidate. Turn it
+on whenever a root rescorer is configured at a positive weight, or the rescorer can outvote a line that is already
+lost.
+
+It has an effect **only** while such a rescorer is active. The rule it restores is about what a rescorer may not
+rescue, and with no rescorer the collapsed value is returned unchanged, so the search skips the guard entirely rather
+than paying a per-candidate search for a value nothing reads. The guard pass is also all-or-nothing under a deadline:
+`KingCaptureProbability` takes no deadline of its own, so the clock is checked between candidates, and a pass that runs
+out of time ranks nothing at all — a half-guarded set would apply the rule to some candidates and not to others.
 
 ### Failure behaviour
 
 - A model whose manifest declares another role is refused by `CollapseModel.fromPackage` before a session is opened.
 - A batch that comes back with a different number of rows than it was given is refused wholesale: the rows cannot be
   trusted to line up (an off-by-one batch would rank every candidate with its neighbour's value), so nothing is ranked
-  and the move falls back to the pre-ranker's pick, reported as `candidatesAbandoned`.
+  and the move falls back to the pre-ranker's pick. Reported as `collapseRejected`, deliberately not as
+  `candidatesAbandoned`: "the model is wrong" and "the budget was too small" call for opposite responses, and a host
+  that cannot tell them apart will tune the wrong one.
 - Session creation that fails part-way closes whatever was already opened and reports the original error; `close()`
   reaches every session even when one of them fails.
 
@@ -172,7 +184,8 @@ outvote a line that is already lost.
 
 `RootSearchStats.candidatesCollapsed` counts candidates the model answered. They are ranked but deliberately kept out
 of `candidatesCompleted`, for the same reason transposition-table hits are: they did no chance-node work, and folding
-them in would report a searched width that never happened.
+them in would report a searched width that never happened. `collapseRejected` marks the one failure that is the
+model's rather than the clock's, and `fellBackToPreRank` is true for either.
 
 ### The exact-search comparison protocol
 
