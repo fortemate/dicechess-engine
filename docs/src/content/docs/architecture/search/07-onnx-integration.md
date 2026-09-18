@@ -117,6 +117,79 @@ val bot = OnnxExpectimaxSearch(
 
 ---
 
+## Production Hooks
+
+Two seams let a trained model replace work the search would otherwise do exactly. Both are **off by default**, both
+take their own ONNX session, and neither changes anything when unconfigured — the default search runs the same code it
+ran before they existed.
+
+### Chance collapse
+
+The chance node is the search's most expensive layer by orders of magnitude: every root candidate pays the opponent's
+56 weighted dice outcomes and all their replies — hundreds to thousands of leaf evaluations — for one number, its
+expectation. A model trained to predict that number turns the whole layer into one row of a batch.
+
+```scala
+val collapse = CollapseModel.fromPackage(pkg, lossGuard = true) // pkg.role must be chance-collapse
+
+val bot = new OnnxExpectimaxSearch(
+  modelPath = leafModelPath,
+  chanceCollapse = collapse.toOption
+)
+```
+
+What it keeps, unchanged: the immediate-king-capture shortcut and the forced pass above it, pre-ranking and its
+deterministic order, the random tie-break among equals, the deadline's meaning (the batch is indivisible and is never
+started once the deadline has passed, so the anytime fallback to the pre-ranker's pick is the same), and root
+rescoring.
+
+What it gives up:
+
+| | Under exact expansion | Under chance collapse |
+| --- | --- | --- |
+| Value | expectation over all 56 rolls | the model's estimate of it |
+| Star1/Star2 pruning | prunes rolls and replies | nothing to prune |
+| Transposition table | stores each chance node | left untouched — a collapsed value is a different quantity |
+| `searchDepth` | 2 or 3 plies below the root | no effect: no tree is built |
+| Loss taint | tracked per roll, and a rescorer may never rescue a lost line | needs `lossGuard` |
+
+`lossGuard` restores the last row without expanding anything: `KingCaptureProbability` answers "can the opponent
+capture our king on their next roll" over the same 56 multisets, exactly — king-capture paths ignore the maximum
+micro-moves rule, so its depth-first search is not an estimate — at one 216-outcome search per root candidate. Leave it
+off for a pure collapse; turn it on whenever a root rescorer is configured at a positive weight, or the rescorer can
+outvote a line that is already lost.
+
+### Failure behaviour
+
+- A model whose manifest declares another role is refused by `CollapseModel.fromPackage` before a session is opened.
+- A batch that comes back with a different number of rows than it was given is refused wholesale: the rows cannot be
+  trusted to line up (an off-by-one batch would rank every candidate with its neighbour's value), so nothing is ranked
+  and the move falls back to the pre-ranker's pick, reported as `candidatesAbandoned`.
+- Session creation that fails part-way closes whatever was already opened and reports the original error; `close()`
+  reaches every session even when one of them fails.
+
+### Telemetry
+
+`RootSearchStats.candidatesCollapsed` counts candidates the model answered. They are ranked but deliberately kept out
+of `candidatesCompleted`, for the same reason transposition-table hits are: they did no chance-node work, and folding
+them in would report a searched width that never happened.
+
+### The exact-search comparison protocol
+
+A hook that replaces an exact computation with an estimate has to be measured against the thing it replaced, never
+against another estimate:
+
+1. **Equality where it must hold.** With no hook configured, the search is the exact search. The suite that proves it
+   is the one that already existed — `ExpectimaxSearchSpec`, `ExpectimaxDepthThreeSpec` and the arena's deterministic
+   scenario runners — run unchanged.
+2. **Decision agreement.** Compare the two configurations on the same deterministic fixture catalog, per scenario and
+   seed rather than as an aggregate win rate: how often the collapsed root picks the move the exact expansion picked,
+   and what it picks instead when it does not. Aggregates hide the interesting half — a hook can score the same and
+   disagree everywhere.
+3. **Strength.** Only then a bot arena, with the exact configuration as the baseline.
+
+---
+
 ## Model Requirements
 
 A conforming graph has exactly one input and one output, both FLOAT, both with a **dynamic batch
