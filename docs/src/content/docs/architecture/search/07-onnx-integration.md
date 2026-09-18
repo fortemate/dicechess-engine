@@ -229,6 +229,56 @@ of `candidatesCompleted`, for the same reason transposition-table hits are: they
 them in would report a searched width that never happened. `collapseRejected` marks the one failure that is the
 model's rather than the clock's, and `fellBackToPreRank` is true for either.
 
+### Budgets
+
+Both hooks buy latency with exactness, so the only figure that decides whether to enable one is how much latency it
+buys **on the host that will serve it**. Two JMH suites measure exactly that, and their numbers — with the environment
+they were taken on — are recorded in `benchmark/BASELINE.md`:
+
+| Suite | Question | Parameter |
+| --- | --- | --- |
+| `ModelHookBenchmark` | exact chance-node expansion vs a collapsed root | candidate limit |
+| `ModelPreRankBatchBenchmark` | one tensor vs bounded chunks | rows per pre-rank pass |
+
+```bash
+mise run bench:filter ModelHookBenchmark
+mise run bench:filter ModelPreRankBatchBenchmark
+```
+
+How the costs scale, which is what makes the measurement transferable:
+
+- **Exact root:** the *selected* candidates — at most `candidateLimit`, fewer when the position offers fewer legal
+  turns — times 56 rolls times the replies each roll generates, batched per chance node. Star pruning and the
+  transposition table cut a variable share of it, so it is measured rather than computed.
+- **Collapsed root:** one batched call of `candidateLimit` rows. Independent of the branching factor.
+- **Pre-ranking:** one row per legal turn, whichever way the batch is split — so its cost is set by the feature
+  schema's extraction cost, not by the search's configuration.
+
+On the fixture model, at a root with more legal turns than the widest candidate limit, the collapsed root measured
+`4.2×` to `27.9×` cheaper than the exact expansion — flat in the candidate limit (195–197 µs across 1→8) where the
+exact side grows `6.7×` with it. The pre-rank bound costs a few per cent at the top of the range (`+5.6 %` at 1024
+rows) and nothing at or below the bound. `benchmark/BASELINE.md` section 5 has the tables and the environment.
+
+The ratio is a function of width, not a constant: what the hook removes is the chance-node expansion, not the
+candidate generation and pre-ranking both configurations pay. It is therefore smallest at a narrow root and grows with
+the candidate limit and with how many replies each roll generates.
+
+The fixture model these suites use has negligible compute, which is deliberate: it isolates the *search work removed*
+from the model's own inference. A real network raises the collapsed side once per candidate and the exact side once per
+leaf, so a heavier model widens the gap rather than narrowing it — the budget measured with the fixture is the
+conservative end.
+
+In production the feedback loop is `RootSearchStats`, and the thing to read is not one counter. Resolved width is
+`candidatesCompleted + cutoffs + ttHits + ttCutoffs + candidatesCollapsed`, which is exactly what `deadlineTruncated`
+compares against `candidatesSelected` — use the predicate rather than assembling the sum by hand. A collapsed root
+reports `candidatesCompleted = 0` **by contract**, because its candidates did no chance-node work; their count is in
+`candidatesCollapsed`, so reading completions alone would report a degenerate search on every move. `fellBackToPreRank`
+is the flag that says the search contributed nothing at all, and `collapseRejected` says whether that was the clock or
+the model. A budget that looks fine in a benchmark and degenerates to "play the pre-ranker's first pick" under a real
+clock shows up there, and nowhere else.
+
+---
+
 ### The exact-search comparison protocol
 
 A hook that replaces an exact computation with an estimate has to be measured against the thing it replaced, never

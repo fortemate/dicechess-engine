@@ -133,3 +133,40 @@ micro-move sequences for a given set of dice.
 - **`1,2,3` on `initial`** (436 us) and **`1,1,1` on `initial`/`castling`** (3.5–4.5 ms) are worst-case scenarios — many pawns generate deep 3-move sequences.
 - **`5,5,5` (three Queens)** is fast on non-kiwipete positions (< 0.1 us/op) because Queen moves are restricted or quickly exhaust options.
 - **`4,5,6` on `initial`** (0.154 us/op) is the fastest realistic (distinct) dice combination in the opening since King/Rook/Queen movement is heavily restricted.
+
+---
+
+## 5. Model Hook Budgets (`ModelHookBenchmark`, `ModelPreRankBatchBenchmark`)
+
+Captured on **2026-09-19** for the production model hooks (#78). These two suites were added after the baseline above and measured on a different host and JDK, so their environment is stated here rather than inherited from the top of this file:
+
+- **JMH Version:** 1.37
+- **VM Version:** JDK 25.0.4.1, OpenJDK 64-Bit Server VM (25.0.4.1+1-LTS)
+- **Parameters:** Warmup: 3 iterations (1s), Measurement: 5 iterations (1s), Fork: 2, 1 Thread — the classes' own annotations, so `mise run bench:filter ModelHookBenchmark` reproduces this exactly.
+- **Model:** the repository's synthetic ONNX fixture (`synthetic_test_model.onnx`, 7 material features). Its own compute is negligible **by design** — that is what makes these numbers the *search work the hook removes* rather than a statement about any trained network.
+- **Position:** `4k3/8/8/8/8/8/PPP5/4KN2 w - -` with dice `1,2,6` — three pawns, a knight and a king against a lone king. Chosen so the root offers more legal turns than the widest candidate limit; the trial setup asserts it, because a position with fewer legal turns than `candidateLimit` would make the wider settings silently measure the same narrow root.
+- The host was not otherwise idle.
+
+### 5.1 Chance collapse vs exact expansion (Average Time, lower is better, `us/op`)
+
+| `candidateLimit` | `exactRoot` | `collapsedRoot` | Ratio |
+|------------------|-------------|-----------------|-------|
+| `1` | `820.014 ± 57.019` | `196.675 ± 20.138` | `4.2×` |
+| `4` | `2859.484 ± 187.228` | `194.366 ± 6.798` | `14.7×` |
+| `8` | `5500.363 ± 298.441` | `197.373 ± 7.418` | `27.9×` |
+
+### 5.2 Pre-rank batching (Average Time, lower is better, `us/op`)
+
+| Rows | `oneShot` | `chunked` (bound 256) | `chunkedTight` (bound 32) |
+|------|-----------|-----------------------|---------------------------|
+| `64` | `49.338 ± 6.854` | `49.304 ± 3.049` | `44.282 ± 1.375` |
+| `256` | `165.311 ± 6.593` | `166.685 ± 4.332` | `173.633 ± 4.409` |
+| `1024` | `644.359 ± 32.744` | `680.698 ± 29.165` | `689.944 ± 17.238` |
+
+### Key Observations
+
+- **The collapsed root is flat in the candidate limit** (195–197 us across 1→8) because what it pays is turn generation plus one material pre-rank over *every* legal turn, plus one batched session run over the selected candidates. The exact root is not: it grows `6.7×` from limit 1 to limit 8, since every added candidate pays its own 56-roll chance node.
+- **The hook's budget is one order of magnitude at realistic width**, not the two to three an earlier measurement on a five-move position suggested. That earlier fixture could not reach the wider limits at all, and its sparseness also hid the cost both sides share. The honest statement is narrower and more useful: the hook removes the chance-node expansion, not the candidate generation — so its value grows with the candidate limit and with the opponent's reply count, and is smallest where the root is narrow.
+- **This is still the conservative end** for a trained model: a real network raises the collapsed side once per candidate and the exact side once per *leaf*.
+- **Bounding the pre-rank batch costs a few per cent at the top of the range.** At 1024 rows the 256-row bound costs `+5.6%` and a 32-row bound `+7.1%`; at or below the bound no chunking happens and the numbers coincide within error. The default is 256 because the per-call overhead it amortizes is real but small at these widths.
+- Absolute figures are host-specific; the ratios are the transferable part. Re-measure on the host that will serve the model — `mise run bench:filter ModelHookBenchmark`, `mise run bench:filter ModelPreRankBatchBenchmark`.
