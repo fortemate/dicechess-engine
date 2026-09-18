@@ -42,34 +42,31 @@ graph TD
 
 ## Feature Extraction
 
-The engine implements multiple feature extractors in `shared/src/main/scala/dicechess/engine/search/`:
+The engine implements several feature extractors in `shared/src/main/scala/dicechess/engine/search/`.
+Each one is a versioned layout contract with a stable `schemaId`, and each is **mover-perspective and
+dice-free**: `extract(state, color)` depends on the position and the color being scored, never on
+which side is to move or on the current dice pool.
 
-### 1. `OnnxFeatures` (Basic)
+| `schemaId` | Columns | Extractor | Adds |
+| --- | --- | --- | --- |
+| `material-7-v1` | 7 | `OnnxFeatures` | piece-count differences, material difference and total |
+| `rich-9-v1` | 9 | `RichFeatures` | `mobility_diff`, `king_safety_diff` |
+| `rich-pdi-11-v1` | 11 | `RichPdiFeatures` | own/opponent piece-diversity indices |
+| `kcp-13` | 13 | `KcpFeatures` | king and queen capture probabilities |
+| `kcp-mobility-27-v1` | 27 | `KcpMobilityFeatures` | per-piece-type move counts, PDI |
+| `kcp-mobility-pawns-31-v1` | 31 | `KcpMobilityPawnsFeatures` | passed-pawn columns |
+| `raw-board-768-v1` | 768 | `RawBoardFeatures` | 12 piece planes × 64 squares |
 
-Extracts fundamental board state features:
-- **Piece placement**: 6 piece types × 2 colors × 64 squares = 768 binary features
-- **Active color**: 1 binary feature (0 = White, 1 = Black)
-- **Castling rights**: 4 binary features (K, Q, k, q)
-- **Dice pool**: 6 binary features (one per die value present)
-- **Total**: 779 input features
+The column names of each set are published as `columnNames` on the extractor, which is what training
+enrichment writes its CSV header from — the layout has exactly one definition.
 
-### 2. `RichFeatures` (Extended)
+Cost, not width, decides where a set belongs: the four capture-probability columns of `kcp-13` each
+integrate over the 216 dice outcomes of the next roll, which is affordable per root candidate and not
+per chance-node leaf.
 
-Adds positional and material context:
-- All `OnnxFeatures`
-- **Piece-square tables**: Pre-computed positional values for each piece type
-- **Material balance**: Count of each piece type per color
-- **King safety**: Distance to enemy pieces, attacked squares around king
-- **Total**: ~1,200 input features
-
-### 3. `KcpFeatures` (King Capture Probability)
-
-Specialized for king capture prediction:
-- All `OnnxFeatures`
-- **Attack maps**: Which squares are attacked by which piece types
-- **King proximity**: Chebyshev distance from each piece to enemy king
-- **Capture threats**: Immediate capture opportunities
-- **Total**: ~1,500 input features
+> [!NOTE]
+> A model declares which schema it was trained on in its manifest, and the engine resolves that id
+> back to the extractor — see [Model Serving Contract](/dicechess-engine/architecture/search/10-model-contract/).
 
 ---
 
@@ -77,27 +74,24 @@ Specialized for king capture prediction:
 
 ### OnnxEvalSearch
 
-A **single-turn bot** (Level 8) that uses ONNX model for position evaluation:
+A **single-turn bot** that scores candidate turns with an ONNX model instead of a hand-tuned
+heuristic. Model path and feature extractor are constructor arguments; the extractor defaults to
+`OnnxFeatures.extract`:
 
 ```scala
-case class OnnxEvalConfig(
-  modelPath: String,           // Path to .onnx model file
-  featureExtractor: String = "rich",  // "basic", "rich", or "kcp"
-  topK: Int = 10,             // Number of top candidates to evaluate with model
-  fallbackAlgorithm: String = "aggressive"  // Fallback if model fails
-)
-
-val bot = OnnxEvalSearch(OnnxEvalConfig("/path/to/model.onnx"))
+val bot = new OnnxEvalSearch("/path/to/model.onnx", KcpFeatures.extract)
 ```
 
-**Algorithm**:
+**Algorithm (untimed)**:
 1. Generate all legal turn paths
-2. Score each with fast heuristic (material balance)
-3. Select top-K candidates
-4. Evaluate top-K with ONNX model
-5. Return highest-scoring turn
+2. Score every resulting position through the model
+3. Return a highest-scoring turn, preferring the shortest immediate king capture
 
-**Performance**: ~10-50ms per move (depends on model complexity and topK)
+**Algorithm (under a deadline)**:
+1. Pre-score candidates with material, which takes an immediate king capture for free
+2. Score the remaining candidates through the model in batches, checking the clock between batches
+3. Return the best candidate scored so far — or, if the deadline left no batch time to run, the
+   material pick, so the anytime contract still returns a legal turn
 
 ### OnnxExpectimaxSearch
 
@@ -125,28 +119,23 @@ val bot = OnnxExpectimaxSearch(
 
 ## Model Requirements
 
-### Input Format
+A conforming graph has exactly one input and one output, both FLOAT, both with a **dynamic batch
+axis** — the search scores a whole chance node in a single call:
 
-Models must accept input matching the selected feature extractor:
+| | Name | Shape |
+| --- | --- | --- |
+| input | `input` (or the manifest's `inputName`) | `[batch, featureCount]` |
+| output | `output` (or the manifest's `outputName`) | `[batch, 1]` |
 
-| Extractor | Input Shape | Input Type | Example Models |
-|---|---|---|---|
-| `basic` | `(1, 779)` | `float32` | Simple material evaluators |
-| `rich` | `(1, ~1200)` | `float32` | Positional + material |
-| `kcp` | `(1, ~1500)` | `float32` | King capture specialized |
+`featureCount` is the column count of the feature schema the model was trained on (see the table
+above). The output is read as a probability in `[0, 1]` and scaled onto the search's integer score
+axis, so a model must be bounded — an unbounded regression head relies on a clamp and loses
+resolution where it matters.
 
-### Output Format
-
-Models must produce a single scalar output:
-- **Shape**: `(1, 1)`
-- **Type**: `float32`
-- **Interpretation**: Win probability for the active color (0.0 to 1.0) or centipawn advantage
-
-### Supported ONNX Opsets
-
-- **Minimum**: opset 11 (LSTM, MatMul, Add, Mul, etc.)
-- **Recommended**: opset 15+ for best compatibility
-- **Verified**: Models exported from PyTorch, TensorFlow, scikit-learn (via ONNX converters)
+The full contract — manifest fields, roles, validation order, and what is refused when — is
+documented in [Model Serving Contract](/dicechess-engine/architecture/search/10-model-contract/).
+`ModelPackage.load` performs every check before a position reaches the model, and
+`OnnxModelContract.validate` checks the loaded graph against the manifest.
 
 ---
 
@@ -228,40 +217,26 @@ with open("dicechess_model.onnx", "wb") as f:
     f.write(onnx_model.SerializeToString())
 ```
 
-### Feature Extraction in Python
+### Feature extraction stays in the engine
 
-Use the engine's `OnnxFeatures` as reference:
-
-```python
-# Equivalent Python feature extraction
-def extract_features(board_state):
-    features = []
-    # Piece placement (768 features)
-    for piece_type in [1, 2, 3, 4, 5, 6]:  # P, N, B, R, Q, K
-        for color in [0, 1]:  # White, Black
-            for square in range(64):
-                features.append(1.0 if board[square] == (color, piece_type) else 0.0)
-    # Active color (1 feature)
-    features.append(1.0 if active_color == Black else 0.0)
-    # Castling, dice pool, etc.
-    return np.array(features, dtype=np.float32)
-```
+There is no Python reimplementation of a feature schema, and there should not be one: the engine is
+the single source of truth for what a column means, so a second implementation is a second answer.
+Training pipelines enrich their rows with the engine's own extractors and pin the agreement with a
+golden corpus of probe vectors, which `Kcp13ParitySpec` replays from the engine side.
 
 ---
 
 ## Performance Considerations
 
-### Inference Latency
+### Inference latency
 
-| Model Complexity | Features | Inference Time | Throughput |
-|---|---|---|---|
-| Simple MLP (1 hidden layer) | 779 | ~0.1ms | ~10,000 evals/sec |
-| MLP (2 hidden layers) | 1200 | ~0.3ms | ~3,000 evals/sec |
-| MLP (3 hidden layers) | 1500 | ~0.8ms | ~1,200 evals/sec |
-| Small CNN | 1200 | ~2ms | ~500 evals/sec |
+Session-run cost is dominated by per-call overhead (the JNI boundary and graph setup), not by the
+number of rows, which is why every call site here is batched: folding N positions into one
+`[N, F]` tensor is far cheaper than N runs of one row. `OnnxEvalSearch.onnxEvalBatch` is the
+primitive, and the chance-node expansion deduplicates leaves by position before calling it.
 
-> [!NOTE]
-> Measured on 4-core Ampere A1 with ONNX Runtime 1.18+. JS/Wasm not supported.
+For a feature set with capture-probability columns, extraction — not inference — is the budget:
+each such column integrates over the 216 dice outcomes of the next roll.
 
 ### Memory Usage
 
@@ -297,10 +272,10 @@ sbt "rootJVM/testOnly dicechess.engine.search.OnnxEvalSearchSpec"
 ```
 
 Tests verify:
-- Model loading from classpath
-- Feature extraction correctness
-- Score integration with search
-- Fallback to heuristic on model failure
+- Model loading from a classpath resource
+- Single and batched inference agreeing, and perspective being honoured
+- Score integration with the search, including the deadline path's material fallback
+- Manifest, graph and digest rejections (`dicechess.engine.model.*`)
 
 ---
 
@@ -315,6 +290,7 @@ Tests verify:
 
 ## See Also
 
+- [Model Serving Contract](/dicechess-engine/architecture/search/10-model-contract/) — Manifests, roles, and what is refused
 - [Expectimax Search Engine](/dicechess-engine/architecture/search/06-expectimax-search/) — Deep search with chance nodes
 - [Bot Arena](/dicechess-engine/architecture/search/03-search-roadmap/) — Testing bot strength
 - [Primitive Bot Strategies](/dicechess-engine/architecture/search/01-primitive-search/) — Heuristic-only bots for comparison
