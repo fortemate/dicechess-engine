@@ -176,12 +176,16 @@ ever looks at. Material has always done that ordering, and a sharper pre-ranker 
 `candidateLimit` only pays for a crude one, at linear cost.
 
 ```scala
-val preRank = PreRankModel.fromPackage(pkg, chunkSize = 256) // pkg.role must be move-prerank
-
-val bot = new OnnxExpectimaxSearch(
-  modelPath = leafModelPath,
-  preRankModel = preRank.toOption
-)
+// As with the collapse hook, the Left is the point: fromPackage refuses a package whose manifest
+// declares another role, and `toOption` would turn that refusal into a bot that quietly pre-ranks by
+// material while looking configured.
+PreRankModel.fromPackage(pkg, chunkSize = 256) match
+  case Left(error) => sys.error(s"refusing to wire the pre-ranker: $error")
+  case Right(preRank) =>
+    val bot = new OnnxExpectimaxSearch(
+      modelPath = leafModelPath,
+      preRankModel = Some(preRank)
+    )
 ```
 
 Three configurations of the same seam, in order of specificity:
