@@ -663,12 +663,17 @@ class ExpectimaxSearchSpec extends FunSuite:
     // The guard is what stops a rescorer rescuing a lost line, so a half-guarded ranking would apply that rule to some
     // candidates and not to others. The collapse model here holds the clock past the deadline, which is what makes the
     // test deterministic: the batch itself completes, and the guard pass then finds no time left.
-    val lost     = parse("4r2k/8/8/8/8/8/P6P/4K3 w - - 0 1").withDicePool(List(1, 1, 1))
-    val deadline = System.nanoTime() + 50_000_000L
+    val lost = parse("4r2k/8/8/8/8/8/P6P/4K3 w - - 0 1").withDicePool(List(1, 1, 1))
+    // Generous enough that everything before the batch — turn generation, pre-ranking, the rescore batch — finishes
+    // inside it. If it did not, the deadline check *above* the batch would fire instead, the guard pass would never
+    // run, and the assertions below would hold for the wrong reason; `batches` is what rules that out.
+    val deadline = System.nanoTime() + 200_000_000L
+    var batches  = 0
     var guarded  = Option.empty[RootSearchStats]
     val bot      = collapsed(
       ChanceCollapse(
         { (states, _) =>
+          batches += 1
           while System.nanoTime() < deadline do ()
           Array.fill(states.length)(500)
         },
@@ -679,6 +684,7 @@ class ExpectimaxSearchSpec extends FunSuite:
     )
     assert(bot.findBestMove(lost, deadline, Random(0)).isDefined, "the anytime contract still owes a legal turn")
     val g = guarded.getOrElse(fail("expected stats"))
+    assertEquals(batches, 1, "the collapse batch must have run, or this test says nothing about the guard pass")
     assertEquals(g.candidatesCollapsed, 0, "nothing may be ranked from a half-guarded set")
     assertEquals(g.candidatesAbandoned, 1)
     assert(!g.collapseRejected, s"the model kept its contract; only the clock ran out, got $g")
