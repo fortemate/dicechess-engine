@@ -6,6 +6,7 @@ import scala.util.Using
 import cats.implicits.*
 import com.monovore.decline.*
 
+import dicechess.engine.json.Json
 import dicechess.engine.search.{ExpectimaxConfig, OnnxSearchOptions, RootRescoreModel, TranspositionTable}
 
 /** Deterministic scenario-suite evaluator comparing two ONNX leaf models under identical expectimax search.

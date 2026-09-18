@@ -15,6 +15,7 @@ import cats.implicits.*
 import com.monovore.decline.*
 
 import dicechess.engine.domain.*
+import dicechess.engine.json.Json
 import dicechess.engine.search.{OnnxEvalSearch, PieceSafety}
 
 /** Compares two ONNX leaf models on counterfactual queen-safety pairs sampled from a private corpus.

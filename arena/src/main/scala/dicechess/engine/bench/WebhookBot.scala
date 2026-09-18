@@ -2,6 +2,7 @@
 package dicechess.engine.bench
 
 import dicechess.engine.domain.*
+import dicechess.engine.json.Json
 import dicechess.engine.search.*
 
 import java.net.URI

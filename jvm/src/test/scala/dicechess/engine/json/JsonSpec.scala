@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-package dicechess.engine.bench
+package dicechess.engine.json
 
 import munit.FunSuite
 
@@ -98,4 +98,31 @@ class JsonSpec extends FunSuite:
     assertEquals(json.field("ok").flatMap(_.asBool), Some(true))
     assertEquals(json.field("items").flatMap(_.asArr).map(_.size), Some(3))
     assertEquals(json.field("missing"), None)
+  }
+
+  test("parse: a long document costs heap, not stack — the container and string loops are iterative") {
+    // The recursive version overflowed the stack a few thousand elements in, and an Error is not something an
+    // Either-returning parser can hand back. These sizes are far past where it used to die.
+    val array = Json.parse("[" + List.fill(20000)("1").mkString(",") + "]")
+    assertEquals(array.map { case Json.JArr(items) => items.length; case _ => -1 }, Right(20000))
+
+    val fields = (1 to 20000).map(i => s""""k$i":$i""").mkString(",")
+    val obj    = Json.parse("{" + fields + "}")
+    assertEquals(obj.map { case Json.JObj(entries) => entries.length; case _ => -1 }, Right(20000))
+
+    val escaped = Json.parse("\"" + ("\\n" * 20000) + "\"")
+    assertEquals(escaped.map { case Json.JStr(value) => value.length; case _ => -1 }, Right(20000))
+  }
+
+  test("parse: nesting past the depth limit is a rejection, not a StackOverflowError") {
+    val deep = Json.parse("[" * 5000 + "]" * 5000)
+    assert(deep.isLeft, "deeply nested input must be refused")
+    assert(deep.left.exists(_.startsWith("maximum nesting depth exceeded")), deep.toString)
+
+    val deepObjects = Json.parse("""{"a":""" * 5000 + "1" + "}" * 5000)
+    assert(deepObjects.left.exists(_.startsWith("maximum nesting depth exceeded")), deepObjects.toString)
+
+    // The limit is generous enough for every document this repository actually reads.
+    val ordinary = Json.parse("[" * 32 + "1" + "]" * 32)
+    assert(ordinary.isRight, ordinary.toString)
   }

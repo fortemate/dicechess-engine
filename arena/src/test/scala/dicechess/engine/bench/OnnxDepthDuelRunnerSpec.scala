@@ -4,6 +4,7 @@ package dicechess.engine.bench
 import scala.concurrent.duration.*
 
 import dicechess.engine.domain.Color
+import dicechess.engine.json.Json
 import munit.FunSuite
 
 /** Argument handling and end-to-end wiring for [[OnnxDepthDuelRunner]], against the throwaway synthetic model shared

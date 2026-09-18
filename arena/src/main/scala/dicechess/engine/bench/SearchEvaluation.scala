@@ -8,6 +8,7 @@ import scala.util.{Random, Try, Using}
 
 import cats.syntax.all.*
 import dicechess.engine.domain.{FenParser, GameState, Move}
+import dicechess.engine.json.Json
 import dicechess.engine.search.{BotInfo, BotRegistry, ScoredSequence, SearchAlgorithm, TurnGenerator}
 
 private[bench] enum SearchScenarioCategory(val id: String) derives CanEqual:

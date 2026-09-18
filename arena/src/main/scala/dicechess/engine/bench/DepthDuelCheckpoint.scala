@@ -11,6 +11,7 @@ import scala.util.Try
 import scala.util.Using
 
 import dicechess.engine.domain.Color
+import dicechess.engine.json.Json
 
 final private[bench] case class DepthDuelCheckpointIdentity(
     modelPath: String,

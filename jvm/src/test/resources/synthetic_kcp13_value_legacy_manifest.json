@@ -1,0 +1,17 @@
+{
+  "manifestVersion": "1.0.0",
+  "modelId": "synthetic-kcp13-value-legacy",
+  "modelSha256": "e078ff34038d02b504b1d9a68535f88d6860ef1ce464a9168bc3db5b7950d980",
+  "featureSchema": "kcp-13",
+  "featureCount": 13,
+  "engineCompatibility": ">=0.12.0 <1.0.0",
+  "calibration": {
+    "temperature": 1.0
+  },
+  "provenance": {
+    "generator": "jvm/src/test/resources/generate_model_contract_fixtures.py",
+    "purpose": "engine #78 model-contract test fixture",
+    "trained": "false"
+  },
+  "evaluationProfile": "standard-kcp"
+}
