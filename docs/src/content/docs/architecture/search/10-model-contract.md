@@ -185,16 +185,20 @@ The order is deliberate — the cheapest checks and the ones with the clearest m
 the digest is verified before a graph is opened, so a model that is simply not the model the manifest
 describes never gets loaded at all.
 
-Checked once a session exists: the graph's input and output names, dtypes and shapes
-(`ModelPackage.validateSession`). **That check is not yet on the serving path**, and the asymmetry is
-worth stating plainly rather than leaving a reader to assume it. `ModelPackage.load` never opens a
-graph, and every bot here — `OnnxEvalSearch` included — creates its session privately from a path. So
-a host that loads a package and wires it into a bot today gets checks 1–8 and nothing more: a graph
-that contradicts its own manifest is accepted at load and fails inside the first `session.run`, under
-a move deadline, with the runtime's message instead of the contract's. Running the graph check is
-currently the host's call, on a session the host owns;
-[#258](https://github.com/fortemate/dicechess-engine/issues/258) moves it into session construction so
-that no serving path can skip it.
+Checked once a session exists, before the first inference: the graph's input and output names, dtypes
+and shapes. `ModelPackage.load` never opens a graph — it proves what the manifest says about bytes on
+disk — so this is the half that proves the graph those bytes hold is the graph the manifest describes.
+
+It runs automatically for a model that came from a package. `OnnxEvalSearch.fromPackage` and
+`OnnxExpectimaxSearch.fromPackages` open every session they own and validate it before returning, and
+the hook models (`RootRescoreModel`, `CollapseModel`, `PreRankModel`) carry the manifest their own
+`fromPackage` gave them, so their sessions are checked too. A mismatch closes what was opened and comes
+back as a message naming the tensor and the shape, instead of surfacing inside the first `session.run`
+under a move deadline.
+
+A model configured by a bare path carries no manifest and is opened unchecked, exactly as before: the
+check is a property of having loaded a package, not a new requirement on every caller. An arena runner
+pointed at two paths keeps working.
 
 ---
 
@@ -215,12 +219,12 @@ val loaded = ModelPackage.load(
 loaded match
   case Left(error)    => println(s"refusing to serve: $error")
   case Right(pkg) =>
-    // The extractor comes from the manifest's schema, not from the call site. Note what this does
-    // NOT do: OnnxEvalSearch opens its own private session and never runs the graph check, so the
-    // tensor contract is unverified here — see Failure behaviour above, and #258.
-    Using.resource(new OnnxEvalSearch(pkg.modelPath.toString, pkg.extract)) { bot =>
-      // ...
-    }
+    // fromPackage takes the extractor from the manifest's schema and validates the loaded graph
+    // against the manifest before handing the bot back, so a graph that contradicts its own
+    // manifest is a Left here rather than a failure inside the first inference.
+    OnnxEvalSearch.fromPackage(pkg) match
+      case Left(error) => println(s"refusing to serve: $error")
+      case Right(bot)  => Using.resource(bot) { serving => /* ... */ }
 ```
 
 ---

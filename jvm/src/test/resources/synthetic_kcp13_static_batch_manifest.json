@@ -1,0 +1,20 @@
+{
+  "manifestVersion": "1.1.0",
+  "modelId": "synthetic-kcp13-static-batch",
+  "modelSha256": "b53ff062f3ca32568ecb9e61fa81d6038aae5e37ec78987e2852b9c70f879b9e",
+  "featureSchema": "kcp-13",
+  "featureCount": 13,
+  "engineCompatibility": ">=0.12.0 <1.0.0",
+  "calibration": {
+    "temperature": 1.0
+  },
+  "provenance": {
+    "generator": "jvm/src/test/resources/generate_model_contract_fixtures.py",
+    "purpose": "engine #78 model-contract test fixture",
+    "trained": "false"
+  },
+  "modelRole": "position-value",
+  "inputName": "input",
+  "outputName": "output",
+  "perspective": "side-to-move"
+}

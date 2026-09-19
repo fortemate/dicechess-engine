@@ -2,7 +2,7 @@
 package dicechess.engine.search
 
 import dicechess.engine.domain.{Color, GameState}
-import dicechess.engine.model.{ModelPackage, ModelRole}
+import dicechess.engine.model.{ModelManifest, ModelPackage, ModelRole}
 
 import scala.util.{Random, Try}
 
@@ -21,9 +21,22 @@ import scala.util.{Random, Try}
 final case class RootRescoreModel(
     modelPath: String,
     extractFeatures: (GameState, Color) => Array[Float],
-    weight: Double
+    weight: Double,
+    contract: Option[ModelManifest] = None
 ):
   require(weight >= 0.0 && weight <= 1.0, s"weight must be in [0, 1], got $weight")
+
+object RootRescoreModel:
+
+  /** Configures the rescorer from a validated model package, refusing an artifact trained for a different role and
+    * carrying its manifest so the session's graph is checked when it is opened.
+    */
+  def fromPackage(pkg: ModelPackage, weight: Double): Either[String, RootRescoreModel] =
+    Either.cond(
+      pkg.role == ModelRole.PositionValue,
+      RootRescoreModel(pkg.modelPath.toString, pkg.extract, weight, Some(pkg.manifest)),
+      s"${pkg.modelPath}: modelRole '${pkg.role.id}' cannot serve as '${ModelRole.PositionValue.id}'"
+    )
 
 /** A model that answers a root candidate's whole chance node in one row instead of an expansion of the opponent's 56
   * weighted dice outcomes — wired as [[ChanceCollapse]], whose Scaladoc states what the hook keeps and what it gives
@@ -44,7 +57,8 @@ final case class RootRescoreModel(
 final case class CollapseModel(
     modelPath: String,
     extractFeatures: (GameState, Color) => Array[Float],
-    lossGuard: Boolean = false
+    lossGuard: Boolean = false,
+    contract: Option[ModelManifest] = None
 )
 
 object CollapseModel:
@@ -57,7 +71,7 @@ object CollapseModel:
   def fromPackage(pkg: ModelPackage, lossGuard: Boolean = false): Either[String, CollapseModel] =
     Either.cond(
       pkg.role == ModelRole.ChanceCollapse,
-      CollapseModel(pkg.modelPath.toString, pkg.extract, lossGuard),
+      CollapseModel(pkg.modelPath.toString, pkg.extract, lossGuard, Some(pkg.manifest)),
       s"${pkg.modelPath}: modelRole '${pkg.role.id}' cannot serve as '${ModelRole.ChanceCollapse.id}'"
     )
 
@@ -89,7 +103,8 @@ object CollapseModel:
 final case class PreRankModel(
     modelPath: String,
     extractFeatures: (GameState, Color) => Array[Float],
-    chunkSize: Int = PreRankModel.DefaultChunkSize
+    chunkSize: Int = PreRankModel.DefaultChunkSize,
+    contract: Option[ModelManifest] = None
 ):
   require(chunkSize > 0, s"chunkSize must be positive, got $chunkSize")
 
@@ -104,7 +119,7 @@ object PreRankModel:
   def fromPackage(pkg: ModelPackage, chunkSize: Int = DefaultChunkSize): Either[String, PreRankModel] =
     Either.cond(
       pkg.role == ModelRole.MovePreRank,
-      PreRankModel(pkg.modelPath.toString, pkg.extract, chunkSize),
+      PreRankModel(pkg.modelPath.toString, pkg.extract, chunkSize, Some(pkg.manifest)),
       s"${pkg.modelPath}: modelRole '${pkg.role.id}' cannot serve as '${ModelRole.MovePreRank.id}'"
     )
 
@@ -122,6 +137,10 @@ object PreRankModel:
   *   optional model replacing each root candidate's exact chance-node expansion
   * @param preRankModel
   *   optional dedicated model for ordering root candidates, in its own session
+  * @param leafContract
+  *   the leaf model's manifest, when it came from a validated package. The hook models carry their own; the leaf's
+  *   lives here because [[OnnxExpectimaxSearch]]'s constructor takes the leaf as a bare path and adding a tenth
+  *   positional parameter to it would be the wrong place to put a rarely-set value (#145)
   */
 final case class OnnxSearchOptions(
     statsSink: RootSearchStats => Unit = _ => (),
@@ -129,7 +148,8 @@ final case class OnnxSearchOptions(
     preRankWithModel: Boolean = false,
     tt: Option[TranspositionTable] = None,
     chanceCollapse: Option[CollapseModel] = None,
-    preRankModel: Option[PreRankModel] = None
+    preRankModel: Option[PreRankModel] = None,
+    leafContract: Option[ModelManifest] = None
 ):
   // Both configure the same seam, so a host that set both means one of them by mistake — and picking a winner here
   // would hide that from the only person who knows which.
@@ -169,32 +189,42 @@ final case class OnnxSearchOptions(
   * chance-collapse model's when configured; call [[close]] when done. Not safe for concurrent calls, matching every
   * other bot here.
   */
-final class OnnxExpectimaxSearch(
-    modelPath: String,
-    config: ExpectimaxConfig = ExpectimaxConfig(),
-    extractFeatures: (GameState, Color) => Array[Float] = OnnxFeatures.extract,
-    rootRescore: Option[RootRescoreModel] = None,
-    preRankWithModel: Boolean = false,
-    statsSink: RootSearchStats => Unit = ExpectimaxSearch.NoStats,
-    tt: Option[TranspositionTable] = None,
-    chanceCollapse: Option[CollapseModel] = None,
-    preRankModel: Option[PreRankModel] = None
-) extends TimeBudgetedSearch
+final class OnnxExpectimaxSearch private[search] (built: (OnnxSearchSessions, ExpectimaxSearch))
+    extends TimeBudgetedSearch
     with AutoCloseable:
 
-  private val (sessions, expectimax) = OnnxExpectimaxSearchInitialization.initialize(
-    modelPath,
-    config,
-    extractFeatures,
-    OnnxSearchOptions(
-      statsSink = statsSink,
-      rootRescore = rootRescore,
-      preRankWithModel = preRankWithModel,
-      tt = tt,
-      chanceCollapse = chanceCollapse,
-      preRankModel = preRankModel
+  /** The path-based constructor every host has used so far: the leaf model as a filesystem path, the hooks as options.
+    *
+    * A leaf loaded this way carries no manifest and so gets no graph check — see [[OnnxExpectimaxSearch.fromPackages]]
+    * for the entry point that has one.
+    */
+  def this(
+      modelPath: String,
+      config: ExpectimaxConfig = ExpectimaxConfig(),
+      extractFeatures: (GameState, Color) => Array[Float] = OnnxFeatures.extract,
+      rootRescore: Option[RootRescoreModel] = None,
+      preRankWithModel: Boolean = false,
+      statsSink: RootSearchStats => Unit = ExpectimaxSearch.NoStats,
+      tt: Option[TranspositionTable] = None,
+      chanceCollapse: Option[CollapseModel] = None,
+      preRankModel: Option[PreRankModel] = None
+  ) = this(
+    OnnxExpectimaxSearchInitialization.initialize(
+      modelPath,
+      config,
+      extractFeatures,
+      OnnxSearchOptions(
+        statsSink = statsSink,
+        rootRescore = rootRescore,
+        preRankWithModel = preRankWithModel,
+        tt = tt,
+        chanceCollapse = chanceCollapse,
+        preRankModel = preRankModel
+      )
     )
   )
+
+  private val (sessions, expectimax) = built
 
   override def findBestMove(state: GameState): Option[ScoredSequence] =
     expectimax.findBestMove(state)
@@ -206,6 +236,37 @@ final class OnnxExpectimaxSearch(
     expectimax.findBestMove(state, deadlineNanos, random)
 
   override def close(): Unit = sessions.closeAll()
+
+object OnnxExpectimaxSearch:
+
+  /** Builds the bot from a validated leaf package, with every session's graph checked against its own manifest.
+    *
+    * This is the difference between "the manifest says these bytes are a `kcp-13` position model" and "the graph this
+    * session loaded is the graph that manifest describes". `ModelPackage.load` proves the first; only a loaded session
+    * can prove the second, and a host that constructs the bot from paths has no way to reach the sessions it owns.
+    *
+    * The leaf's extractor comes from its manifest's feature schema, so the pairing cannot be got wrong either. Hooks
+    * configured through `options` bring their own manifests when they were built by `fromPackage`; one configured by
+    * path alone is opened unchecked, exactly as before.
+    */
+  def fromPackages(
+      leaf: ModelPackage,
+      config: ExpectimaxConfig = ExpectimaxConfig(),
+      options: OnnxSearchOptions = OnnxSearchOptions()
+  ): Either[String, OnnxExpectimaxSearch] =
+    if leaf.role != ModelRole.PositionValue then
+      Left(s"${leaf.modelPath}: modelRole '${leaf.role.id}' cannot serve as the leaf evaluator")
+    else
+      Try(
+        new OnnxExpectimaxSearch(
+          OnnxExpectimaxSearchInitialization.initialize(
+            leaf.modelPath.toString,
+            config,
+            leaf.extract,
+            options.copy(leafContract = Some(leaf.manifest))
+          )
+        )
+      ).toEither.left.map(error => Option(error.getMessage).getOrElse(error.toString))
 
 /** The ONNX sessions one [[OnnxExpectimaxSearch]] owns, held together so that closing cannot forget one.
   *
@@ -251,16 +312,21 @@ private[search] object OnnxExpectimaxSearchInitialization:
     val activeRootRescore = options.rootRescore.filter(_.weight > 0.0)
     var sessions          = OnnxSearchSessions(leaf)
     try
-      // One assignment per session, not one copy for all of them: a session has to be recorded in `sessions` before
-      // the next creation can throw, or the error path closes the leaf and leaks everything opened after it.
+      // One assignment per session, not one copy for all of them, and the contract check *after* the assignment: a
+      // session has to be recorded in `sessions` before anything can throw, or the error path closes the leaf and
+      // leaks everything opened after it — including a session refused by its own manifest.
+      checkContract(Some(leaf), options.leafContract)
       sessions =
         sessions.copy(rescore = activeRootRescore.map(model => sessionFactory(model.modelPath, model.extractFeatures)))
+      checkContract(sessions.rescore, activeRootRescore.flatMap(_.contract))
       sessions = sessions.copy(collapse =
         options.chanceCollapse.map(model => sessionFactory(model.modelPath, model.extractFeatures))
       )
+      checkContract(sessions.collapse, options.chanceCollapse.flatMap(_.contract))
       sessions = sessions.copy(preRank =
         options.preRankModel.map(model => sessionFactory(model.modelPath, model.extractFeatures))
       )
+      checkContract(sessions.preRank, options.preRankModel.flatMap(_.contract))
       val expectimax = new ExpectimaxSearch(
         (states, color) => leaf.onnxEvalBatch(states, color),
         config,
@@ -281,6 +347,19 @@ private[search] object OnnxExpectimaxSearchInitialization:
       case error: Throwable =>
         closeSuppressing(sessions, error)
         throw error // scalafix:ok(DisableSyntax.throw)
+
+  /** Proves a freshly opened session's graph is the one its manifest describes, when a manifest came with the model.
+    *
+    * Fails construction rather than returning an error, because this runs inside the initializer of a bot that either
+    * exists or does not; the message is the contract's own, which names the tensor and the shape. A model configured by
+    * path alone carries no manifest and is opened unchecked, exactly as before — the check is a property of having
+    * loaded a package, not a new requirement on every caller.
+    */
+  private def checkContract(session: Option[OnnxEvalSearch], contract: Option[ModelManifest]): Unit =
+    for
+      opened   <- session
+      manifest <- contract
+    do opened.validateContract(manifest).fold(error => sys.error(error), identity)
 
   /** The batched pre-ranker the search orders its candidates with: a dedicated model's own session, the leaf model
     * reused, or material — in that order of specificity, and never two of them, since the options reject that.
