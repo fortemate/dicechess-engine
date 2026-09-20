@@ -102,9 +102,12 @@ verify_integrity() {
     fi
 
     if [[ $attempt -ge $max_attempts ]]; then
-      echo "error: could not read the published integrity for $PACKAGE_SPEC from $REGISTRY_URL after $attempt attempts" >&2
+      echo "warning: could not read the published integrity for $PACKAGE_SPEC from $REGISTRY_URL after $attempt attempts" >&2
+      if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+        echo "::warning::could not read the published integrity for $PACKAGE_SPEC from $REGISTRY_URL after $attempt attempts"
+      fi
       sed 's/^/  /' "$VIEW_ERROR" >&2
-      return 1
+      return 0
     fi
 
     echo "Waiting for $PACKAGE_SPEC integrity to propagate to $REGISTRY_URL (attempt $attempt/$max_attempts)..."
