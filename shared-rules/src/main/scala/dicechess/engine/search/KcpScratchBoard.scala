@@ -218,7 +218,7 @@ final private[search] class KcpScratchBoard(
     val prevFlags     = flags
     val prevEnPassant = enPassant
     var capturedPiece = Piece.Empty
-    var newEnPassant  = enPassant & ~toBB
+    var newEnPassant  = if mv.flags == Move.EnPassantCapture then enPassant & ~toBB else enPassant
 
     mv.flags match
       case Move.DoublePawnPush =>
