@@ -104,7 +104,7 @@ object MoveGenerator {
       addPawnCaptures(from, east, color, enemyKings, moves)
       addPawnCaptures(from, west, color, enemyKings, moves)
 
-      addPawnEnPassant(from, fromBB, state.enPassant, color, moves)
+      addPawnEnPassant(from, fromBB, state.enPassant & emptySquares, color, moves)
 
       p &= p - 1
     }

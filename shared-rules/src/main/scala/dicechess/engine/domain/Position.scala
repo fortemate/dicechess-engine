@@ -276,7 +276,7 @@ private object Position:
       target: Option[Piece],
       rankOffset: Int
   ): Bitboard = {
-    var res = ep.remove(mv.toSquare)
+    var res = if mv.flags == Move.EnPassantCapture then ep.remove(mv.toSquare) else ep
     if mv.flags != Move.DoublePawnPush && mover.pieceType == PieceType.Pawn then
       val passedIdx = mv.fromSquare.index + rankOffset
       if passedIdx >= 0 && passedIdx < 64 then res = res.remove(Square.fromIndex(passedIdx))
