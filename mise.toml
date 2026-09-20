@@ -53,7 +53,7 @@ run = "bash .mise/lib/check-spdx.sh"
 description = "✅ Run a full validation cycle"
 run = [
   "bash .mise/lib/check-spdx.sh",
-  "bash .mise/lib/sbt-cold-cache.sh 'scalafixAll --check; clean; scalafmtCheckAll; rulesJVM/assertRulesBinaryCompatible; coverage; testOnly *; rulesJVM/coverageDataCheck; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport; rootJVM/assertOnnxRuntimeOptionalInPom'",
+  "bash .mise/lib/sbt-cold-cache.sh 'scalafixAll --check; scalafmtCheckAll; rulesJVM/assertRulesBinaryCompatible; clean; coverage; testOnly *; rulesJVM/coverageDataCheck; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport; rootJVM/assertOnnxRuntimeOptionalInPom'",
 ]
 
 [tasks.console]
