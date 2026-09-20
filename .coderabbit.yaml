@@ -65,7 +65,20 @@ reviews:
         - Ensure comments focus on "Why", not just "What".
         - Do not document self-evident methods.
 
-    - path: "shared/src/main/scala/**/domain/**"
+    # ── dicechess-rules artifact (ADR 009) ────────────────────────────────
+    # shared-rules/ compiles into the public, dependency-free rules jar that is
+    # published for JVM and Scala.js and gated by mima for binary compatibility.
+    - path: "shared-rules/src/main/scala/**"
+      instructions: |
+        This is the published `dicechess-rules` artifact (ADR 009).
+        When reviewing:
+        - Treat every public signature as part of a binary-compatible API: flag
+          changes that would break mima without an accompanying ProblemFilters
+          entry in `rulesMimaFilters` justified by an issue.
+        - The rules POM must declare no third-party compile dependency; reject
+          any new library dependency in this module.
+
+    - path: "shared-rules/src/main/scala/**/domain/**"
       instructions: |
         This directory contains the core domain model using Scala 3 opaque types.
         When reviewing:
@@ -74,7 +87,7 @@ reviews:
         - Ensure bitwise operations on Bitboard (Long) are correct and handle
           all 64 squares, including edge wrapping (a-file / h-file masks).
 
-    - path: "shared/src/main/scala/**/movegen/**"
+    - path: "shared-rules/src/main/scala/**/movegen/**"
       instructions: |
         This is the move generation engine — performance-critical code.
         When reviewing:
@@ -85,14 +98,24 @@ reviews:
           maximal micro-move count enforcement, and correct piece filtering by
           dice roll value.
 
-    - path: "shared/src/main/scala/**/search/**"
+    - path: "shared-rules/src/main/scala/**/search/**"
       instructions: |
-        This is the search, evaluation, and bot layer.
+        The rules half of the split `dicechess.engine.search` package (ADR 009):
+        turn enumeration and King Capture Probability, no evaluation or bots.
         When reviewing:
         - Ensure TurnGenerator handles complete turn micro-move trees (up to 3 micro-moves, castling consuming both King and Rook dice).
         - Verify that King Capture Probability (KCP) correctly calculates probabilities across all 216 dice outcomes.
+        - Flag allocations in KcpScratchBoard and DiceRolls: these run inside the hot search loop.
+
+    # ── dicechess-engine artifact ─────────────────────────────────────────
+    - path: "shared/src/main/scala/**/search/**"
+      instructions: |
+        The engine half of the split `dicechess.engine.search` package (ADR 009):
+        evaluation, feature extractors, bots and time management.
+        When reviewing:
         - Check that Evaluator and SearchAlgorithms (Expectimax, MonteCarlo, Greedy) optimize for performance and avoid unnecessary object allocations during tree searches.
         - Confirm that TimeManager and TimeBudgetedSearch respect strict deadlines and clock safety margins.
+        - Verify that feature extractors stay consistent with the schema ids they declare.
 
     - path: "jvm/src/main/scala/**/search/**"
       instructions: |
@@ -101,21 +124,89 @@ reviews:
         - Ensure OrtSession and OrtEnvironment resources are properly managed and closed.
         - Verify tensor creation and buffer shapes match the neural network models.
 
-    - path: "shared/src/test/**"
+    - path: "jvm/src/main/scala/**/model/**"
       instructions: |
-        Tests use MUnit with a custom Test DSL (ASCII boards, algebraic varargs).
+        The ONNX model contract layer: manifest parsing, feature schema ids and roles.
+        When reviewing:
+        - Keep the manifest schema version handling backward compatible with packages already published.
+        - Verify that a model is rejected loudly (not silently downgraded) when its schema id or role does not match.
+        - onnxruntime is an Optional POM dependency: this code must not make it mandatory at load time.
+
+    # ── Tests ─────────────────────────────────────────────────────────────
+    - path: "shared-rules/src/test/**"
+      instructions: |
+        Rules tests use MUnit with a custom Test DSL (ASCII boards, algebraic varargs).
         When reviewing:
         - Ensure test names are descriptive and follow the existing naming style.
         - Verify that edge cases are covered (empty boards, full boards, pins).
         - Check the movegen golden fixtures in `MoveGenFixtures.scala` for valid FEN
           (including the 7th dice-pool field) and correct expected move lists.
 
+    - path: "shared/src/test/**"
+      instructions: |
+        Engine tests (evaluation, search algorithms, bots) use MUnit with the
+        shared Test DSL from the rules module.
+        When reviewing:
+        - Ensure test names are descriptive and follow the existing naming style.
+        - Flag tests whose cost grows with search depth without a bounded budget.
+
+    - path: "rules-smoke/src/test/**"
+      instructions: |
+        Consumer smoke test: it depends on the published rules jar only.
+        When reviewing:
+        - Reject any reference to engine-only classes; this module exists to prove
+          the rules artifact is usable standalone.
+
+    # ── Harnesses and front ends ──────────────────────────────────────────
+    - path: "arena/src/**"
+      instructions: |
+        Bot-versus-bot arena harness (not published).
+        When reviewing:
+        - Check that match results are reproducible: seeds and dice sources must be explicit.
+        - Verify fixture catalogs stay in sync with the bots registered in BotRegistry.
+
+    - path: "benchmark/src/**"
+      instructions: |
+        JMH benchmarks (not published, and asserted out of the release jars).
+        When reviewing:
+        - Flag benchmark code that would be dead-code-eliminated (use Blackhole / return values).
+        - Verify warm-up and fork counts are sufficient for the claim being measured.
+
+    - path: "cli/src/**"
+      instructions: |
+        Interactive JLine command line front end.
+        When reviewing:
+        - Check terminal resources are closed and the process exits without a shutdown-hook deadlock.
+        - Verify user input is validated before reaching the rules API.
+
+    - path: "js-rules/src/**"
+      instructions: |
+        The `@JSExportTopLevel` surface of the rules-only JS bundle (ADR 009).
+        When reviewing:
+        - Every exported name is public API for JS consumers: flag renames and signature changes.
+        - Ensure the rules-only entry point does not pull engine classes into the bundle.
+
+    - path: "jvm/src/test/**"
+      instructions: |
+        JVM-only tests: perft, ONNX contract specs and depth-limited search specs.
+        When reviewing:
+        - Watch the cost of depth-3 search specs: they run far slower under scoverage
+          instrumentation and must stay inside the CI timeout.
+        - Verify ONNX specs skip cleanly (not fail) when the native runtime is unavailable.
+
+    - path: "js/src/main/scala/**"
+      instructions: |
+        The `@JSExportTopLevel` surface of the full engine JS bundle.
+        When reviewing:
+        - Every exported name is public API for JS consumers: flag renames and signature changes.
+        - Check that values crossing the JS boundary are plain JS types, not Scala collections.
+
     - path: ".github/workflows/**"
       instructions: |
         CI/CD workflows for a Scala 3 / Scala.js / Wasm cross-compiled project.
         When reviewing:
         - Ensure action versions use pinned SHA hashes (not floating tags).
-        - Verify Java 25/26 and Node 26 are used consistently.
+        - Verify Java 25 and Node 26 are used consistently.
         - Check that mise tasks or cold-cache scripts are used appropriately.
 
     - path: "docs/**"
@@ -128,8 +219,11 @@ reviews:
 
     - path: "build.sbt"
       instructions: |
-        SBT build definition for a cross-compiled (JVM + JS + Wasm) Scala 3 project.
+        SBT build definition for a cross-compiled (JVM + JS + Wasm) Scala 3 project
+        that publishes two artifacts: dicechess-rules and dicechess-engine (ADR 009).
         When reviewing:
         - Ensure dependency versions are consistent across JVM, JS, and Wasm modules.
         - Verify compiler flags are appropriate for the target platform.
         - Check that scoverage and scalafmt plugins are correctly configured.
+        - Do not weaken the publish guards (optional onnxruntime, no third-party deps
+          in the rules POM, no bench classes in release jars, mima gate).
