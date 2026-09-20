@@ -303,9 +303,11 @@ lazy val rules = (projectMatrix in file("shared-rules"))
         version.value,
         "-project-footer",
         "Fortemate Dice Chess Rules",
+        "-source-links:shared-rules=github://fortemate/dicechess-engine/main#shared-rules",
         "-social-links:github::https://github.com/fortemate/dicechess-engine",
         "-groups",
-        "-author"
+        "-author",
+        "-snippet-compiler:compile"
       )
     )
   )
@@ -364,7 +366,8 @@ lazy val root = (projectMatrix in file("."))
         version.value,
         "-project-footer",
         "Fortemate Dice Chess Engine",
-        "-source-links:src/main/scala=https://github.com/fortemate/dicechess-engine/blob/main/src/main/scala€{FILE_PATH}.scala#L€{LINE}",
+        "-source-links:shared=github://fortemate/dicechess-engine/main#shared",
+        "-source-links:jvm=github://fortemate/dicechess-engine/main#jvm",
         "-social-links:github::https://github.com/fortemate/dicechess-engine",
         "-groups",
         "-author",
@@ -527,6 +530,7 @@ lazy val apiDocs = project
   .settings(commonSettings)
   .settings(
     name                                              := "dicechess-api-docs",
+    scalaVersion                                      := ScalaV,
     publish / skip                                    := true,
     coverageEnabled                                   := false,
     libraryDependencies += "com.microsoft.onnxruntime" % "onnxruntime" % OnnxRuntimeV,
@@ -543,6 +547,9 @@ lazy val apiDocs = project
       version.value,
       "-project-footer",
       "Fortemate Dice Chess Engine",
+      "-source-links:shared-rules=github://fortemate/dicechess-engine/main#shared-rules",
+      "-source-links:shared=github://fortemate/dicechess-engine/main#shared",
+      "-source-links:jvm=github://fortemate/dicechess-engine/main#jvm",
       "-social-links:github::https://github.com/fortemate/dicechess-engine",
       "-groups",
       "-author",
