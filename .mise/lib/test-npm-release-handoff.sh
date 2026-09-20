@@ -242,13 +242,18 @@ export NPM_VERIFY_SLEEP_SECONDS=0
 rm -f -- "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine" "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine-wasm" \
   "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine.integrity_views" "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine-wasm.integrity_views"
 rm -f -- "$FAKE_PUBLISH_LOG"
-if PATH="$FAKE_BIN:$PATH" bash "$SCRIPT_DIRECTORY/publish-npm-release-bundle.sh" \
+if ! PATH="$FAKE_BIN:$PATH" bash "$SCRIPT_DIRECTORY/publish-npm-release-bundle.sh" \
   "$HANDOFF_DIRECTORY" \
   https://registry.npmjs.test >"$TEMP_DIRECTORY/propagation-timeout.log" 2>&1; then
-  echo "error: excessive propagation delay did not fail closed" >&2
+  echo "error: propagation timeout failed publication" >&2
   exit 1
 fi
 grep -F 'could not read the published integrity for @fortemate/dicechess-engine@9.9.9 from https://registry.npmjs.test after 3 attempts' "$TEMP_DIRECTORY/propagation-timeout.log" >/dev/null
+grep -F 'warning: could not read the published integrity for @fortemate/dicechess-engine@9.9.9' "$TEMP_DIRECTORY/propagation-timeout.log" >/dev/null
+if [[ $(wc -l <"$FAKE_PUBLISH_LOG") -ne 2 ]]; then
+  echo "error: fixture registry with propagation timeout did not receive both npm tarballs" >&2
+  exit 1
+fi
 
 export NPM_VERIFY_MAX_ATTEMPTS=0
 export NPM_VERIFY_SLEEP_SECONDS=0
