@@ -229,8 +229,8 @@ rm -f -- "$FAKE_PUBLISH_LOG"
 PATH="$FAKE_BIN:$PATH" bash "$SCRIPT_DIRECTORY/publish-npm-release-bundle.sh" \
   "$HANDOFF_DIRECTORY" \
   https://registry.npmjs.test >"$TEMP_DIRECTORY/propagation-delay.log" 2>&1
-grep -F 'Waiting for @fortemate/dicechess-engine@9.9.9 integrity to propagate to https://registry.npmjs.test (attempt 1/15)...' "$TEMP_DIRECTORY/propagation-delay.log" >/dev/null
-grep -F 'Waiting for @fortemate/dicechess-engine-wasm@9.9.9 integrity to propagate to https://registry.npmjs.test (attempt 1/15)...' "$TEMP_DIRECTORY/propagation-delay.log" >/dev/null
+grep -F 'Waiting for @fortemate/dicechess-engine@9.9.9 integrity to propagate to https://registry.npmjs.test (attempt 1/40)...' "$TEMP_DIRECTORY/propagation-delay.log" >/dev/null
+grep -F 'Waiting for @fortemate/dicechess-engine-wasm@9.9.9 integrity to propagate to https://registry.npmjs.test (attempt 1/40)...' "$TEMP_DIRECTORY/propagation-delay.log" >/dev/null
 if [[ $(wc -l <"$FAKE_PUBLISH_LOG") -ne 2 ]]; then
   echo "error: fixture registry with simulated propagation delay did not receive both npm tarballs" >&2
   exit 1

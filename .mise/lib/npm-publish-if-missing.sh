@@ -70,8 +70,8 @@ trap 'rm -f -- "$VIEW_ERROR"; if [[ -n "${PACKAGE_MANIFEST:-}" && "$PACKAGE_MANI
 verify_integrity() {
   local published_integrity
   local attempt=1
-  local max_attempts=${NPM_VERIFY_MAX_ATTEMPTS:-15}
-  local sleep_seconds=${NPM_VERIFY_SLEEP_SECONDS:-2}
+  local max_attempts=${NPM_VERIFY_MAX_ATTEMPTS:-40}
+  local sleep_seconds=${NPM_VERIFY_SLEEP_SECONDS:-3}
 
   if ! [[ "$max_attempts" =~ ^[1-9][0-9]*$ ]]; then
     echo "error: NPM_VERIFY_MAX_ATTEMPTS must be a positive integer" >&2
