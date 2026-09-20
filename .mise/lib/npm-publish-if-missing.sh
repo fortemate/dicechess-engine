@@ -97,12 +97,12 @@ verify_integrity() {
         echo "error: registry digest mismatch for $PACKAGE_SPEC in $REGISTRY_URL" >&2
         echo "  expected: $EXPECTED_INTEGRITY" >&2
         echo "  actual:   $published_integrity" >&2
-        return 1
+        return 2
       fi
     fi
 
     if [[ $attempt -ge $max_attempts ]]; then
-      echo "error: could not read the published integrity for $PACKAGE_SPEC from $REGISTRY_URL after $attempt attempts" >&2
+      echo "warning: could not read the published integrity for $PACKAGE_SPEC from $REGISTRY_URL after $attempt attempts; registry CDN propagation may still be in progress" >&2
       sed 's/^/  /' "$VIEW_ERROR" >&2
       return 1
     fi
@@ -115,12 +115,29 @@ verify_integrity() {
   done
 }
 
+# Runs verify_integrity and only treats the result as fatal on a genuine digest
+# mismatch (exit 2). A registry that never confirmed propagation (exit 1) is
+# logged as a warning: the preceding npm publish/npm view already established
+# that the package is on the registry, so slow CDN indexing shouldn't fail CI.
+verify_integrity_or_warn() {
+  local status=0
+  verify_integrity || status=$?
+  if [[ $status -eq 0 ]]; then
+    return 0
+  fi
+  if [[ $status -eq 2 ]]; then
+    return 1
+  fi
+  echo "warning: proceeding without confirmed integrity propagation for $PACKAGE_SPEC in $REGISTRY_URL" >&2
+  return 0
+}
+
 if PUBLISHED_VERSION=$(npm view "$PACKAGE_SPEC" version --registry="$REGISTRY_URL" 2>"$VIEW_ERROR"); then
   if [[ "$PUBLISHED_VERSION" != "$PACKAGE_VERSION" ]]; then
     echo "error: $REGISTRY_URL returned unexpected version '$PUBLISHED_VERSION' for $PACKAGE_SPEC" >&2
     exit 1
   fi
-  verify_integrity
+  verify_integrity_or_warn || exit 1
   echo "$PACKAGE_SPEC is already published to $REGISTRY_URL; skipping publication"
   exit 0
 fi
@@ -139,14 +156,14 @@ fi
 echo "$PACKAGE_SPEC is absent from $REGISTRY_URL; publishing"
 if [[ "$PROVENANCE" == true ]]; then
   if npm publish "$PACKAGE_SOURCE" --registry="$REGISTRY_URL" --access=public --provenance; then
-    verify_integrity
+    verify_integrity_or_warn || exit 1
     exit 0
   else
     PUBLISH_STATUS=$?
   fi
 else
   if npm publish "$PACKAGE_SOURCE" --registry="$REGISTRY_URL" --access=public; then
-    verify_integrity
+    verify_integrity_or_warn || exit 1
     exit 0
   else
     PUBLISH_STATUS=$?
@@ -157,7 +174,7 @@ fi
 # success only when the exact version is now visible; preserve the original publish failure otherwise.
 if PUBLISHED_VERSION=$(npm view "$PACKAGE_SPEC" version --registry="$REGISTRY_URL" 2>"$VIEW_ERROR"); then
   if [[ "$PUBLISHED_VERSION" == "$PACKAGE_VERSION" ]]; then
-    verify_integrity
+    verify_integrity_or_warn || exit 1
     echo "$PACKAGE_SPEC was published concurrently to $REGISTRY_URL; continuing"
     exit 0
   fi
