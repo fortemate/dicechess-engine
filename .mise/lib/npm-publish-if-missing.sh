@@ -66,8 +66,12 @@ VIEW_ERROR=$(mktemp)
 trap 'rm -f -- "$VIEW_ERROR"; if [[ -n "${PACKAGE_MANIFEST:-}" && "$PACKAGE_MANIFEST" != "$PACKAGE_SOURCE/package.json" ]]; then rm -f -- "$PACKAGE_MANIFEST"; fi' EXIT
 
 # Verifies that the published package digest matches the expected integrity value,
-# polling the registry with backoff to accommodate CDN propagation delays.
+# polling the registry to accommodate CDN propagation delays. A mismatched digest always fails.
+# An unreadable digest fails too, except right after this run's own successful `npm publish`
+# (`after-publish`): the upload itself is the correctness signal there, so a propagation timeout
+# is reported as a warning instead of aborting the release (#272).
 verify_integrity() {
+  local timeout_policy=${1:-fail-closed}
   local published_integrity
   local attempt=1
   local max_attempts=${NPM_VERIFY_MAX_ATTEMPTS:-40}
@@ -102,6 +106,14 @@ verify_integrity() {
     fi
 
     if [[ $attempt -ge $max_attempts ]]; then
+      if [[ "$timeout_policy" == after-publish ]]; then
+        echo "warning: could not read the published integrity for $PACKAGE_SPEC from $REGISTRY_URL after $attempt attempts" >&2
+        if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+          echo "::warning::could not read the published integrity for $PACKAGE_SPEC from $REGISTRY_URL after $attempt attempts"
+        fi
+        sed 's/^/  /' "$VIEW_ERROR" >&2
+        return 0
+      fi
       echo "error: could not read the published integrity for $PACKAGE_SPEC from $REGISTRY_URL after $attempt attempts" >&2
       sed 's/^/  /' "$VIEW_ERROR" >&2
       return 1
@@ -139,14 +151,14 @@ fi
 echo "$PACKAGE_SPEC is absent from $REGISTRY_URL; publishing"
 if [[ "$PROVENANCE" == true ]]; then
   if npm publish "$PACKAGE_SOURCE" --registry="$REGISTRY_URL" --access=public --provenance; then
-    verify_integrity
+    verify_integrity after-publish
     exit 0
   else
     PUBLISH_STATUS=$?
   fi
 else
   if npm publish "$PACKAGE_SOURCE" --registry="$REGISTRY_URL" --access=public; then
-    verify_integrity
+    verify_integrity after-publish
     exit 0
   else
     PUBLISH_STATUS=$?

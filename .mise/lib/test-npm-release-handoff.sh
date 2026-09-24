@@ -141,6 +141,7 @@ export REAL_NPM FAKE_STATE_DIRECTORY FAKE_PUBLISH_LOG
 export FAKE_MANIFEST="$HANDOFF_DIRECTORY/manifest.json"
 export FAKE_MISMATCH_PACKAGE=
 export FAKE_PROPAGATION_DELAY_ATTEMPTS=
+export FAKE_PUBLISH_CONFLICT=
 
 cat >"$FAKE_BIN/npm" <<'FAKE_NPM'
 #!/usr/bin/env bash
@@ -185,6 +186,11 @@ if [[ $1 == publish ]]; then
   package_name=$(tar -xOf "$package_source" package/package.json | jq -er '.name')
   printf '%s\n' "$package_name" >>"$FAKE_PUBLISH_LOG"
   : >"$FAKE_STATE_DIRECTORY/${package_name//\//_}"
+  if [[ -n "${FAKE_PUBLISH_CONFLICT:-}" ]]; then
+    echo "npm error code E403" >&2
+    echo "npm error 403 You cannot publish over the previously published versions: 9.9.9." >&2
+    exit 1
+  fi
   exit 0
 fi
 
@@ -242,13 +248,45 @@ export NPM_VERIFY_SLEEP_SECONDS=0
 rm -f -- "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine" "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine-wasm" \
   "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine.integrity_views" "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine-wasm.integrity_views"
 rm -f -- "$FAKE_PUBLISH_LOG"
-if PATH="$FAKE_BIN:$PATH" bash "$SCRIPT_DIRECTORY/publish-npm-release-bundle.sh" \
+if ! PATH="$FAKE_BIN:$PATH" GITHUB_ACTIONS=true bash "$SCRIPT_DIRECTORY/publish-npm-release-bundle.sh" \
   "$HANDOFF_DIRECTORY" \
   https://registry.npmjs.test >"$TEMP_DIRECTORY/propagation-timeout.log" 2>&1; then
-  echo "error: excessive propagation delay did not fail closed" >&2
+  echo "error: propagation timeout failed publication" >&2
   exit 1
 fi
 grep -F 'could not read the published integrity for @fortemate/dicechess-engine@9.9.9 from https://registry.npmjs.test after 3 attempts' "$TEMP_DIRECTORY/propagation-timeout.log" >/dev/null
+grep -F 'warning: could not read the published integrity for @fortemate/dicechess-engine@9.9.9' "$TEMP_DIRECTORY/propagation-timeout.log" >/dev/null
+grep -F '::warning::could not read the published integrity for @fortemate/dicechess-engine-wasm@9.9.9' "$TEMP_DIRECTORY/propagation-timeout.log" >/dev/null
+if [[ $(wc -l <"$FAKE_PUBLISH_LOG") -ne 2 ]]; then
+  echo "error: fixture registry with propagation timeout did not receive both npm tarballs" >&2
+  exit 1
+fi
+
+# Only this run's own successful upload may skip the read-back. An existing package, including
+# the mirror check before the canonical publication, is ours only once its digest matches.
+touch "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine" "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine-wasm"
+rm -f -- "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine.integrity_views" "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine-wasm.integrity_views"
+if PATH="$FAKE_BIN:$PATH" bash "$SCRIPT_DIRECTORY/publish-npm-release-bundle.sh" \
+  "$HANDOFF_DIRECTORY" \
+  https://npm.pkg.github.test \
+  --verify-only >"$TEMP_DIRECTORY/verify-only-timeout.log" 2>&1; then
+  echo "error: unreadable mirror digest passed verification" >&2
+  exit 1
+fi
+grep -F 'error: could not read the published integrity for @fortemate/dicechess-engine@9.9.9 from https://npm.pkg.github.test after 3 attempts' "$TEMP_DIRECTORY/verify-only-timeout.log" >/dev/null
+
+# The same holds for a version that a concurrent run published first.
+export FAKE_PUBLISH_CONFLICT=1
+rm -f -- "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine" "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine-wasm" \
+  "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine.integrity_views" "$FAKE_STATE_DIRECTORY/@fortemate_dicechess-engine-wasm.integrity_views"
+if PATH="$FAKE_BIN:$PATH" bash "$SCRIPT_DIRECTORY/publish-npm-release-bundle.sh" \
+  "$HANDOFF_DIRECTORY" \
+  https://registry.npmjs.test >"$TEMP_DIRECTORY/concurrent-timeout.log" 2>&1; then
+  echo "error: unreadable digest of a concurrent publication passed verification" >&2
+  exit 1
+fi
+grep -F 'error: could not read the published integrity for @fortemate/dicechess-engine@9.9.9 from https://registry.npmjs.test after 3 attempts' "$TEMP_DIRECTORY/concurrent-timeout.log" >/dev/null
+export FAKE_PUBLISH_CONFLICT=
 
 export NPM_VERIFY_MAX_ATTEMPTS=0
 export NPM_VERIFY_SLEEP_SECONDS=0
