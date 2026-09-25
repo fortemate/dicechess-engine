@@ -102,17 +102,28 @@ This function acts as the **Single Source of Truth** for chess rules, ensuring c
 function applyMove(dfen: string, from: string, to: string, promotion?: string): string | undefined
 ```
 
-**Returns:** The updated FEN string after the move is applied, or `undefined` if the move is pseudo-illegal.
+**Returns:** The updated DFEN after the move is applied, or `undefined` if the move is pseudo-illegal, no die in the pool allows it, or an argument is invalid.
 
 The returned DFEN keeps the dice the move did not spend, so the next call sees exactly the dice the
 rest of the turn may use: playing `e2e4` from a position with `PPN` leaves `PN`, and castling spends
-both the king and the rook die. A move that no die in the pool allows is still applied, and leaves
-the pool empty; a position without dice stays without dice.
+both the king and the rook die. Pass it on unchanged: while dice remain, appending dice to it gives an
+eight-field DFEN, which every function rejects.
+
+When the DFEN carries dice, the move must spend one of them. A move that no die in the pool allows —
+a pawn move with dice `NNN`, or castling without a rook die — returns `undefined`, as a pseudo-illegal
+move does. A position without dice, such as a board editor's, accepts any pseudo-legal move and stays
+without dice.
+
+`applyMove` checks the dice, not the whole turn. It does not know which dice the turn started with,
+so it cannot apply the Maximum Micro-moves Rule, and once the last die is spent the DFEN it returns has
+no dice: DFEN cannot tell spent dice from dice not yet rolled, so a further move on it is accepted.
+Walk [`getLegalTurnTree`](#getlegalturntree), and call `endTurn` at an empty child.
 
 > [!CAUTION]
 > **Behaviour change ([#279](https://github.com/fortemate/dicechess-engine/issues/279)).** Up to
-> 0.12.3, `applyMove` emptied the dice pool after every move, and clients removed the played die
-> themselves. A client that re-attaches the remaining dice after `applyMove` must stop doing so.
+> 0.12.3, `applyMove` emptied the dice pool after every move and did not check the dice, and clients
+> removed the played die themselves. A client that appends or re-attaches the remaining dice after
+> `applyMove` must stop doing so, and a move the dice do not allow now returns `undefined`.
 
 ---
 

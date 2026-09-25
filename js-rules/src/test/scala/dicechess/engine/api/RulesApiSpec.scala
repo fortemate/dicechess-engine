@@ -56,7 +56,9 @@ class RulesApiSpec extends FunSuite:
     ) // scalafix:ok(DisableSyntax.null)
   }
 
-  test("applyMove: keeps the dice the action did not spend, castling spends two, and agrees with DiceChess (#279)") {
+  test(
+    "applyMove: keeps the unspent dice, castling spends two, a move no die allows is refused, as in DiceChess (#279)"
+  ) {
     val pawnPush = s"$initialDfen PPN"
     assertEquals(
       RulesApi.applyMove(pawnPush, "e2", "e4", js.undefined).toOption,
@@ -67,6 +69,7 @@ class RulesApiSpec extends FunSuite:
       RulesApi.applyMove(castling, "e1", "g1", js.undefined).toOption,
       Some("4k3/8/8/8/8/8/4P3/5RK1 w - - 1 1 P")
     )
+    assertEquals(RulesApi.applyMove(s"$initialDfen NNN", "e2", "e4", js.undefined).toOption, None)
     for (dfen, from, to) <- List((pawnPush, "e2", "e4"), (castling, "e1", "g1"), (s"$initialDfen NNN", "e2", "e4")) do
       assertEquals(
         RulesApi.applyMove(dfen, from, to, js.undefined).toOption,

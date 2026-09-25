@@ -358,10 +358,17 @@ class JsApiSpec extends FunSuite:
     )
   }
 
-  test("applyMove: an action no die allows is still applied, with the dice cleared as before") {
-    // No pawn die was rolled. Whether applyMove should refuse such an action instead is decided on #279.
+  test("applyMove: refuses an action no die allows, castling included, while a position without dice stays lenient") {
+    assertEquals(JsApi.applyMove(s"$initialDfen NNN", "e2", "e4", js.undefined).toOption, None)
+    // Castling needs the rook die as well as the king die; the king alone may still step.
+    val kingOnly = "4k3/8/8/8/8/8/4P3/4K2R w K - 0 1 PK"
+    assertEquals(JsApi.applyMove(kingOnly, "e1", "g1", js.undefined).toOption, None)
     assertEquals(
-      JsApi.applyMove(s"$initialDfen NNN", "e2", "e4", js.undefined).toOption,
+      JsApi.applyMove(kingOnly, "e1", "f1", js.undefined).toOption,
+      Some("4k3/8/8/8/8/8/4P3/5K1R w - - 1 1 P")
+    )
+    assertEquals(
+      JsApi.applyMove(initialDfen, "e2", "e4", js.undefined).toOption,
       Some("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e3 0 1")
     )
   }

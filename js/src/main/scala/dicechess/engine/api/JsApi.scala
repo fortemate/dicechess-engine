@@ -315,8 +315,10 @@ object JsApi:
   /** Applies a move to the given DFEN and returns the resulting state.
     *
     * The result keeps the dice the move did not spend, so a turn can be played one micro-move at a time; castling
-    * spends the king and the rook die. A move that no die in the pool allows is still applied, and leaves the pool
-    * empty. Up to 0.12.3 the pool was emptied after every move (#279).
+    * spends the king and the rook die. A move that no die in the pool allows is refused like a pseudo-illegal one, and
+    * a position without dice accepts any pseudo-legal move; that includes the position returned once the last die is
+    * spent, because DFEN cannot tell spent dice from dice not yet rolled. Up to 0.12.3 the pool was emptied after every
+    * move and the dice were not checked (#279).
     *
     * @param dfen
     *   The starting board state in DiceChess Forsyth-Edwards Notation (DFEN).
@@ -327,7 +329,8 @@ object JsApi:
     * @param promotion
     *   The optional piece type to promote to (e.g. "q").
     * @return
-    *   The updated DFEN string after applying the move, or `undefined` if the move is pseudo-illegal.
+    *   The updated DFEN string after applying the move, or `undefined` if the move is pseudo-illegal or no die allows
+    *   it.
     */
   @JSExport
   @JSExportTopLevel("applyMove")

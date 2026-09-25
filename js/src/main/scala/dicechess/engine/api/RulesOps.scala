@@ -70,13 +70,15 @@ private[engine] object RulesOps:
                   m.promotionPieceType.exists(_.asNotation == promotion.get))
               }
               moveOpt match
-                case Some(move) =>
-                  // `makeMove` empties the pool, so the dice this action leaves are put back, exactly as the turn
-                  // generator chains micro-moves; castling spends the king and the rook die. An action no die allows,
-                  // and any move in a position without dice, is applied as before and leaves the pool empty.
+                // A position without dice (an editor, an analysis board) accepts any pseudo-legal move.
+                case Some(move) if state.flags.isDicePoolEmpty => FenParser.serialize(state.makeMove(move))
+                case Some(move)                                =>
+                  // With dice, the move must spend one: castling the king and the rook die, any other move the
+                  // mover's. `makeMove` empties the pool, so the dice left are put back, exactly as the turn
+                  // generator chains micro-moves. A move no die allows is refused like a pseudo-illegal one (#279).
                   val survived = state.diceAfter(move)
-                  val next     = state.makeMove(move)
-                  FenParser.serialize(if survived.isValid then next.withDiceSlotsOf(survived) else next)
+                  if survived.isValid then FenParser.serialize(state.makeMove(move).withDiceSlotsOf(survived))
+                  else js.undefined
                 case None => js.undefined
             case _ => js.undefined
         case Left(_) => js.undefined

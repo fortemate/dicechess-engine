@@ -14,7 +14,9 @@ export interface EngineFacadeApi {
 
     /**
      * Applies a move to the given DFEN and returns the resulting state, keeping the dice the move
-     * did not spend (castling spends the king and the rook die). Same as `DiceChess.applyMove`.
+     * did not spend (castling spends the king and the rook die) and, when the DFEN carries dice,
+     * refusing a move no die allows.
+     * Same as `DiceChess.applyMove`.
      */
     applyMove(dfen: string, from: string, to: string, promotion?: string): string | undefined;
 
@@ -147,8 +149,10 @@ export interface DiceChessApi {
     /**
      * Applies a move to the given DFEN and returns the resulting state.
      * The result keeps the dice the move did not spend; castling spends the king and the rook die.
-     * A move that no die in the pool allows is still applied, and leaves the pool empty.
-     * `undefined` when the move is not pseudo-legal or an argument is invalid.
+     * Pass it back unchanged: while dice remain, appending dice to it yields an eight-field DFEN,
+     * which is rejected. `undefined` when the move is not pseudo-legal, when no die in the pool
+     * allows it, or when an argument is invalid. A position without dice, including the one
+     * returned once the last die is spent, accepts any pseudo-legal move.
      * @param dfen The starting board state in DiceChess FEN notation.
      * @param from The algebraic notation of the starting square.
      * @param to The algebraic notation of the target square.

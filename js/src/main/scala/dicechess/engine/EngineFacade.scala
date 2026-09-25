@@ -101,7 +101,9 @@ object EngineFacade {
 
   /** Applies a move to the given DFEN and returns the resulting state, keeping the dice the move did not spend.
     *
-    * Same implementation as `DiceChess.applyMove`; castling spends the king and the rook die.
+    * Same implementation as `DiceChess.applyMove`: castling spends the king and the rook die, a move that no die in the
+    * pool allows is refused, and a position without dice (including one whose dice are spent) accepts any pseudo-legal
+    * move.
     *
     * @param dfen
     *   The starting board state in DiceChess FEN notation.
@@ -112,7 +114,8 @@ object EngineFacade {
     * @param promotion
     *   The optional piece type to promote to (e.g. "q").
     * @return
-    *   The updated DFEN string after applying the move, or `undefined` if the move is pseudo-illegal.
+    *   The updated DFEN string after applying the move, or `undefined` if the move is pseudo-illegal or no die allows
+    *   it.
     * @example
     *   ```scala
     *   val newDfen = EngineFacade.applyMove(dfen, "e2", "e4", js.undefined)
