@@ -145,7 +145,7 @@ const acceptDraw = DiceChess.shouldBotAcceptDraw(finalDfen);
 
 ## API Reference & Documentation
 
-* **[Interactive User & Developer Guide](https://fortemate.com/dicechess-engine/)**: Complete rules, architectural documentation, and live interactive visual catalogs.
+* **[Interactive User & Developer Guide](https://fortemate.github.io/dicechess-engine/)**: Complete rules, architectural documentation, and live interactive visual catalogs.
 * **[GitHub Repository](https://github.com/fortemate/dicechess-engine)**: Source code, issue tracker, and contribution guidelines.
 
 ---
