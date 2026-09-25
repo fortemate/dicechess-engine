@@ -256,9 +256,10 @@ why).
 
 ### 6. JavaScript and WebAssembly consumers: no action
 
-Keep `@fortemate/dicechess-engine` or `@fortemate/dicechess-engine-wasm`. When the `./rules` subpath
-lands (#222), rules-only front-ends can import it to shed the bots from their bundle; until then the
-full bundle is the only entry and it keeps working unchanged.
+Keep `@fortemate/dicechess-engine` or `@fortemate/dicechess-engine-wasm`; nothing else is required.
+From 0.12.0 the JavaScript package also has the `./rules` subpath: a rules-only front-end can switch
+its import specifier to `@fortemate/dicechess-engine/rules` and shed the bots from its bundle — see
+[The rules-only entry](#the-rules-only-entry). The WebAssembly package has no such subpath.
 
 ### 7. Source-tree consumers: add the rules root
 
