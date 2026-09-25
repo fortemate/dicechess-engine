@@ -199,6 +199,12 @@ class BotMatchRunnerSpec extends FunSuite:
       override val id: String                                    = idValue
       override def estimateMovesToGo(_clock: ClockState): Double = movesToGo
 
+    // A frozen stopwatch makes the deadline exactly `start + budget` as the bot sees it. On the real clock the
+    // scheduling delay between the runner's read and the bot's read eats into the observed budget, and a ~60 ms stall
+    // under a loaded coverage run once pushed it outside a 50 ms tolerance.
+    val frozenNanos       = 1_234_567_890_000L
+    val clock: () => Long = () => frozenNanos
+
     final class DeadlineRecordingBot extends TimeBudgetedSearch:
       private val observations = scala.collection.mutable.ListBuffer.empty[(Color, Long)]
 
@@ -213,16 +219,8 @@ class BotMatchRunnerSpec extends FunSuite:
           _random: Random
       ): Option[ScoredSequence] =
         if !observations.exists(_._1 == state.activeColor) then
-          observations += ((state.activeColor, deadlineNanos - System.nanoTime()))
+          observations += ((state.activeColor, deadlineNanos - clock()))
         findBestMove(state)
-
-    def assertBudget(observedNanos: Long, expectedMs: Long): Unit =
-      val expectedNanos = expectedMs * 1_000_000L
-      assert(observedNanos <= expectedNanos, s"deadline offset $observedNanos exceeded $expectedNanos")
-      assert(
-        observedNanos >= expectedNanos - 50_000_000L,
-        s"deadline offset $observedNanos was more than 50 ms below $expectedNanos"
-      )
 
     val botManager      = TimeManager(policy("test-bot-policy", 5.0))
     val baselineManager = TimeManager(policy("test-baseline-policy", 30.0))
@@ -236,7 +234,8 @@ class BotMatchRunnerSpec extends FunSuite:
         1,
         timeControl,
         botTimeManager = botManager,
-        baselineTimeManager = baselineManager
+        baselineTimeManager = baselineManager,
+        nanoTime = clock
       )
     )
 
@@ -245,12 +244,10 @@ class BotMatchRunnerSpec extends FunSuite:
     val initialClock     = ClockState(timeControl.initialMs, timeControl.incrementMs, 1)
     val botBudgetMs      = botManager.budgetMs(initialClock, 50L)
     val baselineBudgetMs = baselineManager.budgetMs(initialClock, 50L)
-    val botObservations  = bot.remainingNanosByColor
-    val baseObservations = baseline.remainingNanosByColor
-    assertEquals(botObservations.keySet, Set(Color.White, Color.Black))
-    assertEquals(baseObservations.keySet, Set(Color.White, Color.Black))
-    botObservations.values.foreach(assertBudget(_, botBudgetMs))
-    baseObservations.values.foreach(assertBudget(_, baselineBudgetMs))
+
+    def inBothPhases(budgetMs: Long) = Map(Color.White -> budgetMs * 1_000_000L, Color.Black -> budgetMs * 1_000_000L)
+    assertEquals(bot.remainingNanosByColor, inBothPhases(botBudgetMs))
+    assertEquals(baseline.remainingNanosByColor, inBothPhases(baselineBudgetMs))
     assertNotEquals(botBudgetMs, baselineBudgetMs)
   }
 
