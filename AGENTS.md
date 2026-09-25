@@ -224,6 +224,7 @@ branch only when the pull-request body explicitly includes `Closes #<id>`, `Fixe
 ### Repository-specific labels and milestones
 
 - PR release labels: `bug`, `enhancement`. Shared concern labels: `refactoring`, `documentation`, `testing`, `performance`, `ci-cd`, `dependencies`. Domain labels: `core-types`, `move-gen`, `turn-rules`, `search`, `evaluation`, `api`, `infrastructure`.
+- `rules` is applied by path, and its section comes first in `.github/release.yml`, so it outranks the branch type. The labeler applies it only to changes under `shared-rules/src/main/` (the `dicechess-rules` jar), not to test-only changes, `js-rules/` (labelled `api`) or build files; add it by hand to a `build.sbt` or `project/` change that alters the rules jar.
 - GitHub milestones lag the actual version — check live ones before assigning (`gh api repos/fortemate/dicechess-engine/milestones`) and skip the milestone if none fits. Real versioning is semver tags (`v1.x`) driven by the release workflows.
 
 ## Security & boundaries
