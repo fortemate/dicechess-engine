@@ -12,6 +12,9 @@ export interface DiceChessRulesApi {
     /**
      * Returns all legal moves as a flat array of UCI strings (e.g., ["e2e4", "e7e8q"]).
      * Empty for an invalid DFEN or a position whose dice pool allows no move.
+     * They are the legal first actions of a turn from this position, judged in isolation: asked
+     * again after each micro-move, the answer can admit actions the whole turn does not allow.
+     * The full entry's `getLegalTurnTree` follows a whole turn.
      */
     getLegalUciMoves(dfen: string): string[];
 
@@ -23,6 +26,11 @@ export interface DiceChessRulesApi {
 
     /**
      * Applies a move to the given DFEN and returns the resulting state.
+     * The result keeps the dice the move did not spend; castling spends the king and the rook die.
+     * Pass it back unchanged: while dice remain, appending dice to it yields an eight-field DFEN,
+     * which is rejected. `undefined` when the move is not pseudo-legal, when no die in the pool
+     * allows it, or when an argument is invalid. A position without dice, including the one
+     * returned once the last die is spent, accepts any pseudo-legal move.
      * @param dfen The starting board state in DiceChess FEN notation.
      * @param from The algebraic notation of the starting square.
      * @param to The algebraic notation of the target square.

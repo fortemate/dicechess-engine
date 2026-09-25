@@ -15,6 +15,10 @@ import scala.scalajs.js.JSConverters.*
   * Nothing here may reference [[dicechess.engine.api.JsApi]] or [[dicechess.engine.EngineFacade]]: a reference from the
   * rules root to either of them would pull their whole export surface — and with it `BotRegistry` and the search
   * package — into the shared module, silently undoing the split.
+  *
+  * The same holds for the rules half of the search package. The linker places whole classes in modules, so one method
+  * here that reached `TurnGenerator` would move it into the `./rules` closure even if only the full root called that
+  * method. The legal turn tree lives in [[dicechess.engine.api.TurnTreeOps]] for that reason (#279).
   */
 private[engine] object RulesOps:
 
@@ -66,8 +70,16 @@ private[engine] object RulesOps:
                   m.promotionPieceType.exists(_.asNotation == promotion.get))
               }
               moveOpt match
-                case Some(move) => FenParser.serialize(state.makeMove(move))
-                case None       => js.undefined
+                // A position without dice (an editor, an analysis board) accepts any pseudo-legal move.
+                case Some(move) if state.flags.isDicePoolEmpty => FenParser.serialize(state.makeMove(move))
+                case Some(move)                                =>
+                  // With dice, the move must spend one: castling the king and the rook die, any other move the
+                  // mover's. `makeMove` empties the pool, so the dice left are put back, exactly as the turn
+                  // generator chains micro-moves. A move no die allows is refused like a pseudo-illegal one (#279).
+                  val survived = state.diceAfter(move)
+                  if survived.isValid then FenParser.serialize(state.makeMove(move).withDiceSlotsOf(survived))
+                  else js.undefined
+                case None => js.undefined
             case _ => js.undefined
         case Left(_) => js.undefined
 

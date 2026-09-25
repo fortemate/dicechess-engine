@@ -16,9 +16,10 @@ import { DiceChess } from '@fortemate/dicechess-engine/rules'; // rules only, ~4
 
 The `./rules` subpath carries `getLegalUciMoves`, `generateMoves`, `applyMove`, `endTurn`, `perft`,
 `getPieceFromDice` and `canonicalKey` — identical in name and behaviour — and nothing that reaches
-the search package. Everything else below (`getBestMove`, bot discovery, time policies, the doubling
-and draw decisions, `estimateEquity`) lives on the full entry only. See
-[Published Artifacts](/dicechess-engine/architecture/artifacts/#the-rules-only-entry)
+the search package. Everything else below (`getLegalTurnTree`, `getBestMove`, bot discovery, time
+policies, the doubling and draw decisions, `estimateEquity`) lives on the full entry only;
+`getLegalTurnTree` is there because it is built from `TurnGenerator`, which `./rules` does not
+carry. See [Published Artifacts](/dicechess-engine/architecture/artifacts/#the-rules-only-entry)
 for the sizes and the reason the WebAssembly package has no such subpath.
 
 ## `DiceChess`
@@ -35,6 +36,58 @@ function getLegalUciMoves(dfen: string): string[]
 
 **Returns:** An array of full UCI move strings. If a pawn promotion is legal, the 5th character contains the target piece notation (e.g., `"e7e8q"`).
 
+These are the legal *first* actions of a turn from this position, and the call judges the position
+in isolation. Asked again after each micro-move, it no longer knows how many dice the whole turn
+could have used, so it can admit a continuation the turn does not allow. To follow a turn one action
+at a time, walk [`getLegalTurnTree`](#getlegalturntree) instead.
+
+---
+
+### `getLegalTurnTree`
+
+Returns every legal turn of the rolled position as a prefix tree of UCI micro-moves. Full entry
+only.
+
+```typescript
+interface MoveTree {
+    [uci: string]: MoveTree
+}
+
+function getLegalTurnTree(dfen: string): MoveTree
+```
+
+The tree is made of plain nested objects keyed by micro-move, with children in UCI order — the
+shape of dicechess-play-api's `MoveTree`, so `JSON.stringify` gives the same string the server
+sends for the same roll:
+
+```json
+{ "e2e3": { "e3e4": {} }, "e2e4": { "e4e5": {} } }
+```
+
+- **A node with no children is a complete legal turn**, and every complete legal turn is such a
+  leaf. A turn that captures the king always ends at a leaf, even when dice remain; every other
+  turn spends the most dice the roll allows (the
+  [Maximum Micro-moves Rule](/dicechess-engine/architecture/move-generation/05-maximum-micromoves/),
+  castling counting as two).
+- **The first level equals `getLegalUciMoves(dfen)`.** Deeper levels can be narrower than
+  `getLegalUciMoves` asked again after each micro-move.
+- **An empty object** means the roll has no legal move (the player passes). An invalid DFEN or a
+  DFEN without dice also returns `{}`.
+
+The difference matters in positions where a first action is legal only because a later one takes
+the king. With `8/8/8/2k5/8/1N6/2P5/K7 w - - 0 1 NPP`, `c2c4` is legal because `Nb3xc5` follows;
+after it, `getLegalUciMoves` admits every knight move, but a quiet one would end a two-dice turn
+while `c2c3, c3c4, Nb3xc5` uses all three. The tree offers `b3c5` alone:
+
+```typescript
+const tree = DiceChess.getLegalTurnTree('8/8/8/2k5/8/1N6/2P5/K7 w - - 0 1 NPP')
+Object.keys(tree.c2c4)  // ["b3c5"]
+```
+
+A client walks the tree alongside [`applyMove`](#applymove): play an action that is a key of the
+current node and descend into its child. An empty child completes the turn: call `endTurn`, unless
+the last action captured the king, which ends the game.
+
 ---
 
 ### `applyMove`
@@ -49,7 +102,28 @@ This function acts as the **Single Source of Truth** for chess rules, ensuring c
 function applyMove(dfen: string, from: string, to: string, promotion?: string): string | undefined
 ```
 
-**Returns:** The updated FEN string after the move is applied, or `undefined` if the move is pseudo-illegal.
+**Returns:** The updated DFEN after the move is applied, or `undefined` if the move is pseudo-illegal, no die in the pool allows it, or an argument is invalid.
+
+The returned DFEN keeps the dice the move did not spend, so the next call sees exactly the dice the
+rest of the turn may use: playing `e2e4` from a position with `PPN` leaves `PN`, and castling spends
+both the king and the rook die. Pass it on unchanged: while dice remain, appending dice to it gives an
+eight-field DFEN, which every function rejects.
+
+When the DFEN carries dice, the move must spend one of them. A move that no die in the pool allows —
+a pawn move with dice `NNN`, or castling without a rook die — returns `undefined`, as a pseudo-illegal
+move does. A position without dice, such as a board editor's, accepts any pseudo-legal move and stays
+without dice.
+
+`applyMove` checks the dice, not the whole turn. It does not know which dice the turn started with,
+so it cannot apply the Maximum Micro-moves Rule, and once the last die is spent the DFEN it returns has
+no dice: DFEN cannot tell spent dice from dice not yet rolled, so a further move on it is accepted.
+Walk [`getLegalTurnTree`](#getlegalturntree), and call `endTurn` at an empty child.
+
+> [!CAUTION]
+> **Behaviour change ([#279](https://github.com/fortemate/dicechess-engine/issues/279)).** Up to
+> 0.12.3, `applyMove` emptied the dice pool after every move and did not check the dice, and clients
+> removed the played die themselves. A client that appends or re-attaches the remaining dice after
+> `applyMove` must stop doing so, and a move the dice do not allow now returns `undefined`.
 
 ---
 

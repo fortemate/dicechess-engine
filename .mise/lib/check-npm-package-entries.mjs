@@ -33,6 +33,9 @@ const SEARCH_MARKERS = [
 
 const INITIAL_DFEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 const PROMOTION_DFEN = 'k7/4P3/8/8/8/8/8/4K3 w - - 0 1 P';
+// c2c4 is a legal first action here only because Nb3xc5 takes the king next, so after c2c4 the turn tree must offer
+// that capture alone, while getLegalUciMoves on the resulting position admits every knight move (#279).
+const KING_CAPTURE_DFEN = '8/8/8/2k5/8/1N6/2P5/K7 w - - 0 1 NPP';
 const RULES_FUNCTIONS = [
   'getLegalUciMoves',
   'generateMoves',
@@ -134,6 +137,27 @@ if (rules.DiceChess.applyMove(INITIAL_DFEN, 'e2', 'e4') !== full.DiceChess.apply
 if (rules.DiceChess.getPieceFromDice(6) !== 'k') fail('the "./rules" entry miscounted the dice-to-piece mapping');
 if (rules.DiceChess.canonicalKey(INITIAL_DFEN) !== full.DiceChess.canonicalKey(INITIAL_DFEN)) {
   fail('the two entries disagree on canonicalKey');
+}
+// applyMove keeps the dice the move did not spend and refuses a move no die allows, on both entries (#279).
+const afterPush = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e3 0 1 PN';
+for (const [subpath, api] of [['.', full.DiceChess], ['./rules', rules.DiceChess]]) {
+  const played = api.applyMove(`${INITIAL_DFEN} PPN`, 'e2', 'e4');
+  if (played !== afterPush) fail(`the "${subpath}" entry's applyMove returned ${JSON.stringify(played)} with dice PPN`);
+  const refused = api.applyMove(`${INITIAL_DFEN} NNN`, 'e2', 'e4');
+  if (refused !== undefined) fail(`the "${subpath}" entry's applyMove accepted e2e4 with dice NNN: ${JSON.stringify(refused)}`);
+}
+// The legal turn tree reaches TurnGenerator, so it is on the "." entry only; RULES_FUNCTIONS gains it if the
+// "./rules" entry is ever widened to carry TurnGenerator (#279).
+if (typeof full.DiceChess?.getLegalTurnTree !== 'function') {
+  fail('the "." entry lost DiceChess.getLegalTurnTree');
+} else {
+  const tree = full.DiceChess.getLegalTurnTree(KING_CAPTURE_DFEN);
+  if (JSON.stringify(tree.c2c4) !== '{"b3c5":{}}') {
+    fail(`the "." entry's turn tree continues c2c4 with ${JSON.stringify(tree.c2c4)}, expected only b3c5`);
+  }
+  const firstActions = Object.keys(tree).sort().join(',');
+  const legalMoves = [...full.DiceChess.getLegalUciMoves(KING_CAPTURE_DFEN)].sort().join(',');
+  if (firstActions !== legalMoves) fail(`the turn tree starts with ${firstActions}, getLegalUciMoves with ${legalMoves}`);
 }
 
 if (process.exitCode) {

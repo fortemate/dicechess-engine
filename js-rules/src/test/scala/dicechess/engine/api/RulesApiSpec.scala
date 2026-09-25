@@ -56,6 +56,27 @@ class RulesApiSpec extends FunSuite:
     ) // scalafix:ok(DisableSyntax.null)
   }
 
+  test(
+    "applyMove: keeps the unspent dice, castling spends two, a move no die allows is refused, as in DiceChess (#279)"
+  ) {
+    val pawnPush = s"$initialDfen PPN"
+    assertEquals(
+      RulesApi.applyMove(pawnPush, "e2", "e4", js.undefined).toOption,
+      Some("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e3 0 1 PN")
+    )
+    val castling = "4k3/8/8/8/8/8/4P3/4K2R w K - 0 1 PRK"
+    assertEquals(
+      RulesApi.applyMove(castling, "e1", "g1", js.undefined).toOption,
+      Some("4k3/8/8/8/8/8/4P3/5RK1 w - - 1 1 P")
+    )
+    assertEquals(RulesApi.applyMove(s"$initialDfen NNN", "e2", "e4", js.undefined).toOption, None)
+    for (dfen, from, to) <- List((pawnPush, "e2", "e4"), (castling, "e1", "g1"), (s"$initialDfen NNN", "e2", "e4")) do
+      assertEquals(
+        RulesApi.applyMove(dfen, from, to, js.undefined).toOption,
+        JsApi.applyMove(dfen, from, to, js.undefined).toOption
+      )
+  }
+
   test("endTurn: clears the dice pool and stale en-passant, and agrees with DiceChess") {
     val before   = "rnbqkbnr/p1pppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq c6e3 0 1 PN"
     val expected = "rnbqkbnr/p1pppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"

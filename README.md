@@ -92,19 +92,23 @@ import { DiceChess } from '@fortemate/dicechess-engine';
 // A Dice Chess FEN (DFEN) carries the rolled dice as a 7th field: "PN" = a Pawn and a Knight die.
 const dfen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 PN';
 
-// Every legal micro-move for this position and roll, as UCI strings
+// Every legal first micro-move for this position and roll, as UCI strings
 const legalMoves = DiceChess.getLegalUciMoves(dfen); // e.g. ["e2e3", "e2e4", "b1c3", ...]
 
-// Play one micro-move, then close the turn once the dice are spent
-const afterMove = DiceChess.applyMove(dfen, 'e2', 'e4');
-const nextTurn = DiceChess.endTurn(afterMove);
+// Every legal turn as a prefix tree of micro-moves; a client follows a turn by walking it
+const turns = DiceChess.getLegalTurnTree(dfen); // e.g. { "e2e4": { "g1f3": {}, ... }, ... }
+
+// Play the turn one micro-move at a time (each result keeps the unspent dice), then close it
+const afterPawn = DiceChess.applyMove(dfen, 'e2', 'e4'); // knight die left
+const afterKnight = DiceChess.applyMove(afterPawn, 'g1', 'f3'); // a leaf of the tree: the turn is complete
+const nextTurn = DiceChess.endTurn(afterKnight);
 
 // Ask a built-in bot for its turn (ids from DiceChess.getAvailableBots())
-const bot = DiceChess.getBestMove(nextTurn, { algorithm: 'greedy' });
+const bot = DiceChess.getBestMove(`${nextTurn} pn`, { algorithm: 'greedy' }); // Black rolled a Pawn and a Knight
 console.log('Bot plays:', bot.moves, 'score', bot.score);
 ```
 
-The full surface (`getAvailableBots`, clock-aware `getBestMove`, doubling and draw decisions, `estimateEquity`) is documented in the [JavaScript API Reference](https://fortemate.github.io/dicechess-engine/architecture/javascript-api/).
+The full surface (`getLegalTurnTree`, `getAvailableBots`, clock-aware `getBestMove`, doubling and draw decisions, `estimateEquity`) is documented in the [JavaScript API Reference](https://fortemate.github.io/dicechess-engine/architecture/javascript-api/).
 
 ### Java / Kotlin (JVM Facade)
 

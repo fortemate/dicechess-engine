@@ -28,7 +28,8 @@ import scala.scalajs.js.JSConverters.*
   * Its rules-level functions delegate to [[dicechess.engine.api.RulesOps]], which is also what the rules-only export
   * root (`RulesApi` in `js-rules/`, npm subpath `./rules`) calls. Keep them delegating: inlining a body back here would
   * leave a second copy in the `main` module, and a reference the other way round would pull this object — and with it
-  * the whole search package — into the module a rules-only host loads (#222).
+  * the whole search package — into the module a rules-only host loads (#222). The legal turn tree delegates to
+  * [[dicechess.engine.api.TurnTreeOps]] instead, because it reaches `TurnGenerator`, which `./rules` does not carry.
   */
 @JSExportTopLevel("DiceChess")
 object JsApi:
@@ -70,6 +71,30 @@ object JsApi:
   @JSExport
   @JSExportTopLevel("getLegalUciMoves")
   def getLegalUciMoves(dfen: String): js.Array[String] = RulesOps.getLegalUciMoves(dfen)
+
+  /** Returns every legal turn of the rolled position as a prefix tree of UCI micro-moves.
+    *
+    * The tree has play-api's `MoveTree` shape: plain nested objects keyed by micro-move, children in UCI order.
+    *
+    * ```json
+    * { "e2e3": { "e3e4": {} }, "e2e4": { "e4e5": {} } }
+    * ```
+    *
+    * A node with no children is a complete legal turn, and every complete legal turn is such a leaf: a turn that takes
+    * the king ends there, and every other turn spends the most dice the roll allows (castling counts as two). The first
+    * level is exactly [[getLegalUciMoves]]. Deeper levels can be narrower than [[getLegalUciMoves]] asked again after
+    * each micro-move, because that call judges the new position in isolation and no longer knows how many dice the
+    * whole turn could have used. A client that follows a turn one action at a time should therefore walk this tree.
+    *
+    * @param dfen
+    *   The position in DiceChess Forsyth-Edwards Notation, including the dice pool.
+    * @return
+    *   The tree of legal turns; an empty object when the roll has no legal move, and for a DFEN without dice or an
+    *   invalid one.
+    */
+  @JSExport
+  @JSExportTopLevel("getLegalTurnTree")
+  def getLegalTurnTree(dfen: String): js.Dictionary[js.Any] = TurnTreeOps.getLegalTurnTree(dfen)
 
   /** Counts the number of leaf nodes at a given depth for a DFEN position.
     *
@@ -289,6 +314,12 @@ object JsApi:
 
   /** Applies a move to the given DFEN and returns the resulting state.
     *
+    * The result keeps the dice the move did not spend, so a turn can be played one micro-move at a time; castling
+    * spends the king and the rook die. A move that no die in the pool allows is refused like a pseudo-illegal one, and
+    * a position without dice accepts any pseudo-legal move; that includes the position returned once the last die is
+    * spent, because DFEN cannot tell spent dice from dice not yet rolled. Up to 0.12.3 the pool was emptied after every
+    * move and the dice were not checked (#279).
+    *
     * @param dfen
     *   The starting board state in DiceChess Forsyth-Edwards Notation (DFEN).
     * @param from
@@ -298,7 +329,8 @@ object JsApi:
     * @param promotion
     *   The optional piece type to promote to (e.g. "q").
     * @return
-    *   The updated DFEN string after applying the move, or `undefined` if the move is pseudo-illegal.
+    *   The updated DFEN string after applying the move, or `undefined` if the move is pseudo-illegal or no die allows
+    *   it.
     */
   @JSExport
   @JSExportTopLevel("applyMove")

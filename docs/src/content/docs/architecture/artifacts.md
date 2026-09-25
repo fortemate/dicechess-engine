@@ -101,9 +101,10 @@ Both packages are one Scala.js link of `shared-rules/` + `shared/` + `js/`, diff
 target (JavaScript versus WasmGC). They export the same API, typed by the hand-written
 `dicechess-engine.d.ts`:
 
-- `DiceChess` — the primary facade: DFEN helpers, `getLegalUciMoves`, `applyMove`, `endTurn`, bot
-  discovery and `getBestMove` with clock-aware budgets, doubling-cube and draw-offer decisions,
-  `estimateEquity`, `perft`; see the [JavaScript API Reference](/dicechess-engine/architecture/javascript-api/).
+- `DiceChess` — the primary facade: DFEN helpers, `getLegalUciMoves`, the legal turn tree
+  `getLegalTurnTree`, `applyMove`, `endTurn`, bot discovery and `getBestMove` with clock-aware
+  budgets, doubling-cube and draw-offer decisions, `estimateEquity`, `perft`; see the
+  [JavaScript API Reference](/dicechess-engine/architecture/javascript-api/).
 - `EngineFacade` — the legacy facade (`getBotMove`, `getPieceTypeAt`, `applyMove`, `endTurn`), kept
   for existing callers.
 
@@ -138,7 +139,13 @@ package could not do.
 What `./rules` cannot reach is the point of it: `BotRegistry`, the bots, `Evaluator`, the opening
 book, time management, `MonteCarloEquity`, `TurnGenerator` and `KingCaptureProbability` (with its
 scratch board) are in the `.` module only. `.mise/lib/check-npm-package-entries.mjs` proves it over
-the linked modules every time `dist/` is assembled, and fails the build otherwise.
+the linked modules every time `dist/` is assembled, and fails the build otherwise. The legal turn
+tree, `getLegalTurnTree`, is built from `TurnGenerator` and is therefore on the `.` entry only.
+
+The linker assigns whole classes to modules, so the boundary is kept by *class*, not by export: the
+rules-level implementation both roots call (`RulesOps`) lives in the shared chunk, and a single
+method there that reached `TurnGenerator` would move `TurnGenerator` into `./rules` even without an
+export on that root. Code that needs it goes in a separate object that only the `.` root calls.
 
 The trade is visible in the table: splitting a link costs the full entry about 17 % in bytes
 (8.8 % gzipped), because the optimiser cannot inline across a module boundary. It buys the rules-only

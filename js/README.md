@@ -27,7 +27,7 @@ so importing both in the same application loads the shared half once.
 
 | Import | What it gives you | What it loads |
 | :--- | :--- | :--- |
-| `@fortemate/dicechess-engine` | everything: `DiceChess`, `EngineFacade`, the bots, `getBestMove`, equity, doubling and draw decisions | 1,308,539 B (191,262 B gzipped) |
+| `@fortemate/dicechess-engine` | everything: `DiceChess`, `EngineFacade`, the legal turn tree, the bots, `getBestMove`, equity, doubling and draw decisions | 1,308,539 B (191,262 B gzipped) |
 | `@fortemate/dicechess-engine/rules` | the rules only: `getLegalUciMoves`, `generateMoves`, `applyMove`, `endTurn`, `perft`, `getPieceFromDice`, `canonicalKey` | 891,712 B (138,394 B gzipped) |
 
 Use `/rules` wherever the application validates, applies and renders moves but never asks the engine
@@ -68,44 +68,56 @@ const legalMoves = DiceChess.getLegalUciMoves(dfen);
 console.log("Legal moves in this turn:", legalMoves);
 // e.g. ["e2e3", "e2e4", "b1c3", "b1a3", ...]
 
-// 2. Apply a micro-move. Note that applyMove preserves the active color
-// (White) since a Dice Chess turn may consist of multiple micro-moves.
+// 2. Get every legal turn as a prefix tree of UCI micro-moves. A node without children is a
+// complete turn. getLegalUciMoves judges each position in isolation, so a client that follows
+// a turn one action at a time walks this tree instead of calling getLegalUciMoves again.
+const turns = DiceChess.getLegalTurnTree(dfen);
+console.log("Continuations of e2e4:", Object.keys(turns["e2e4"]));
+// e.g. ["b1a3", "b1c3", "g1e2", "g1f3", "g1h3"]
+
+// 3. Apply a micro-move. applyMove preserves the active color (White), since a Dice Chess turn
+// may consist of multiple micro-moves, and keeps the dice the move did not spend ("N" here).
 // Arguments: (dfen, fromSquare, toSquare, optionalPromotionPiece)
 const nextDfen = DiceChess.applyMove(dfen, "e2", "e4");
 console.log("DFEN after micro-move:", nextDfen);
 
-// 3. Explicitly end the turn when the player has exhausted their dice.
-// This toggles the active color to Black, increments the move counter,
-// and clears any stale en-passant targets from the previous turn.
-const finalDfen = DiceChess.endTurn(nextDfen);
+// Spend the knight die too: the turn ends at a leaf of the tree, here after e2e4 then g1f3.
+const turnDfen = DiceChess.applyMove(nextDfen, "g1", "f3");
+
+// 4. Explicitly end the turn when the player has exhausted their dice.
+// This toggles the active color to Black, clears the dice pool (the full-move number advances
+// only after Black's turn), and clears any stale en-passant targets from the previous turn.
+const finalDfen = DiceChess.endTurn(turnDfen);
 console.log("DFEN after ending turn:", finalDfen);
 
-// 4. Discover available bots (search algorithms)
+// 5. Discover available bots (search algorithms)
 const bots = DiceChess.getAvailableBots();
 console.log("Available bots:", bots);
 // e.g. [ { id: 'random', name: 'Random', description: '...', difficulty: 1, isExperimental: false }, ... ]
 
-// 5. Discover the built-in time-management policies.
+// 6. Discover the built-in time-management policies.
 const timePolicies = DiceChess.getAvailableTimePolicies();
 console.log("Available time policies:", timePolicies);
 // [ "empirical-v1", "legacy-linear-v1" ]
 
-// 6. Compute the best sequence of micro-moves using the greedy bot search
+// 7. Compute the best sequence of micro-moves using the greedy bot search.
+// The bot needs Black's roll: append the dice (lowercase for Black), here a Pawn and a Knight.
 // Arguments: (dfen, optionalOptions)
-const botResult = DiceChess.getBestMove(finalDfen, { algorithm: "greedy" });
+const rolledDfen = `${finalDfen} pn`;
+const botResult = DiceChess.getBestMove(rolledDfen, { algorithm: "greedy" });
 console.log("Bot moves:", botResult.moves);
-// e.g. [ { from: "g8", to: "f6" } ]
+// e.g. [ { from: "b8", to: "c6" }, { from: "a7", to: "a5" } ]
 
 // Clock-aware searches use empirical-v1 by default. Pass legacy-linear-v1 to
 // reproduce the original allocation for rollback or an A/B comparison.
-const timedResult = DiceChess.getBestMove(finalDfen, {
+const timedResult = DiceChess.getBestMove(rolledDfen, {
   algorithm: "monte-carlo",
   clock: { remainingMs: 180_000, incrementMs: 2_000, moveNumber: 8 },
   timePolicy: "empirical-v1",
 });
 console.log("Effective budget (ms):", timedResult.budgetMs);
 
-// 7. Doubling Cube & Draw Offers (New)
+// 8. Doubling Cube & Draw Offers (New)
 // Check if the bot wants to offer a double before its turn:
 const shouldDouble = DiceChess.shouldBotOfferDouble(finalDfen, 1);
 

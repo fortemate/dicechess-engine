@@ -340,3 +340,101 @@ class JsApiSpec extends FunSuite:
     assertEquals(JsApi.benchFilterMaximalMoves(budgetDfen, 0), 0.0)
     assertEquals(JsApi.benchFilterMaximalMoves(budgetDfen, -3), 0.0)
   }
+
+  // --- applyMove keeps the surviving dice (#279) ---
+
+  test("applyMove: keeps the dice the action did not spend") {
+    val dfen = s"$initialDfen PPN"
+    assertEquals(
+      JsApi.applyMove(dfen, "e2", "e4", js.undefined).toOption,
+      Some("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e3 0 1 PN")
+    )
+  }
+
+  test("applyMove: castling spends both the king and the rook die") {
+    assertEquals(
+      JsApi.applyMove("4k3/8/8/8/8/8/4P3/4K2R w K - 0 1 PRK", "e1", "g1", js.undefined).toOption,
+      Some("4k3/8/8/8/8/8/4P3/5RK1 w - - 1 1 P")
+    )
+  }
+
+  test("applyMove: refuses an action no die allows, castling included, while a position without dice stays lenient") {
+    assertEquals(JsApi.applyMove(s"$initialDfen NNN", "e2", "e4", js.undefined).toOption, None)
+    // Castling needs the rook die as well as the king die; the king alone may still step.
+    val kingOnly = "4k3/8/8/8/8/8/4P3/4K2R w K - 0 1 PK"
+    assertEquals(JsApi.applyMove(kingOnly, "e1", "g1", js.undefined).toOption, None)
+    assertEquals(
+      JsApi.applyMove(kingOnly, "e1", "f1", js.undefined).toOption,
+      Some("4k3/8/8/8/8/8/4P3/5K1R w - - 1 1 P")
+    )
+    assertEquals(
+      JsApi.applyMove(initialDfen, "e2", "e4", js.undefined).toOption,
+      Some("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e3 0 1")
+    )
+  }
+
+  // --- The legal turn tree (#279) ---
+
+  /** White: Ka1, Nb3, Pc2. Black: Kc5. Dice: knight, pawn, pawn. c2c4 is a legal first action only because Nb3xc5 takes
+    * the king next; a quiet knight move after it would end a two-dice turn while c2c3, c3c4, Nb3xc5 uses three.
+    */
+  private val kingCaptureDfen = "8/8/8/2k5/8/1N6/2P5/K7 w - - 0 1 NPP"
+
+  private def node(tree: js.Any): js.Dictionary[js.Any] = tree.asInstanceOf[js.Dictionary[js.Any]]
+
+  /** Every root-to-leaf path of a tree, as UCI micro-moves. */
+  private def leafPaths(tree: js.Dictionary[js.Any]): List[List[String]] =
+    tree.toList.flatMap { (move, child) =>
+      val below = leafPaths(node(child))
+      if below.isEmpty then List(List(move)) else below.map(move :: _)
+    }
+
+  test("getLegalTurnTree: after c2c4 only the king capture continues the turn, and it is a leaf") {
+    val afterPush = node(JsApi.getLegalTurnTree(kingCaptureDfen)("c2c4"))
+    assertEquals(afterPush.keys.toList, List("b3c5"))
+    assertEquals(node(afterPush("b3c5")).keys.toList, Nil)
+  }
+
+  test("getLegalTurnTree: a king capture ends the turn even while dice remain") {
+    assertEquals(node(JsApi.getLegalTurnTree(kingCaptureDfen)("b3c5")).keys.toList, Nil)
+  }
+
+  test("getLegalTurnTree: the leaves are exactly the complete legal turns") {
+    for dfen <- List(kingCaptureDfen, s"$initialDfen PNB", "4k3/8/8/8/8/8/4P3/4K2R w K - 0 1 PRK") do
+      val state    = FenParser.parse(dfen).toOption.get
+      val expected = TurnGenerator.generateAllLegalTurnPaths(state).map(_.map(_.toUci)).sortBy(_.mkString(","))
+      assertEquals(leafPaths(JsApi.getLegalTurnTree(dfen)).sortBy(_.mkString(",")), expected, dfen)
+  }
+
+  test("getLegalTurnTree: the first level is exactly getLegalUciMoves") {
+    for dfen <- List(kingCaptureDfen, s"$initialDfen PNB", budgetDfen) do
+      assertEquals(JsApi.getLegalTurnTree(dfen).keys.toList.sorted, JsApi.getLegalUciMoves(dfen).toList.sorted, dfen)
+  }
+
+  test("getLegalTurnTree: serializes like play-api's MoveTree, children sorted by UCI") {
+    assertEquals(
+      js.JSON.stringify(JsApi.getLegalTurnTree("4k3/8/8/8/8/8/4P3/4K3 w - - 0 1 PP")),
+      """{"e2e3":{"e3e4":{}},"e2e4":{"e4e5":{}}}"""
+    )
+    assertEquals(
+      js.JSON.stringify(JsApi.getLegalTurnTree(budgetDfen)),
+      """{"e7e8b":{},"e7e8n":{},"e7e8q":{},"e7e8r":{}}"""
+    )
+  }
+
+  test("getLegalTurnTree: an empty object for a roll with no legal move and for a dice-less, invalid or null DFEN") {
+    assertEquals(js.JSON.stringify(JsApi.getLegalTurnTree("4k3/8/8/8/8/8/4P3/4K3 w - - 0 1 Q")), "{}")
+    assertEquals(js.JSON.stringify(JsApi.getLegalTurnTree(initialDfen)), "{}")
+    assertEquals(js.JSON.stringify(JsApi.getLegalTurnTree("invalid-fen")), "{}")
+    assertEquals(
+      js.JSON.stringify(JsApi.getLegalTurnTree(null.asInstanceOf[String])), // scalafix:ok(DisableSyntax.null)
+      "{}"
+    )
+  }
+
+  test("getLegalTurnTree: following the tree with applyMove leaves the dice each action needs") {
+    val afterPush = JsApi.applyMove(kingCaptureDfen, "c2", "c4", js.undefined).toOption
+    assertEquals(afterPush, Some("8/8/8/2k5/2P5/1N6/8/K7 w - c3 0 1 PN"))
+    val afterCapture = afterPush.flatMap(JsApi.applyMove(_, "b3", "c5", js.undefined).toOption)
+    assertEquals(afterCapture, Some("8/8/8/2N5/2P5/8/8/K7 w - c3 0 1 P"))
+  }
