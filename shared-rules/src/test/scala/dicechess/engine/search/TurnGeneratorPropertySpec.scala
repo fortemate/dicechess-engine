@@ -2,6 +2,7 @@
 package dicechess.engine.search
 
 import dicechess.engine.domain.*
+import dicechess.engine.movegen.LegalMovesFilter
 import munit.ScalaCheckSuite
 import org.scalacheck.Prop.*
 
@@ -255,5 +256,43 @@ class TurnGeneratorPropertySpec extends ScalaCheckSuite:
       val oldPaths = generateAllLegalTurnPathsOld(state).map(_.map(_.toString).mkString(",")).sorted
       val newPaths = TurnGenerator.generateAllLegalTurnPaths(state).map(_.map(_.toString).mkString(",")).sorted
       assertEquals(newPaths, oldPaths)
+    }
+  }
+
+  // #279: a client that follows a turn one action at a time asks LegalMovesFilter about each intermediate position.
+  // The two must agree on the first action; after it, the whole turn may allow FEWER continuations than the filter
+  // re-rooted at the new position (a first action legal only because a later one takes the king), never more.
+  property("the legal turns start with exactly the moves LegalMovesFilter admits") {
+    forAll(gameStateGen) { (state: GameState) =>
+      val firstActions =
+        TurnGenerator.generateAllLegalTurnPaths(state).flatMap(_.headOption).map(_.toUci).distinct.sorted
+      assertEquals(firstActions, LegalMovesFilter.filterMaximalMoves(state).map(_.toUci).sorted)
+    }
+  }
+
+  property("every continuation of a legal turn is also legal when judged step by step") {
+    forAll(gameStateGen) { (state: GameState) =>
+      val continuations = TurnGenerator
+        .generateAllLegalTurnPaths(state)
+        .flatMap(path => (1 until path.size).map(n => path.take(n) -> path(n)))
+        .groupMap(_._1)(_._2)
+      continuations.foreach { (prefix, next) =>
+        // Only the last move of a path may take the king, so every prefix move spent dice the pool had.
+        val after    = prefix.foldLeft(state)((s, m) => s.makeMove(m).withDiceSlotsOf(s.diceAfter(m)))
+        val stepwise = LegalMovesFilter.filterMaximalMoves(after).toSet
+        val stray    = next.distinct.filterNot(stepwise.contains)
+        assert(stray.isEmpty, s"after ${prefix.map(_.toUci)} the turn continues with ${stray.map(_.toUci)}")
+      }
+    }
+  }
+
+  // What makes a prefix tree of the turns (play-api's MoveTree, the JavaScript getLegalTurnTree) lossless: a node
+  // without children is a complete turn, and no complete turn has children.
+  property("no legal turn is a proper prefix of another legal turn") {
+    forAll(gameStateGen) { (state: GameState) =>
+      val turns    = TurnGenerator.generateAllLegalTurnPaths(state).map(_.map(_.toUci))
+      val complete = turns.toSet
+      val extended = turns.filter(turn => (1 until turn.size).exists(n => complete.contains(turn.take(n))))
+      assertEquals(extended, Nil)
     }
   }
