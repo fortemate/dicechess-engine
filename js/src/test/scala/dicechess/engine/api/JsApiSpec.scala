@@ -340,3 +340,28 @@ class JsApiSpec extends FunSuite:
     assertEquals(JsApi.benchFilterMaximalMoves(budgetDfen, 0), 0.0)
     assertEquals(JsApi.benchFilterMaximalMoves(budgetDfen, -3), 0.0)
   }
+
+  // --- applyMove keeps the surviving dice (#279) ---
+
+  test("applyMove: keeps the dice the action did not spend") {
+    val dfen = s"$initialDfen PPN"
+    assertEquals(
+      JsApi.applyMove(dfen, "e2", "e4", js.undefined).toOption,
+      Some("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e3 0 1 PN")
+    )
+  }
+
+  test("applyMove: castling spends both the king and the rook die") {
+    assertEquals(
+      JsApi.applyMove("4k3/8/8/8/8/8/4P3/4K2R w K - 0 1 PRK", "e1", "g1", js.undefined).toOption,
+      Some("4k3/8/8/8/8/8/4P3/5RK1 w - - 1 1 P")
+    )
+  }
+
+  test("applyMove: an action no die allows is still applied, with the dice cleared as before") {
+    // No pawn die was rolled. Whether applyMove should refuse such an action instead is decided on #279.
+    assertEquals(
+      JsApi.applyMove(s"$initialDfen NNN", "e2", "e4", js.undefined).toOption,
+      Some("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e3 0 1")
+    )
+  }

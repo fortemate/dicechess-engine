@@ -53,7 +53,7 @@ Each time they make a move, the engine performs a **micro-move**:
 
 * It updates the piece placements (using Bitboards and the Mailbox).
 * It updates castling rights or adds a new *en-passant* target if a pawn was double-pushed.
-* It removes the corresponding die from the active `dicePool`.
+* It removes the corresponding die from the dice pool; castling removes both the King and the Rook die. The DFEN that `applyMove` returns carries the dice that are left.
 
 > [!WARNING]  
 > **Color Preservation:** During `applyMove`, the active color **does not change**. If White plays their first micro-move, the resulting state still belongs to White.

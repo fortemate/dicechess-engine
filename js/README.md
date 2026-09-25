@@ -68,8 +68,8 @@ const legalMoves = DiceChess.getLegalUciMoves(dfen);
 console.log("Legal moves in this turn:", legalMoves);
 // e.g. ["e2e3", "e2e4", "b1c3", "b1a3", ...]
 
-// 2. Apply a micro-move. Note that applyMove preserves the active color
-// (White) since a Dice Chess turn may consist of multiple micro-moves.
+// 2. Apply a micro-move. applyMove preserves the active color (White), since a Dice Chess turn
+// may consist of multiple micro-moves, and keeps the dice the move did not spend ("N" here).
 // Arguments: (dfen, fromSquare, toSquare, optionalPromotionPiece)
 const nextDfen = DiceChess.applyMove(dfen, "e2", "e4");
 console.log("DFEN after micro-move:", nextDfen);

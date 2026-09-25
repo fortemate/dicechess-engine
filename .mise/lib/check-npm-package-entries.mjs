@@ -135,6 +135,12 @@ if (rules.DiceChess.getPieceFromDice(6) !== 'k') fail('the "./rules" entry misco
 if (rules.DiceChess.canonicalKey(INITIAL_DFEN) !== full.DiceChess.canonicalKey(INITIAL_DFEN)) {
   fail('the two entries disagree on canonicalKey');
 }
+// applyMove keeps the dice the move did not spend, on both entries (#279).
+const afterPush = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e3 0 1 PN';
+for (const [subpath, api] of [['.', full.DiceChess], ['./rules', rules.DiceChess]]) {
+  const played = api.applyMove(`${INITIAL_DFEN} PPN`, 'e2', 'e4');
+  if (played !== afterPush) fail(`the "${subpath}" entry's applyMove returned ${JSON.stringify(played)} with dice PPN`);
+}
 
 if (process.exitCode) {
   console.error('npm package entry check FAILED');

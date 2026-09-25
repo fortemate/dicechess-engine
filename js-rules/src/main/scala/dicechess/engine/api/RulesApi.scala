@@ -75,6 +75,9 @@ object RulesApi:
 
   /** Applies a move to the given DFEN and returns the resulting state.
     *
+    * The result keeps the dice the move did not spend; castling spends the king and the rook die. A move that no die in
+    * the pool allows is still applied, and leaves the pool empty.
+    *
     * @param dfen
     *   The starting board state in DiceChess Forsyth-Edwards Notation (DFEN).
     * @param from

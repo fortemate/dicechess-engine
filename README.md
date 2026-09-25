@@ -95,7 +95,7 @@ const dfen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 PN';
 // Every legal micro-move for this position and roll, as UCI strings
 const legalMoves = DiceChess.getLegalUciMoves(dfen); // e.g. ["e2e3", "e2e4", "b1c3", ...]
 
-// Play one micro-move, then close the turn once the dice are spent
+// Play one micro-move (the result keeps the unspent dice), then close the turn once the dice are spent
 const afterMove = DiceChess.applyMove(dfen, 'e2', 'e4');
 const nextTurn = DiceChess.endTurn(afterMove);
 

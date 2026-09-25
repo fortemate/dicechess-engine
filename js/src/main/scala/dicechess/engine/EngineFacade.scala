@@ -99,7 +99,9 @@ object EngineFacade {
         case Left(_) => js.undefined
       }
 
-  /** Applies a move to the given DFEN and returns the resulting state.
+  /** Applies a move to the given DFEN and returns the resulting state, keeping the dice the move did not spend.
+    *
+    * Same implementation as `DiceChess.applyMove`; castling spends the king and the rook die.
     *
     * @param dfen
     *   The starting board state in DiceChess FEN notation.

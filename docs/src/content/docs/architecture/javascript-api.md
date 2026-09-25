@@ -51,6 +51,16 @@ function applyMove(dfen: string, from: string, to: string, promotion?: string): 
 
 **Returns:** The updated FEN string after the move is applied, or `undefined` if the move is pseudo-illegal.
 
+The returned DFEN keeps the dice the move did not spend, so the next call sees exactly the dice the
+rest of the turn may use: playing `e2e4` from a position with `PPN` leaves `PN`, and castling spends
+both the king and the rook die. A move that no die in the pool allows is still applied, and leaves
+the pool empty; a position without dice stays without dice.
+
+> [!CAUTION]
+> **Behaviour change ([#279](https://github.com/fortemate/dicechess-engine/issues/279)).** Up to
+> 0.12.3, `applyMove` emptied the dice pool after every move, and clients removed the played die
+> themselves. A client that re-attaches the remaining dice after `applyMove` must stop doing so.
+
 ---
 
 ### `endTurn`

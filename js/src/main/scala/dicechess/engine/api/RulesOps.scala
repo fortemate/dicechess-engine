@@ -66,8 +66,14 @@ private[engine] object RulesOps:
                   m.promotionPieceType.exists(_.asNotation == promotion.get))
               }
               moveOpt match
-                case Some(move) => FenParser.serialize(state.makeMove(move))
-                case None       => js.undefined
+                case Some(move) =>
+                  // `makeMove` empties the pool, so the dice this action leaves are put back, exactly as the turn
+                  // generator chains micro-moves; castling spends the king and the rook die. An action no die allows,
+                  // and any move in a position without dice, is applied as before and leaves the pool empty.
+                  val survived = state.diceAfter(move)
+                  val next     = state.makeMove(move)
+                  FenParser.serialize(if survived.isValid then next.withDiceSlotsOf(survived) else next)
+                case None => js.undefined
             case _ => js.undefined
         case Left(_) => js.undefined
 
