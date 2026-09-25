@@ -23,9 +23,12 @@ The rules jar is also held **binary compatible with the previous release**: `rul
 `RulesMimaBaseline` from `build.sbt` and fails `mise run check` and CI on any break. An intentional
 break is accepted with a `ProblemFilters.exclude` entry in `rulesMimaFilters`, each carrying the issue
 that justifies it. The release workflow's next-SNAPSHOT pull request moves `RulesMimaBaseline` to the
-version it has just released, so every release becomes the baseline of the next one. PRs touching
-`shared-rules/` or `js-rules/` get the `rules` label and their own *Rules* section in the generated
-release notes, so a rules-only consumer can see from the notes whether a release matters to it.
+version it has just released, so every release becomes the baseline of the next one. PRs that change
+the jar's sources (`shared-rules/src/main/`) get the `rules` label and their own *Rules* section in
+the generated release notes, so a rules-only consumer can see from the notes whether a release
+matters to it. A PR that only changes tests does not, and neither does `js-rules/`: the npm `./rules`
+entry is not part of the jar. The labeler matches paths, not diffs, so a `build.sbt` or `project/`
+change that alters the jar (a Scala version bump, for example) gets the label by hand.
 
 Maven Central and npmjs.org are the public canonical registries. GitHub Packages remains a mirror
 for consumers who already use GitHub authentication.

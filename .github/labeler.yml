@@ -37,13 +37,14 @@ testing:
           - '**/src/test/**'
 
 # ── Domain labels from package paths ───────────────────────────────────────────
-# `rules` marks every change to the dicechess-rules artifact (#246): its own release-notes section
-# lets a rules-only consumer see whether a release carries anything for it.
+# `rules` marks every change to the dicechess-rules jar (#246): its own release-notes section lets
+# a rules-only consumer see whether a release carries anything for it. Only the jar's sources count
+# (`rulesLayout` in build.sbt), so not tests, and not js-rules/: the npm `./rules` entry is `api`.
+# A path cannot tell a jar change in build.sbt or project/ from a version bump: label that by hand.
 rules:
   - changed-files:
       - any-glob-to-any-file:
-          - 'shared-rules/**'
-          - 'js-rules/**'
+          - 'shared-rules/src/main/**'
 core-types:
   - changed-files:
       - any-glob-to-any-file:
@@ -70,5 +71,6 @@ api:
   - changed-files:
       - any-glob-to-any-file:
           - 'js/**'
+          - 'js-rules/**'
           - 'jvm/**'
           - '.wasm/**'
