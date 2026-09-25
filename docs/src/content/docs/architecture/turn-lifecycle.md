@@ -17,13 +17,16 @@ graph TD
     Roll --> Gen[2. getLegalTurnTree:<br/>every legal turn]
 
     subgraph Micro-moves Loop
-        Gen --> Filter{Does the current node<br/>have children?}
+        Filter{Does the current node<br/>have children?}
         Filter -- Yes --> Select[Player selects a child]
         Select --> Apply[3. applyMove]
-        Apply --> UpdatePool[Consume the played die<br/>Descend into the child]
+        Apply --> KingTaken{Did the move capture<br/>the opponent's King?}
+        KingTaken -- No --> UpdatePool[Consume the played die<br/>Descend into the child]
         UpdatePool --> Filter
     end
 
+    Gen --> Filter
+    KingTaken -- Yes --> GameOver((Game over))
     Filter -- No --> End[4. endTurn]
     End --> Clear[Clear stale en-passant targets]
     Clear --> Toggle[Toggle Active Color]
@@ -65,7 +68,7 @@ Each time they make a move, the engine performs a **micro-move**:
 
 * It updates the piece placements (using Bitboards and the Mailbox).
 * It updates castling rights or adds a new *en-passant* target if a pawn was double-pushed.
-* It removes the corresponding die from the dice pool; castling removes both the King and the Rook die. The DFEN that `applyMove` returns carries the dice that are left.
+* It removes the corresponding die from the dice pool; castling removes both the King and the Rook die. The DFEN that `applyMove` returns carries the dice that are left, and a move that no die allows is refused.
 
 A client that walks the tree plays one of the current node's keys with `applyMove` and descends into that key's child. When the child is empty, the turn is complete.
 

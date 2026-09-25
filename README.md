@@ -98,12 +98,13 @@ const legalMoves = DiceChess.getLegalUciMoves(dfen); // e.g. ["e2e3", "e2e4", "b
 // Every legal turn as a prefix tree of micro-moves; a client follows a turn by walking it
 const turns = DiceChess.getLegalTurnTree(dfen); // e.g. { "e2e4": { "g1f3": {}, ... }, ... }
 
-// Play one micro-move (the result keeps the unspent dice), then close the turn once the dice are spent
-const afterMove = DiceChess.applyMove(dfen, 'e2', 'e4');
-const nextTurn = DiceChess.endTurn(afterMove);
+// Play the turn one micro-move at a time (each result keeps the unspent dice), then close it
+const afterPawn = DiceChess.applyMove(dfen, 'e2', 'e4'); // knight die left
+const afterKnight = DiceChess.applyMove(afterPawn, 'g1', 'f3'); // a leaf of the tree: the turn is complete
+const nextTurn = DiceChess.endTurn(afterKnight);
 
 // Ask a built-in bot for its turn (ids from DiceChess.getAvailableBots())
-const bot = DiceChess.getBestMove(nextTurn, { algorithm: 'greedy' });
+const bot = DiceChess.getBestMove(`${nextTurn} pn`, { algorithm: 'greedy' }); // Black rolled a Pawn and a Knight
 console.log('Bot plays:', bot.moves, 'score', bot.score);
 ```
 

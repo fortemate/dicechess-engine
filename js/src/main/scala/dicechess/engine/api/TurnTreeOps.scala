@@ -9,11 +9,11 @@ import scala.scalajs.js
   *
   * It is kept out of [[dicechess.engine.api.RulesOps]] on purpose. The linker places whole classes in modules, and
   * `RulesOps` sits in the chunk both export roots load, so a method there that reached `TurnGenerator` would move
-  * `TurnGenerator` into the `./rules` closure even with no export on that root. Whether the tree joins `./rules` is the
-  * owner's decision (#279); until then only [[dicechess.engine.api.JsApi]] calls this object.
+  * `TurnGenerator` into the `./rules` closure even with no export on that root. The tree stays on the full entry
+  * (#279), so only [[dicechess.engine.api.JsApi]] calls this object.
   *
-  * The tree is built from plain JavaScript objects and arrays rather than Scala collections, so that it adds only
-  * `TurnGenerator` and this object to whichever module ends up holding it.
+  * The tree is built from plain JavaScript objects and arrays rather than Scala collections, which keeps its cost on
+  * the full entry to a few kilobytes.
   */
 private[engine] object TurnTreeOps:
 
@@ -32,7 +32,6 @@ private[engine] object TurnTreeOps:
       }
     inUciOrder(tree)
 
-  /** The child of `node` under the micro-move `uci`, created empty on first use. */
   private def child(node: js.Dictionary[js.Any], uci: String): js.Dictionary[js.Any] =
     val existing = node.asInstanceOf[js.Dynamic].selectDynamic(uci)
     if js.isUndefined(existing) then
