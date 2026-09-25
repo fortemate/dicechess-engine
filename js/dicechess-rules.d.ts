@@ -12,6 +12,9 @@ export interface DiceChessRulesApi {
     /**
      * Returns all legal moves as a flat array of UCI strings (e.g., ["e2e4", "e7e8q"]).
      * Empty for an invalid DFEN or a position whose dice pool allows no move.
+     * They are the legal first actions of a turn from this position, judged in isolation: asked
+     * again after each micro-move, the answer can admit actions the whole turn does not allow.
+     * The full entry's `getLegalTurnTree` follows a whole turn.
      */
     getLegalUciMoves(dfen: string): string[];
 

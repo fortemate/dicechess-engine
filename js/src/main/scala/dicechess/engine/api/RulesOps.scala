@@ -15,6 +15,10 @@ import scala.scalajs.js.JSConverters.*
   * Nothing here may reference [[dicechess.engine.api.JsApi]] or [[dicechess.engine.EngineFacade]]: a reference from the
   * rules root to either of them would pull their whole export surface — and with it `BotRegistry` and the search
   * package — into the shared module, silently undoing the split.
+  *
+  * The same holds for the rules half of the search package. The linker places whole classes in modules, so one method
+  * here that reached `TurnGenerator` would move it into the `./rules` closure even if only the full root called that
+  * method. The legal turn tree lives in [[dicechess.engine.api.TurnTreeOps]] for that reason (#279).
   */
 private[engine] object RulesOps:
 

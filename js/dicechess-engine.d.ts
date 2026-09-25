@@ -28,6 +28,20 @@ export interface EngineFacadeApi {
 
 export const EngineFacade: EngineFacadeApi;
 
+/**
+ * Every legal turn of a rolled position as a prefix tree of UCI micro-moves, in the shape of
+ * dicechess-play-api's `MoveTree`, children in UCI order:
+ *
+ *     { "e2e3": { "e3e4": {} }, "e2e4": { "e4e5": {} } }
+ *
+ * A node with no children is a complete legal turn, and every complete legal turn is such a leaf:
+ * a turn that captures the king ends there, and every other turn spends the most dice the roll
+ * allows. An empty object means the roll has no legal move.
+ */
+export interface MoveTree {
+    [uci: string]: MoveTree;
+}
+
 export type TimePolicyId = "empirical-v1" | "legacy-linear-v1";
 
 export interface ClockStateOptions {
@@ -64,8 +78,20 @@ export interface DiceChessApi {
 
     /**
      * Returns all legal moves as a flat array of UCI strings (e.g., ["e2e4", "e7e8q"]).
+     * They are the legal first actions of a turn from this position, judged in isolation: asked
+     * again after each micro-move, the answer can admit actions the whole turn does not allow.
+     * Use `getLegalTurnTree` to follow a turn.
      */
     getLegalUciMoves(dfen: string): string[];
+
+    /**
+     * Returns every legal turn of the rolled position as a prefix tree of UCI micro-moves.
+     * Its first level equals `getLegalUciMoves(dfen)`. Deeper levels can be narrower than
+     * `getLegalUciMoves` asked again after each micro-move, so a client that follows a turn one
+     * action at a time walks this tree. Empty for an invalid DFEN, a DFEN without dice, or a roll
+     * with no legal move.
+     */
+    getLegalTurnTree(dfen: string): MoveTree;
 
     /**
      * Executes perft (performance test) counting leaf nodes at given depth.
