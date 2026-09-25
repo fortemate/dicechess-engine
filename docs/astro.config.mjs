@@ -11,7 +11,9 @@ export default defineConfig({
 		remarkPlugins: [remarkMath],
 		rehypePlugins: [rehypeKatex],
 	},
-	site: 'https://fortemate.com',
+	// GitHub Pages serves this site at https://fortemate.github.io/dicechess-engine/. `site` is what canonical
+	// links, og:url and the sitemap point at, so it names the address that actually serves the pages.
+	site: 'https://fortemate.github.io',
 	base: '/dicechess-engine',
 	integrations: [
 		mermaid(),
