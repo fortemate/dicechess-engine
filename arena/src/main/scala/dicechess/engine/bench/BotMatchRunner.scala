@@ -286,7 +286,7 @@ object BotMatchRunner:
       gameId: String
   ): (Either[String, Option[ScoredSequence]], Long) =
     val mover                                        = stateWithDice.activeColor
-    val startNanos                                   = System.nanoTime()
+    val startNanos                                   = player.nanoTime()
     val turn: Either[String, Option[ScoredSequence]] = player.algorithm match
       case wb: WebhookBot =>
         wb.chooseTurn(stateWithDice, gameId, mover, remainingMs, oppRemainingMs, tc)
@@ -299,7 +299,7 @@ object BotMatchRunner:
         Right(tb.findBestMove(stateWithDice, startNanos + budgetMs * 1_000_000L, botRandom))
       case other =>
         Right(other.findBestMove(stateWithDice, botRandom))
-    val elapsedMs = (System.nanoTime() - startNanos) / 1_000_000L
+    val elapsedMs = (player.nanoTime() - startNanos) / 1_000_000L
     (turn, elapsedMs)
 
   final private class TimedGameLoop(
@@ -482,6 +482,7 @@ object BotMatchRunner:
       botTimeManager,
       gameSink,
       gamesPerColor,
+      nanoTime,
       resume,
       seed,
       sprtConfig,
@@ -528,8 +529,8 @@ object BotMatchRunner:
 
     if pairsPlayed > 0 then updateSprt()
 
-    val botPlayer      = TimedPlayer(botAlgo, botTimeManager)
-    val baselinePlayer = TimedPlayer(baseAlgo, baselineTimeManager)
+    val botPlayer      = TimedPlayer(botAlgo, botTimeManager, nanoTime)
+    val baselinePlayer = TimedPlayer(baseAlgo, baselineTimeManager, nanoTime)
 
     var i        = pairsPlayed
     var continue = sprtResult.forall(_.verdict == Sprt.Verdict.Continue)
@@ -1145,6 +1146,8 @@ final case class SprtConfig(elo0: Double, elo1: Double, alpha: Double, beta: Dou
   * @param resume
   *   durable observations from pair indices `[0, n)` and their prior wall time; the next pair remains `n`, preserving
   *   the uninterrupted run's dice and tie-breaking random streams
+  * @param nanoTime
+  *   the turn stopwatch given to both participants — see [[TimedPlayer]]
   */
 final case class TimedMatchSetup(
     gamesPerColor: Int,
@@ -1155,7 +1158,8 @@ final case class TimedMatchSetup(
     gameSink: Option[PairObservation => Unit] = None,
     botTimeManager: TimeManager = TimeManager.default,
     baselineTimeManager: TimeManager = TimeManager.default,
-    resume: TimedMatchResume = TimedMatchResume.empty
+    resume: TimedMatchResume = TimedMatchResume.empty,
+    nanoTime: () => Long = () => System.nanoTime()
 )
 
 /** Completed mirrored-pair observations restored before [[BotMatchRunner.runTimedMatch]] continues a durable run. The
@@ -1188,8 +1192,17 @@ final case class TimedMatchResult(
   /** Win-rate of the bot under test, counting draws as half a point. */
   def scorePercent: Double = (wins + 0.5 * draws) / totalGames * 100.0
 
-/** Bundles a [[SearchAlgorithm]] with its associated [[TimeManager]] for timed game simulation. */
+/** Bundles a [[SearchAlgorithm]] with its associated [[TimeManager]] for timed game simulation.
+  *
+  * @param nanoTime
+  *   the stopwatch for this player's turns: read when a turn starts, to derive a time-budgeted bot's deadline (`start +
+  *   budget`), and when it ends, to charge the elapsed time. It belongs to the player because the deadline means
+  *   something only against the clock the player's algorithm reads — `System.nanoTime` for every production bot. Only
+  *   tests replace it, so a test bot that reads the same clock sees its exact budget instead of racing scheduling delay
+  *   between the two reads.
+  */
 final case class TimedPlayer(
     algorithm: SearchAlgorithm,
-    timeManager: TimeManager = TimeManager.default
+    timeManager: TimeManager = TimeManager.default,
+    nanoTime: () => Long = () => System.nanoTime()
 )
