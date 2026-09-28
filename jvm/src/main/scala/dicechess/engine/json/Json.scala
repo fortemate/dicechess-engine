@@ -147,7 +147,9 @@ private[engine] object Json:
   private def parseArray(s: String, start: Int, depth: Int): Either[String, (Json, Int)] =
     parseContainer(s, start, depth, ']', parseValue(s, _, depth), JArr(_))
 
-  /** An object or an array: `parseElement` reads one field or item, `close` ends the container, `wrap` builds it. */
+  /** Objects and arrays differ only in their closing bracket and element parser, so they share one parser: two copies
+    * of the same loop could let the depth limit or the separator rules drift apart between the two containers.
+    */
   private def parseContainer[A](
       s: String,
       start: Int,
