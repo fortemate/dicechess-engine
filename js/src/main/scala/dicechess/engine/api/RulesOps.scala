@@ -58,30 +58,41 @@ private[engine] object RulesOps:
   def applyMove(dfen: String, from: String, to: String, promotion: js.UndefOr[String]): js.UndefOr[String] =
     if Option(dfen).isEmpty || Option(from).isEmpty || Option(to).isEmpty then js.undefined
     else
-      FenParser.parse(dfen) match
-        case Right(state) =>
-          (Square.fromNotation(from), Square.fromNotation(to)) match
-            case (Some(fromSq), Some(toSq)) =>
-              // Pseudo-legal generation without the dice constraint: the caller's move is already chosen, and the
-              // dice pool only decides which piece types a turn may still move.
-              val moveOpt = MoveGenerator.generateAllMoves(state).find { m =>
-                m.fromSquare == fromSq && m.toSquare == toSq &&
-                (!m.isPromotion || promotion.isEmpty ||
-                  m.promotionPieceType.exists(_.asNotation == promotion.get))
-              }
-              moveOpt match
-                // A position without dice (an editor, an analysis board) accepts any pseudo-legal move.
-                case Some(move) if state.flags.isDicePoolEmpty => FenParser.serialize(state.makeMove(move))
-                case Some(move)                                =>
-                  // With dice, the move must spend one: castling the king and the rook die, any other move the
-                  // mover's. `makeMove` empties the pool, so the dice left are put back, exactly as the turn
-                  // generator chains micro-moves. A move no die allows is refused like a pseudo-illegal one (#279).
-                  val survived = state.diceAfter(move)
-                  if survived.isValid then FenParser.serialize(state.makeMove(move).withDiceSlotsOf(survived))
-                  else js.undefined
-                case None => js.undefined
-            case _ => js.undefined
-        case Left(_) => js.undefined
+      val next =
+        for
+          state  <- FenParser.parse(dfen).toOption
+          fromSq <- Square.fromNotation(from)
+          toSq   <- Square.fromNotation(to)
+          move   <- findPseudoLegalMove(state, fromSq, toSq, promotion)
+          after  <- playMove(state, move)
+        yield FenParser.serialize(after)
+      next.orUndefined
+
+  /** Pseudo-legal generation without the dice constraint: the caller's move is already chosen, and the dice pool only
+    * decides which piece types a turn may still move.
+    */
+  private def findPseudoLegalMove(
+      state: GameState,
+      from: Square,
+      to: Square,
+      promotion: js.UndefOr[String]
+  ): Option[Move] =
+    MoveGenerator.generateAllMoves(state).find { m =>
+      m.fromSquare == from && m.toSquare == to &&
+      (!m.isPromotion || promotion.forall(p => m.promotionPieceType.exists(_.asNotation == p)))
+    }
+
+  /** A position without dice (an editor, an analysis board) accepts any pseudo-legal move.
+    *
+    * With dice, the move must spend one: castling the king and the rook die, any other move the mover's. `makeMove`
+    * empties the pool, so the dice left are put back, exactly as the turn generator chains micro-moves. A move no die
+    * allows is refused like a pseudo-illegal one (#279).
+    */
+  private def playMove(state: GameState, move: Move): Option[GameState] =
+    if state.flags.isDicePoolEmpty then Some(state.makeMove(move))
+    else
+      val survived = state.diceAfter(move)
+      Option.when(survived.isValid)(state.makeMove(move).withDiceSlotsOf(survived))
 
   /** @see [[dicechess.engine.api.JsApi.endTurn]] */
   def endTurn(dfen: String): js.UndefOr[String] =

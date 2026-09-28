@@ -44,6 +44,19 @@ class JsonSpec extends FunSuite:
     assert(Json.parse("\"unterminated").isLeft)
   }
 
+  test("parse: empty containers, with or without whitespace inside") {
+    assertEquals(Json.parse("[]"), Right(Json.arr()))
+    assertEquals(Json.parse("{ }"), Right(Json.obj()))
+    assertEquals(Json.parse("""{"a":[ ],"b":{}}"""), Right(Json.obj("a" -> Json.arr(), "b" -> Json.obj())))
+  }
+
+  test("parse: a container closes only on its own bracket, and a bad separator names that bracket") {
+    assertEquals(Json.parse("[1 2]"), Left("expected ',' or ']' at 3, found '2'"))
+    assertEquals(Json.parse("""{"a":1 "b":2}"""), Left("expected ',' or '}' at 7, found '\"'"))
+    assertEquals(Json.parse("[1}"), Left("expected ',' or ']' at 2, found '}'"))
+    assertEquals(Json.parse("""{"a":1]"""), Left("expected ',' or '}' at 6, found ']'"))
+  }
+
   test("parse: distinguishes whole numbers (JInt) from fractional/exponent numbers (JNum)") {
     assertEquals(Json.parse("42"), Right(Json.int(42L)))
     assertEquals(Json.parse("-7"), Right(Json.int(-7L)))

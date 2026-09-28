@@ -105,8 +105,8 @@ private[engine] object Json:
     * can carry back to the caller, so the "returns Left instead of throwing" promise would quietly not hold. Every
     * document this repository reads (arena reports, fixture catalogs, model manifests) nests a handful of levels.
     *
-    * Element *count* is not bounded and does not need to be: the object, array and string loops below are iterative, so
-    * a long document costs heap, not stack.
+    * Element *count* is not bounded and does not need to be: the container and string loops below are iterative, so a
+    * long document costs heap, not stack.
     */
   private val MaxDepth = 64
 
@@ -141,35 +141,58 @@ private[engine] object Json:
     if s.regionMatches(i, keyword, 0, keyword.length) then Right((value, i + keyword.length))
     else Left(s"expected '$keyword' at $i")
 
-  /** Object body, one field per iteration.
-    *
-    * Iterative, and accumulating through a builder rather than `acc :+ field`: the recursive version cost one stack
-    * frame and one full list copy per field, so a large object was quadratic on the way to overflowing the stack.
-    */
   private def parseObject(s: String, start: Int, depth: Int): Either[String, (Json, Int)] =
+    parseContainer(s, start, depth, '}', parseObjectField(s, _, depth), JObj(_))
+
+  private def parseArray(s: String, start: Int, depth: Int): Either[String, (Json, Int)] =
+    parseContainer(s, start, depth, ']', parseValue(s, _, depth), JArr(_))
+
+  /** Objects and arrays differ only in their closing bracket and element parser, so they share one parser: two copies
+    * of the same loop could let the depth limit or the separator rules drift apart between the two containers.
+    */
+  private def parseContainer[A](
+      s: String,
+      start: Int,
+      depth: Int,
+      close: Char,
+      parseElement: Int => Either[String, (A, Int)],
+      wrap: List[A] => Json
+  ): Either[String, (Json, Int)] =
     if depth > MaxDepth then Left(s"maximum nesting depth exceeded at $start")
     else
-      val afterBrace = skipWs(s, start + 1)
-      if afterBrace < s.length && s.charAt(afterBrace) == '}' then Right((JObj(Nil), afterBrace + 1))
-      else
-        val fields = List.newBuilder[(String, Json)]
-        var i      = afterBrace
-        var result = Option.empty[Either[String, (Json, Int)]]
-        while result.isEmpty do
-          parseObjectField(s, i, depth) match
-            case Left(error)                     => result = Some(Left(error))
-            case Right((key, value, afterValue)) =>
-              fields.addOne(key -> value)
-              val afterWs = skipWs(s, afterValue)
-              if afterWs >= s.length then result = Some(Left(s"unexpected end of input at $afterWs"))
-              else
-                s.charAt(afterWs) match
-                  case ',' => i = skipWs(s, afterWs + 1)
-                  case '}' => result = Some(Right((JObj(fields.result()), afterWs + 1)))
-                  case c   => result = Some(Left(s"expected ',' or '}' at $afterWs, found '$c'"))
-        result.get
+      val afterOpen = skipWs(s, start + 1)
+      if afterOpen < s.length && s.charAt(afterOpen) == close then Right((wrap(Nil), afterOpen + 1))
+      else parseElements(s, afterOpen, close, parseElement).map { case (elements, end) => (wrap(elements), end) }
 
-  private def parseObjectField(s: String, i: Int, depth: Int): Either[String, (String, Json, Int)] =
+  /** Container body, one element per iteration.
+    *
+    * Iterative, and accumulating through a builder rather than `acc :+ element`: the recursive version cost one stack
+    * frame and one full list copy per element, so a large container was quadratic on the way to overflowing the stack.
+    */
+  private def parseElements[A](
+      s: String,
+      first: Int,
+      close: Char,
+      parseElement: Int => Either[String, (A, Int)]
+  ): Either[String, (List[A], Int)] =
+    val elements = List.newBuilder[A]
+    var i        = first
+    var result   = Option.empty[Either[String, (List[A], Int)]]
+    while result.isEmpty do
+      parseElement(i) match
+        case Left(error)                    => result = Some(Left(error))
+        case Right((element, afterElement)) =>
+          elements.addOne(element)
+          val afterWs = skipWs(s, afterElement)
+          if afterWs >= s.length then result = Some(Left(s"unexpected end of input at $afterWs"))
+          else
+            s.charAt(afterWs) match
+              case ','             => i = skipWs(s, afterWs + 1)
+              case c if c == close => result = Some(Right((elements.result(), afterWs + 1)))
+              case c               => result = Some(Left(s"expected ',' or '$close' at $afterWs, found '$c'"))
+    result.get
+
+  private def parseObjectField(s: String, i: Int, depth: Int): Either[String, ((String, Json), Int)] =
     if i >= s.length || s.charAt(i) != '"' then Left(s"expected object key (string) at $i")
     else
       parseString(s, i).flatMap { case (key, afterKey) =>
@@ -178,33 +201,9 @@ private[engine] object Json:
         else
           val valueStart = skipWs(s, afterColonWs + 1)
           parseValue(s, valueStart, depth).map { case (value, afterValue) =>
-            (key, value, afterValue)
+            (key -> value, afterValue)
           }
       }
-
-  /** Array body, one element per iteration — iterative and builder-accumulated for the reason [[parseObject]] gives. */
-  private def parseArray(s: String, start: Int, depth: Int): Either[String, (Json, Int)] =
-    if depth > MaxDepth then Left(s"maximum nesting depth exceeded at $start")
-    else
-      val afterBracket = skipWs(s, start + 1)
-      if afterBracket < s.length && s.charAt(afterBracket) == ']' then Right((JArr(Nil), afterBracket + 1))
-      else
-        val items  = List.newBuilder[Json]
-        var i      = afterBracket
-        var result = Option.empty[Either[String, (Json, Int)]]
-        while result.isEmpty do
-          parseValue(s, i, depth) match
-            case Left(error)                => result = Some(Left(error))
-            case Right((value, afterValue)) =>
-              items.addOne(value)
-              val afterWs = skipWs(s, afterValue)
-              if afterWs >= s.length then result = Some(Left(s"unexpected end of input at $afterWs"))
-              else
-                s.charAt(afterWs) match
-                  case ',' => i = skipWs(s, afterWs + 1)
-                  case ']' => result = Some(Right((JArr(items.result()), afterWs + 1)))
-                  case c   => result = Some(Left(s"expected ',' or ']' at $afterWs, found '$c'"))
-        result.get
 
   /** String body, one character per iteration — a long run of escapes recursed once per escape before. */
   private def parseString(s: String, start: Int): Either[String, (String, Int)] =
