@@ -10,8 +10,8 @@ An open-source, high-performance, cross-platform game engine and AI search for *
 
 ## Built with the engine
 
-- **[Dice Chess in the browser](https://fortemate.com/practice)** — SvelteKit UI with local
-  bot search in a Web Worker.
+- **[Browser client prototype](https://github.com/fortemate/dicechess-play)** — a SvelteKit
+  application in development, with local bot search in a Web Worker.
 - **[Dice Chess TV](https://fortemate.github.io/dicechess-tv/)** — React Native for Vega,
   with remote-controlled hotseat play and on-device bots using the same npm package.
   Its public demo was recorded on the Vega Virtual Device; see the TV project for device-testing status.

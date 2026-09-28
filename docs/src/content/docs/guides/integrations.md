@@ -58,12 +58,12 @@ for bot discovery, search and error behavior. Existing integrations upgrading to
 should review its [release notes](https://github.com/fortemate/dicechess-engine/releases/tag/v0.13.0):
 `applyMove` now preserves remaining dice and refuses moves unsupported by the dice pool.
 
-### Browser practice play
+### Browser client prototype
 
-[Fortemate's practice game](https://fortemate.com/practice) uses SvelteKit and a Web Worker
-running the npm engine. The UI presents the board and handles input, while the worker
-executes local bot search. See the
-[public play client](https://github.com/fortemate/dicechess-play) for an application example.
+The [public browser client](https://github.com/fortemate/dicechess-play) is a working
+prototype under development. It uses SvelteKit and a Web Worker running the npm engine:
+the UI presents the board and handles input, while the worker executes local bot search.
+Its source illustrates an integration; it is not a finished product.
 
 ### Dice Chess TV
 
