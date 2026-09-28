@@ -54,6 +54,16 @@ class JsApiSpec extends FunSuite:
     assertEquals(result.toOption, Some(expected))
   }
 
+  test("applyMove: a named promotion piece must match, an omitted one still promotes") {
+    val initialFen = "rnbq1bnr/ppppPppp/8/8/8/8/PPP1PPPP/RNBQKBNR w KQ - 0 1"
+    assertEquals(
+      JsApi.applyMove(initialFen, "e7", "e8", "n").toOption,
+      Some("rnbqNbnr/pppp1ppp/8/8/8/8/PPP1PPPP/RNBQKBNR w KQ - 0 1")
+    )
+    assertEquals(JsApi.applyMove(initialFen, "e7", "e8", "x").toOption, None)
+    assert(JsApi.applyMove(initialFen, "e7", "e8", js.undefined).isDefined)
+  }
+
   test("applyMove: returns undefined for pseudo-illegal move") {
     val initialFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
     val result     = JsApi.applyMove(initialFen, "e2", "e5", js.undefined)
