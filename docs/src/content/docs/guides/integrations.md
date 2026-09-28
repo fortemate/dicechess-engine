@@ -48,7 +48,9 @@ Generate the tree once for the roll and descend through it as actions are played
 `applyMove` carries the unspent dice forward, but is not a complete legality validator.
 Recomputing first moves after each action loses the original turn's constraints.
 At a leaf, check for king capture; if the game continues, call `endTurn` before the next roll.
-An empty tree at the start of a roll is a forced pass.
+For a valid DFEN with dice assigned and a game still in progress, an empty tree at the start
+of the roll means a forced pass. Invalid DFENs and positions without dice also return an
+empty tree; validate the state and assign the roll before interpreting it as a pass.
 
 See the [turn lifecycle](/dicechess-engine/architecture/turn-lifecycle/) for the complete
 controller contract and the [JavaScript reference](/dicechess-engine/architecture/javascript-api/)

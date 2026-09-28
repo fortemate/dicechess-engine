@@ -35,7 +35,7 @@ completed implementation alone.
 Future changes should preserve full-turn legality, reproducible testing and bounded runtime.
 Compare both move quality and the cost in time, memory and implementation complexity.
 
-`GreedySearch` (Level 3) remains a simple, deterministic reference bot. Every experiment
+`GreedySearch` (Level 3) remains a simple reference bot with random tie-breaking. Every experiment
 should explicitly name its baseline, even when comparing against a stronger configured
 search. The protocol below applies to changes in existing algorithms as well as new ones.
 
