@@ -1,53 +1,99 @@
 ---
 title: Dice Chess Engine
-description: A high-performance, parallelized Expectimax game engine written in Scala 3.
+description: One Dice Chess rules engine for browser games, TV apps and JVM services. Built in Scala 3, available for JavaScript, WebAssembly, Java and Kotlin.
 template: splash
 hero:
-  tagline: Explore the architecture, infrastructure, and engineering workflows of the official Dice Chess Engine.
+  tagline: One set of rules. Many ways to play. Build browser games, TV apps and JVM services with the same Dice Chess engine.
   actions:
-    - text: View Roadmap
-      link: /dicechess-engine/architecture/milestones
+    - text: Build with the engine
+      link: /dicechess-engine/guides/integrations/
       icon: right-arrow
-    - text: Github Repository
-      link: https://github.com/fortemate/dicechess-engine
+    - text: Play in your browser
+      link: https://fortemate.com/practice
       icon: external
+      variant: secondary
+    - text: View source
+      link: https://github.com/fortemate/dicechess-engine
+      icon: github
       variant: minimal
 ---
 
 import { CardGrid, LinkCard } from '@astrojs/starlight/components';
+import { Image } from 'astro:assets';
+import television from '../../assets/dicechess-tv-hotseat.png';
 
+Dice Chess adds three dice to a familiar board: the roll decides which pieces can move,
+and a turn can contain several moves. Capture the opposing king to win.
+The engine handles legal turns, dice consumption and board transitions; your application
+chooses how people see and play the game.
 
-## ♟️ Engineering Core
+## From the browser to the living room
 
-<CardGrid stagger>
-	<LinkCard 
-		title="Modern Scala 3" 
-		href="/dicechess-engine/architecture/domain-modeling"
-		icon="rocket"
-		description="Leveraging powerful Opaque Types, Extension Methods, and the latest Scala 3.8+ standards for type-safe chess board representations."
-	/>
-	<LinkCard 
-		title="High Concurrency" 
-		href="/dicechess-engine/architecture/milestones"
-		icon="random"
-		description="Planned integration with Virtual Threads (Loom/Ox) to compute parallel branch expectations at scale."
-	/>
-	<LinkCard 
-		title="Robust Infrastructure" 
-		href="/dicechess-engine/infrastructure/oracle-cloud"
-		icon="setting"
-		description="Configured for Oracle Cloud Ampere (ARM64) environments with large Transposition Table allocations for maximum search depth."
-	/>
-	<LinkCard 
-		title="Developer Standards" 
-		href="/dicechess-engine/architecture/testing"
-		icon="pencil"
-		description="Unified developer environments with Mise, automated scalafmt linting, and fast local MUnit test suites."
-	/>
-	<LinkCard 
-		title="AI Bot Strategies" 
-		href="/dicechess-engine/architecture/search/01-primitive-search"
-		icon="list"
-		description="Detailed flow and heuristics of the five primitive single-turn search bots (Levels 1-5) and the Monte-Carlo bot (Level 6)."
-	/>
+**Dice Chess TV** brings the engine to a native **React Native for Vega** application for
+Amazon Fire TV. Two people can share a remote, or play against on-device bots. The rules
+and opponents run locally using the same JavaScript package available on npm.
+
+<figure>
+  <a href="https://fortemate.github.io/dicechess-tv/">
+    <Image src={television} alt="Dice Chess TV: Black selects a knight destination with the remote, with three dice beside the board" />
+  </a>
+  <figcaption>Dice Chess TV on the Vega Virtual Device. Physical Fire TV testing is tracked by the TV project.</figcaption>
+</figure>
+
+[Explore Dice Chess TV](https://fortemate.github.io/dicechess-tv/) ·
+[Watch the demo](https://www.youtube.com/watch?v=Q7wWAmUp2Sc) ·
+[Read the integration story](/dicechess-engine/guides/integrations/#dice-chess-tv)
+
+## Choose your integration
+
+<CardGrid>
+  <LinkCard
+    title="JavaScript & TypeScript"
+    href="/dicechess-engine/guides/integrations/#javascript-and-typescript"
+    description="Use the npm package in a browser, Node.js or a compatible app runtime. The play site runs its practice bots in a Web Worker."
+  />
+  <LinkCard
+    title="Scala, Java & Kotlin"
+    href="/dicechess-engine/guides/integrations/#scala-java-and-kotlin"
+    description="Add a Maven dependency to your service or bot. Call Scala directly, or use JvmApi from Java and Kotlin."
+  />
+  <LinkCard
+    title="WebAssembly"
+    href="/dicechess-engine/guides/integrations/#webassembly"
+    description="Use the same JavaScript-facing API with the WasmGC build. Check runtime support and benchmark your workload."
+  />
+  <LinkCard
+    title="Rules or rules + bots"
+    href="/dicechess-engine/architecture/artifacts/"
+    description="Choose the rules artifact for a Scala service, the lightweight JS rules entry for basic operations, or the full engine for legal turn trees and bots."
+  />
 </CardGrid>
+
+## What the engine handles
+
+- **Complete legal turns.** Dice-aware move generation, the maximum-dice rule, castling,
+  promotion, en passant and forced passes. JavaScript clients can follow a legal turn tree
+  through every action.
+- **Portable game state.** DFEN records the board and remaining dice; explicit `endTurn`
+  keeps the turn boundary under the application's control.
+- **Local computer opponents.** Six built-in bots, from random play to Monte-Carlo search.
+  The Scala search API also offers configurable expectimax; ONNX inference is JVM-only.
+- **Shared correctness checks.** Rules fixtures run on JVM, JavaScript and WebAssembly.
+  The visual move catalog is generated from the same test cases.
+
+[Understand the turn lifecycle](/dicechess-engine/architecture/turn-lifecycle/) ·
+[Explore search algorithms](/dicechess-engine/architecture/search/01-primitive-search/) ·
+[See testing and fixtures](/dicechess-engine/architecture/testing/)
+
+## Explore the documentation
+
+Start with the [integration guide](/dicechess-engine/guides/integrations/), then use the
+[JavaScript API](/dicechess-engine/architecture/javascript-api/),
+[JVM API](/dicechess-engine/architecture/jvm-api/) or
+[Scala API reference](/dicechess-engine/api/).
+The [project status](/dicechess-engine/architecture/milestones/) separates implemented
+capabilities from future work; [release notes](https://github.com/fortemate/dicechess-engine/releases)
+track versioned changes.
+
+The engine is open source under [AGPL-3.0-only](https://github.com/fortemate/dicechess-engine/blob/main/LICENSE).
+Models and opening-book data are supplied separately by applications.
