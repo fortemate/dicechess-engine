@@ -26,6 +26,7 @@ const SEARCH_MARKERS = [
   'BotRegistry',
   'GreedySearch',
   'TurnGenerator',
+  'PlayableDice',
   'Evaluator',
   'OpeningBook',
   'TimeManager',
@@ -158,6 +159,24 @@ if (typeof full.DiceChess?.getLegalTurnTree !== 'function') {
   const firstActions = Object.keys(tree).sort().join(',');
   const legalMoves = [...full.DiceChess.getLegalUciMoves(KING_CAPTURE_DFEN)].sort().join(',');
   if (firstActions !== legalMoves) fail(`the turn tree starts with ${firstActions}, getLegalUciMoves with ${legalMoves}`);
+}
+// The playable dice come from TurnGenerator as well, so they are on the "." entry only (#293). In the start position
+// with QRN only a knight can move first, but the rook can follow it; a king capture ends the turn although two dice
+// are left; and a quiet knight move after c2c4 begins no legal turn.
+if (typeof full.DiceChess?.getPlayableDice !== 'function') {
+  fail('the "." entry lost DiceChess.getPlayableDice');
+} else {
+  for (const [dfen, moves, expected] of [
+    [`${INITIAL_DFEN} QRN`, [], 'NR'],
+    [`${INITIAL_DFEN} QRN`, ['b1a3'], 'R'],
+    [KING_CAPTURE_DFEN, ['b3c5'], ''],
+    [KING_CAPTURE_DFEN, ['c2c4', 'b3a5'], undefined],
+  ]) {
+    const playable = full.DiceChess.getPlayableDice(dfen, moves);
+    if (playable !== expected) {
+      fail(`getPlayableDice(${dfen}, ${JSON.stringify(moves)}) returned ${JSON.stringify(playable)}, expected ${JSON.stringify(expected)}`);
+    }
+  }
 }
 
 if (process.exitCode) {

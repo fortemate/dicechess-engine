@@ -96,6 +96,37 @@ object JsApi:
   @JSExportTopLevel("getLegalTurnTree")
   def getLegalTurnTree(dfen: String): js.Dictionary[js.Any] = TurnTreeOps.getLegalTurnTree(dfen)
 
+  /** Returns the dice that a legal turn can still spend once `moves` have been played (#293).
+    *
+    * A die is playable while at least one legal turn that begins with `moves` spends it after them. A client can dim
+    * every other die: none of the turns left can use it, and none will for the rest of the turn.
+    *
+    * The answer is about the whole turn. In the start position with dice `QRN`, only a knight can move first, yet the
+    * rook can move after `b1a3`, so this returns `"NR"`: only the queen die is lost. After `b1a3` it returns `"R"`.
+    *
+    * Pass the DFEN of the roll, as for [[getLegalTurnTree]], and the micro-moves played since, not the DFEN after them.
+    * The Maximum Micro-moves Rule counts the dice the whole turn could use, and a turn that takes the king ends there.
+    * Judged afresh, the DFEN after a king capture would still have dice to spend.
+    *
+    * A client holding the tree needs the call only when the current node has children but no path below it has as many
+    * actions as there are dice left. An empty node means no die is playable, and a path as long as the dice left means
+    * every one of them is, since each action spends at least one.
+    *
+    * @param dfen
+    *   The rolled position at the start of the turn, in DiceChess Forsyth-Edwards Notation, including the dice pool.
+    * @param moves
+    *   The UCI micro-moves played so far this turn, a path from the root of [[getLegalTurnTree]]. None when omitted.
+    * @return
+    *   The playable dice, written as the DFEN dice field writes them: ascending by face, upper case for White and lower
+    *   case for Black, a face repeated as often as the most dice showing it that one legal turn spends. `""` when no
+    *   legal turn continues: after a complete turn, a king capture included, and for a roll with no legal move or a
+    *   DFEN without dice. `undefined` for an invalid DFEN, or when `moves` is not the beginning of a legal turn.
+    */
+  @JSExport
+  @JSExportTopLevel("getPlayableDice")
+  def getPlayableDice(dfen: String, moves: js.UndefOr[js.Array[String]] = js.undefined): js.UndefOr[String] =
+    TurnTreeOps.getPlayableDice(dfen, moves)
+
   /** Counts the number of leaf nodes at a given depth for a DFEN position.
     *
     * If the DFEN does not contain a dice pool, standard chess move generation is used.

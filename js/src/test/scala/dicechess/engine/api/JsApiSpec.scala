@@ -438,3 +438,101 @@ class JsApiSpec extends FunSuite:
     val afterCapture = afterPush.flatMap(JsApi.applyMove(_, "b3", "c5", js.undefined).toOption)
     assertEquals(afterCapture, Some("8/8/8/2N5/2P5/8/8/K7 w - c3 0 1 P"))
   }
+
+  // --- The dice a legal turn can still spend (#293) ---
+
+  private def played(ucis: String*): js.Array[String] = js.Array(ucis*)
+
+  /** The DFEN's dice field in upper case, the dice the turn has left. */
+  private def diceField(dfen: String): String = dfen.split(' ').lift(6).getOrElse("").toUpperCase
+
+  /** `dfen` after the micro-move `uci`, as `applyMove` returns it. */
+  private def applied(dfen: String, uci: String): String =
+    val promotion: js.UndefOr[String] = if uci.length > 4 then uci.drop(4) else js.undefined
+    JsApi.applyMove(dfen, uci.take(2), uci.slice(2, 4), promotion).toOption.getOrElse(fail(s"$uci refused on $dfen"))
+
+  /** For each piece letter, the most dice showing it that one continuation in `subtree` spends, read off the dice field
+    * `applyMove` leaves after every micro-move.
+    */
+  private def mostSpent(dfen: String, subtree: js.Dictionary[js.Any]): Map[Char, Int] =
+    subtree.toList.foldLeft(Map.empty[Char, Int]) { case (most, (uci, child)) =>
+      val next  = applied(dfen, uci)
+      val spent = diceField(dfen).diff(diceField(next))
+      val below = mostSpent(next, node(child))
+      (spent.toSet ++ below.keySet).foldLeft(most) { (m, letter) =>
+        m.updated(letter, math.max(m.getOrElse(letter, 0), spent.count(_ == letter) + below.getOrElse(letter, 0)))
+      }
+    }
+
+  /** Checks `subtree`, reached from `start` by `path`, and every node below it. */
+  private def agreesWithTree(start: String, dfen: String, subtree: js.Dictionary[js.Any], path: List[String]): Unit =
+    val most     = mostSpent(dfen, subtree)
+    val expected = "PNBRQK".flatMap(letter => letter.toString * most.getOrElse(letter, 0))
+    assertEquals(JsApi.getPlayableDice(start, js.Array(path*)).toOption, Some(expected), s"$start after $path")
+    subtree.toList.foreach((uci, child) => agreesWithTree(start, applied(dfen, uci), node(child), path :+ uci))
+
+  test("getPlayableDice: the dice the whole turn can spend, not only the next action") {
+    // Only a knight can move first, but after b1a3 the rook can go a1b1: the queen die alone is lost.
+    assertEquals(JsApi.getPlayableDice(s"$initialDfen QRN").toOption, Some("NR"))
+    assertEquals(JsApi.getPlayableDice(s"$initialDfen QRN", played("b1a3")).toOption, Some("R"))
+    assertEquals(JsApi.getPlayableDice(s"$initialDfen QRN", played("b1a3", "a1b1")).toOption, Some(""))
+    assertEquals(JsApi.getPlayableDice(s"$initialDfen BNQ").toOption, Some("N"))
+  }
+
+  test("getPlayableDice: written as the DFEN writes its dice field, in the case of the side to move") {
+    assertEquals(
+      JsApi.getPlayableDice("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1 qrn").toOption,
+      Some("nr")
+    )
+    // Where every die is playable, the answer is the dice field the engine itself writes for the roll.
+    for dfen <- List(s"$initialDfen QPB", "4k3/8/8/8/8/8/8/4K2R w K - 0 1 KR", "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1 PP") do
+      val written = FenParser.serialize(FenParser.parse(dfen).toOption.get).split(' ')(6)
+      assertEquals(JsApi.getPlayableDice(dfen).toOption, Some(written), dfen)
+  }
+
+  test("getPlayableDice: moves that are omitted, undefined, null or empty mean none played") {
+    val dfen = s"$initialDfen QRN"
+    assertEquals(JsApi.getPlayableDice(dfen, js.undefined).toOption, Some("NR"))
+    assertEquals(
+      JsApi.getPlayableDice(dfen, null.asInstanceOf[js.Array[String]]).toOption, // scalafix:ok(DisableSyntax.null)
+      Some("NR")
+    )
+    assertEquals(JsApi.getPlayableDice(dfen, played()).toOption, Some("NR"))
+  }
+
+  test("getPlayableDice: nothing is playable after a king capture, and before one only the capturing die") {
+    assertEquals(JsApi.getPlayableDice(kingCaptureDfen, played("b3c5")).toOption, Some(""))
+    assertEquals(JsApi.getPlayableDice(kingCaptureDfen, played("c2c4")).toOption, Some("N"))
+    // The DFEN after the capture still carries both pawn dice, so asked afresh they would look playable.
+    assertEquals(JsApi.getPlayableDice(applied(kingCaptureDfen, "b3c5")).toOption, Some("PP"))
+  }
+
+  test("getPlayableDice: an empty string for a roll with no legal move and for a DFEN without dice") {
+    assertEquals(JsApi.getPlayableDice("4k3/8/8/8/8/8/4P3/4K3 w - - 0 1 Q").toOption, Some(""))
+    assertEquals(JsApi.getPlayableDice(initialDfen).toOption, Some(""))
+  }
+
+  test("getPlayableDice: undefined for an invalid DFEN and for moves that begin no legal turn") {
+    assertEquals(JsApi.getPlayableDice("invalid-fen").toOption, None)
+    assertEquals(JsApi.getPlayableDice(null.asInstanceOf[String]).toOption, None) // scalafix:ok(DisableSyntax.null)
+    // Legal step by step, but a quiet knight move after c2c4 begins no legal turn.
+    assertEquals(JsApi.getPlayableDice(kingCaptureDfen, played("c2c4", "b3a5")).toOption, None)
+    // No die allows a pawn move.
+    assertEquals(JsApi.getPlayableDice(s"$initialDfen BNQ", played("e2e4")).toOption, None)
+    // Nothing follows a complete turn.
+    assertEquals(JsApi.getPlayableDice(s"$initialDfen BNQ", played("b1a3", "a3b5")).toOption, None)
+    assertEquals(JsApi.getPlayableDice(s"$initialDfen BNQ", played("not-a-move")).toOption, None)
+    assertEquals(
+      JsApi
+        .getPlayableDice(s"$initialDfen BNQ", played(null.asInstanceOf[String]))
+        .toOption, // scalafix:ok(DisableSyntax.null)
+      None
+    )
+  }
+
+  test("getPlayableDice: at every node of the turn tree, the dice some continuation below it spends") {
+    val choice   = "4k3/8/8/8/8/8/PP2P1P1/QN2KB2 w - - 0 1 PBQ"
+    val castling = "4k3/8/8/8/8/8/8/4K2R w K - 0 1 RK"
+    for dfen <- List(kingCaptureDfen, choice, castling, s"$initialDfen QRN", budgetDfen) do
+      agreesWithTree(dfen, dfen, JsApi.getLegalTurnTree(dfen), Nil)
+  }
