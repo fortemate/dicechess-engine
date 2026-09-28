@@ -1,73 +1,57 @@
 ---
-title: Infrastructure Analysis
-description: Comparative assessment of compute environments and the strategic decision to target Oracle Cloud Free Tier.
+title: Runtime & Hosting Choices
+description: Choose local JavaScript, WasmGC or JVM execution based on your application's workload and platform constraints.
 ---
 
-Deploying a **Scala 3 Chess Engine** introduces highly specific compute requirements. Unlike typical CRUD apps, a chess engine is fundamentally **CPU-bound** (move search, bitwise ops) and **RAM-hungry** (Transposition Tables for caching evaluations). 
+The engine runs inside its host application. It does not require a particular cloud provider
+or an engine server. Browser practice play and Dice Chess TV both use local execution;
+a service or remote bot can use the JVM artifacts instead.
 
-Here is an objective evaluation of our hosting options.
+This page replaces an early Oracle Cloud hosting proposal. Its URL is retained for existing
+links; that proposal did not establish a deployment requirement or a hardware performance guarantee.
 
----
+## Match execution to the application
 
-## 📊 Comparative Assessment Matrix
+| Application | Execution option | What to verify |
+| --- | --- | --- |
+| Interactive browser game | JavaScript engine, with a Web Worker for costly search | UI responsiveness, worker messages and saved turn state |
+| Native app with a compatible JavaScript runtime | Bundled JavaScript package | Runtime compatibility, input handling, lifecycle and on-device search cost |
+| WasmGC-capable browser or worker | WebAssembly package and JavaScript loader | WasmGC support, asset loading, startup and workload benchmarks |
+| Backend service or JVM bot | Maven rules or engine artifact | Java/Scala compatibility, memory, latency and concurrency under load |
+| Android application | Platform-specific source integration | Android toolchain and API compatibility; see the artifact guide |
 
-| Feature | 🥧 Raspberry Pi 4 (4GB) | 💻 Asus FX570UD (8GB) | ☁️ Oracle Cloud (Ampere) |
-| :--- | :--- | :--- | :--- |
-| **CPU Performance** | Low (ARMv8 A72) | High (Intel Core i7/i5 Mobile) | Medium-High (Ampere A1 ARM) |
-| **RAM Availability** | 4 GB (Dedicated) | 8 GB (Shared / Congested) | **Up to 24 GB (Free Tier)** |
-| **Max Search Depth** | Low (Slow single-thread) | High (Fast clock speed) | High (4 True Cores) |
-| **Transposition Cache**| Small (<500 MB) | Moderate (<1 GB due to load) | **Huge (4 GB to 16 GB)** |
-| **Network Reliability** | Dependent on Home ISP | Dependent on Home ISP | **Excellent (Datacenter)** |
-| **Cost** | $0 (Owned) | $0 (Owned) | **$0 (Forever Free)** |
-| **Architecture** | ARM64 | x86_64 | ARM64 |
+[Build with the Engine](/dicechess-engine/guides/integrations/) explains these paths and links
+to working public applications. [Published Artifacts](/dicechess-engine/architecture/artifacts/)
+defines what each package includes.
 
----
+## Local play
 
-## 🔍 Detailed Node Evaluation
+Local rules and bots allow an application to play without a remote engine request.
+The host still implements persistence, user input and any offline asset handling.
+A browser Web Worker is one way to keep search off the UI thread; native application
+runtimes need their own scheduling and lifecycle integration.
 
-### 1. Raspberry Pi 4 (4GB RAM)
-* **The Verdict:** **Too weak for Production Search.**
-* **Why:** While it runs 24/7, its Cortex-A72 cores have extremely weak floating-point performance and low clock speed compared to modern CPUs. In practice this is where the ONNX expectimax bots ended up anyway, under a hard per-move cap. 
-* **Best Use:** A lightweight gateway, dev mock, or telemetry receiver.
+Measure on the intended device. A virtual-device launch or desktop benchmark does not
+establish a television's memory usage, response time or sustainable search budget.
 
-### 2. Asus FX570UD (Ubuntu Server, 8GB RAM)
-* **The Verdict:** **Excellent CPU, but severe RAM congestion.**
-* **Why:** The Intel CPU has fantastic single-core turbo speeds, meaning its move generation and evaluation loop would be blazing fast. However, **8GB RAM is already a bottleneck** if it hosts heavy stacks like Immich (Postgres + machine learning background workers for face recognition), AdGuard, Vaultwarden, and an Nginx proxy. 
-* Adding a Java Virtual Machine (JVM) or running heavy compilation cycles could trigger Linux Out-Of-Memory (OOM) killer events, destabilizing your existing home services.
-* **Best Use:** Staging environment, local quick benchmarks, or build node.
+## Hosted services
 
-### 3. Oracle Cloud Free Tier (Ampere A1)
-* **The Verdict:** 🏆 **The Ultimate Champion.**
-* **Why:** Oracle's "Always Free" tier used to offer up to **4 ARM64 Ampere Cores** and up to **24 GB of RAM**. Since June 2026 the grant is a tenancy-wide monthly pool instead of a machine shape, and a single 2-OCPU instance running continuously consumes almost all of it — so plan for one modest box, not a 4-core engine host.
-  * **Transposition Tables (TT):** In chess engines, doubling the TT size often results in a massive boost in ELO, and RAM is the one resource this tier is still generous with.
-  * **Parallelism:** Parallel chance-node evaluation with Virtual Threads (`Ox`) is **not implemented** — it is a gated proposal ([#61](https://github.com/fortemate/dicechess-engine/issues/61)), not a shipped feature. Do not size a host around it.
-  * **Architecture Harmony:** Your dev machine is a Mac (Apple Silicon ARM64), and Oracle's Ampere is ARM64. This means your Docker containers will run natively on both without cross-compilation overhead.
-  * **Public Access:** It gives you a public IP and stable egress so anyone can play against it without you exposing your home lab to the internet.
-* **Best Use:** Production engine hosting.
+Choose a host from measured workload requirements:
 
----
+- Distinguish short rules queries from expensive bot search.
+- Measure latency, memory and throughput at realistic concurrent request counts.
+- Bound search time and resource use in the service adapter.
+- Include any host-supplied models and ONNX Runtime in your measurements.
+- Evaluate the provider's current availability, quotas and costs separately from engine compatibility.
 
-## 🎯 Strategic Recommendation: The Hybrid Approach
+The engine has no built-in HTTP service or deployment topology. Parallel chance-node search
+with Ox is still [proposed](https://github.com/fortemate/dicechess-engine/issues/61); extra CPU
+cores do not establish that one search will use them automatically.
 
-Instead of picking only one, we utilize a highly cost-effective and robust **Multi-Tier Strategy**:
+## Measure before choosing
 
-### Tier 1: Production (The Brain) 🧠 -> Oracle Cloud (ARM64)
-Configure a single Oracle Free Tier VM with:
-* 2 to 4 Ampere OCPUs
-* 12 to 24 GB RAM
-* Public IP with Oracle Security Lists for external access.
-* *Result:* A massive transposition table, enterprise network uptime, and zero interference with home Immich/AdGuard setups.
-
-### Tier 2: Delivery & Gateway 🚪 -> Asus Server (Home Lab)
-Use your Asus Laptop to:
-* Act as a **Docker Registry** or **CI Runner** to build the GraalVM images.
-* Serve the static Frontend PWA and use Nginx Proxy Manager to securely proxy traffic to the Oracle Cloud backend if necessary.
-
-### Tier 3: Development & Sandbox 💻 -> Apple Silicon Mac
-Build and run local benchmarks natively in the `mise` environment. 
-
----
-
-### 🚀 Next Steps
-1. **Sign up for Oracle Cloud Free Tier** and provision an `Ubuntu VM.Standard.A1.Flex` shape with 4 OCPUs and 24GB RAM.
-2. Upon reaching **Milestone v1.0 (Production & Native Image)**, we will tailor the GraalVM native image target explicitly for **ARM64 Linux**, making deployment a single `docker compose up -d` command with sub-millisecond startup times.
+Use [JVM and JS/Wasm benchmarks](/dicechess-engine/guidelines/js-wasm-benchmarks/) for runtime
+comparisons and the [search evaluation protocol](/dicechess-engine/architecture/search/03-search-roadmap/)
+for move-quality comparisons. Record the engine version, hardware, runtime and workload
+alongside results. Package format, processor architecture and available RAM alone do not
+predict playing strength.

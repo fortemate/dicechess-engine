@@ -192,7 +192,7 @@ When finished, call `registration.close()` to unregister the bot and release ass
 
 ## Roadmap & Future Optimizations
 
-Star1/Star2, Zobrist/TT, and the first configurable depth increase are implemented. Remaining stages are documented in the [Search Roadmap & Evaluation](/dicechess-engine/architecture/search/03-search-roadmap/):
+Star1/Star2, Zobrist/TT, and the first configurable depth increase are implemented. Further directions must pass the [search evaluation protocol](/dicechess-engine/architecture/search/03-search-roadmap/):
 
 1. **Parallel Chance Nodes**: Concurrent branch evaluation across CPU cores.
 2. **Depths beyond 3 & Iterative Deepening**: Deeper traversal within time budgets, after measurement establishes a viable cost envelope.
@@ -204,4 +204,4 @@ Star1/Star2, Zobrist/TT, and the first configurable depth increase are implement
 - [Primitive Bot Strategies (Levels 1–5)](/dicechess-engine/architecture/search/01-primitive-search/) — Single-turn heuristic bots
 - [ONNX Model Integration](/dicechess-engine/architecture/search/07-onnx-integration/) — `OnnxExpectimaxSearch` combining learned value models with Expectimax lookahead
 - [Time Management](/dicechess-engine/architecture/search/05-time-management/) — Per-turn time budgets and deadline checking
-- [Search Roadmap & Evaluation](/dicechess-engine/architecture/search/03-search-roadmap/) — Staged plans for pruning, transposition tables, and concurrency
+- [Search Roadmap & Evaluation](/dicechess-engine/architecture/search/03-search-roadmap/) — Implemented search capabilities, remaining work and evaluation protocol

@@ -41,14 +41,14 @@ libraryDependencies += "com.fortemate" %% "dicechess-engine" % "<latest release>
 
 The published `dicechess-engine_3` POM marks `com.microsoft.onnxruntime:onnxruntime` as an **optional** dependency (`<optional>true</optional>`). This prevents downstream rules-only consumers (such as `dicechess-play-api` or analytics services) from dragging in the ~54 MB ONNX native binaries when they do not evaluate ML models.
 
-Consumers that use ONNX-backed search bots ([`OnnxEvalSearch`](/dicechess-engine/architecture/search/07-onnx-integration/#onnxevalsearch), [`OnnxExpectimaxSearch`](/dicechess-engine/architecture/search/07-onnx-integration/#onnxexpectimaxsearch)) must declare `onnxruntime` directly in their own build configuration and pin version **`1.29.0`**:
+Consumers that use ONNX-backed search bots ([`OnnxEvalSearch`](/dicechess-engine/architecture/search/07-onnx-integration/#onnxevalsearch), [`OnnxExpectimaxSearch`](/dicechess-engine/architecture/search/07-onnx-integration/#onnxexpectimaxsearch)) must declare `onnxruntime` directly in their own build configuration and match the version used by their engine release (the **0.13.0** release uses **`1.30.0`**):
 
 #### sbt
 
 ```scala
 libraryDependencies ++= Seq(
   "com.fortemate"          %% "dicechess-engine" % "<latest release>",
-  "com.microsoft.onnxruntime" % "onnxruntime"    % "1.29.0"
+  "com.microsoft.onnxruntime" % "onnxruntime"    % "1.30.0"
 )
 ```
 
@@ -64,7 +64,7 @@ libraryDependencies ++= Seq(
     <dependency>
         <groupId>com.microsoft.onnxruntime</groupId>
         <artifactId>onnxruntime</artifactId>
-        <version>1.29.0</version>
+        <version>1.30.0</version>
     </dependency>
 </dependencies>
 ```

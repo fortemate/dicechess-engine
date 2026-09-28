@@ -25,7 +25,9 @@ export default defineConfig({
 				{
 					label: 'Getting Started',
 					items: [
-						{ label: 'Roadmap & Milestones', slug: 'architecture/milestones' },
+						{ label: 'Build with the Engine', slug: 'guides/integrations' },
+						{ label: 'Turn Lifecycle', slug: 'architecture/turn-lifecycle' },
+						{ label: 'Project Status & Roadmap', slug: 'architecture/milestones' },
 					],
 				},
 				{
@@ -58,9 +60,10 @@ export default defineConfig({
 					],
 				},
 				{
-					label: 'Infrastructure & Ops',
+					label: 'Runtime & Performance',
 					items: [
-						{ label: 'Oracle Cloud Hosting', slug: 'infrastructure/oracle-cloud' },
+						{ label: 'Runtime & Hosting Choices', slug: 'infrastructure/oracle-cloud' },
+						{ label: 'JS & Wasm Benchmarks', slug: 'guidelines/js-wasm-benchmarks' },
 					],
 				},
 				{

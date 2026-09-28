@@ -21,7 +21,7 @@ them are **not part of any artifact** and are not documented here.
 | `com.fortemate:dicechess-rules_3` (from 0.11.0) | Maven Central, GitHub Packages | `shared-rules/` | Scala standard library only | none (Scala API) | a server of truth, an analytics backend, a position editor |
 | `com.fortemate:dicechess-engine_3` | Maven Central, GitHub Packages | `shared/`, `jvm/` | `dicechess-rules_3` (same version); `onnxruntime` **optional** | `JvmApi` (Java, Kotlin) | bots, evaluation and training tools, anything that searches or scores |
 | `@fortemate/dicechess-engine` | npmjs.org, GitHub Packages | `shared-rules/`, `shared/`, `js/`, `js-rules/` | none | `DiceChess`, `EngineFacade`; `DiceChess` (rules only) on the `./rules` subpath | browser and Node.js clients |
-| `@fortemate/dicechess-engine-wasm` | npmjs.org, GitHub Packages | same as above, WasmGC build | none | same as above | Web Workers running heavy search |
+| `@fortemate/dicechess-engine-wasm` | npmjs.org, GitHub Packages | `shared-rules/`, `shared/`, `js/`, WasmGC build | none | `DiceChess`, `EngineFacade`; no `./rules` subpath | compatible JavaScript runtimes with WasmGC |
 | Android source path | no artifact | `shared-rules/`, `shared/`, `jvm/.../jvmapi` | Scala standard library | `JvmApi` + direct Scala calls | the on-device prototype |
 
 The sbt build behind these rows is a `projectMatrix`: the `rules` matrix has a JVM row (published as

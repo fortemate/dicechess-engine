@@ -1,88 +1,55 @@
 ---
-title: Approved Milestones
-description: The structured roadmap and definition of done for successive versions of the Dice Chess Engine. See AGENTS.md for the canonical project state.
+title: Project Status & Roadmap
+description: Implemented engine capabilities, recent integration changes and the remaining roadmap, with links to release notes and live GitHub tracking.
 ---
 
-Assign tasks to these milestones logically. Each milestone must be fully tested (including performance benchmarks) before moving to the next.
+The engine is a reusable rules and search library for JVM, JavaScript and WebAssembly.
+For application setup, start with [Build with the Engine](/dicechess-engine/guides/integrations/).
 
-[View current milestones on GitHub](https://github.com/fortemate/dicechess-engine/milestones?sort=title&direction=asc)
+This overview was checked against **v0.13.0** and the repository on **28 September 2026**.
+[Release notes](https://github.com/fortemate/dicechess-engine/releases) are the source for
+versioned changes; [GitHub milestones](https://github.com/fortemate/dicechess-engine/milestones)
+and [open issues](https://github.com/fortemate/dicechess-engine/issues) track ongoing work.
+Historical milestone names are planning labels, not the current package version.
 
-> **Note on history.** This page was rewritten after the migration to the Fortemate organization. An earlier revision marked the search milestones as completed while several of their key deliverables (Zobrist/TT, Star1/Star2 pruning, depth > 2, parallel search) were in fact never implemented. The completed section below lists only what actually shipped; everything else moved back into the open milestones, which match the GitHub milestone list one-to-one.
+## Implemented capabilities
 
----
+| Area | Available now | Details |
+| --- | --- | --- |
+| Rules | Bitboard move generation, dice pools, complete legal turns, king capture, castling, promotion and en passant | [Turn lifecycle](/dicechess-engine/architecture/turn-lifecycle/) |
+| State | DFEN, board symmetry, canonicalization and Zobrist hashing | [DFEN](/dicechess-engine/architecture/dice-chess-fen/), [symmetry](/dicechess-engine/architecture/board-symmetry/) |
+| Portable APIs | JVM artifacts, Java/Kotlin facade, JavaScript and WasmGC packages | [Integration guide](/dicechess-engine/guides/integrations/) |
+| Bots and evaluation | Six built-in bots, exact king-capture probability, Monte-Carlo equity, opening-book support and time management | [Search and bots](/dicechess-engine/architecture/search/01-primitive-search/) |
+| Configurable search | Two- or three-ply expectimax, Star1/Star2 pruning, transposition caching and batched leaf evaluation | [Expectimax](/dicechess-engine/architecture/search/06-expectimax-search/) |
+| JVM model integration | ONNX-backed search and manifest/graph validation through the model serving contract | [Model contract](/dicechess-engine/architecture/search/10-model-contract/) |
+| Validation | Shared JVM/JS/Wasm rule tests, generated visual fixtures, scenario evaluation, arenas and benchmarks | [Testing](/dicechess-engine/architecture/testing/) |
 
-## Completed (shipped in the v0.1–v0.4 line)
+Expectimax is configured through the Scala search API; it is not a default npm bot.
+Available search depth is an implementation capability, not a promise of strength or speed
+on every device. Trained models and opening-book data are not shipped with the library.
 
-### ✅ v0.1 - Foundation & Core Types
+## Recent changes for application developers
 
-- Project setup (SBT 2.x / Scala 3), configuration, `mise` setup.
-- Opaque core types (`Bitboard`, `Square`, `Piece`, `Color`).
-- FEN parsing/serialization and the DFEN extension (7th field for the dice pool, multiple en-passant targets).
+- **0.11.0 — separate JVM rules artifact.** `dicechess-rules_3` lets Scala consumers depend on
+  rules without pulling in the engine's bots and evaluators.
+- **0.12.0 — lightweight JavaScript rules entry.** `@fortemate/dicechess-engine/rules`
+  exposes basic rules operations. Complete legal turn trees and bots use the full entry.
+- **0.13.0 — complete turn navigation in JavaScript.** `getLegalTurnTree` exposes legal
+  action sequences. `applyMove` retains the unspent dice and refuses moves the dice cannot
+  support; clients should follow the original tree throughout the turn.
+- **Applications using the engine.** The browser play client and Dice Chess TV demonstrate
+  different interfaces using the same npm rules and bot implementation. See
+  [integration examples](/dicechess-engine/guides/integrations/).
 
-### ✅ v0.2 - Move Generation (Classic)
+The [artifact guide](/dicechess-engine/architecture/artifacts/) covers dependency choices
+and migrations, including the distinction between JVM rules and the npm rules subset.
 
-- Bitwise operations and precomputed attack tables (Magic Bitboards).
-- Pawn, knight, king, and sliding piece move generation.
-- Perft framework integration to verify move correctness.
+## Future work
 
-### ✅ v0.3 - Dice Chess Mechanics
+Parallel chance-node search with Ox remains a proposal tracked by
+[issue #61](https://github.com/fortemate/dicechess-engine/issues/61). It is not an implemented
+engine feature. Runtime and deployment work should be evaluated against actual application
+needs and measured workloads; see [runtime choices](/dicechess-engine/infrastructure/oracle-cloud/).
 
-- Dice roll representation (216 ordered rolls / 56 weighted multisets).
-- Filtering pseudo-legal moves by dice outcomes; Maximum Micro-moves Rule enforcement.
-- Turn lifecycle: roll → generate moves → apply micro-moves → endTurn.
-
-### ✅ v0.4 - Bots, Evaluation & Integrations (current line)
-
-The 0.4.x line also absorbed deliverables originally slated for later milestones:
-
-- Bot roster: Random, Checkmate-Aware, Greedy, Cautious Greedy, Aggressive, Monte-Carlo, plus the ONNX-backed searches.
-- Static evaluation (`Evaluator`, material and aggressive variants) and exact King Capture Probability (per-roll enumeration over all 216 outcomes).
-- **2-ply** expectimax with chance nodes (`ExpectimaxSearch`): material pre-ranking, top-K candidate expansion, per-roll deadline honouring, leaf deduplication (`LeafKey`, ~78% duplicates).
-- Time management subsystem (`TimeManager` policies incl. empirical-v1 + `TimeBudgetedSearch`).
-- Rao-Blackwellized Monte-Carlo pre-roll equity estimator.
-- ONNX model integration (`OnnxEvalSearch`, `OnnxExpectimaxSearch`), opening book (`OpeningBook`, `OpeningBookBot`, `OpeningBookParser`), doubling cube and draw-offer logic.
-- Scala.js / WasmGC artifacts, JVM Battle Arena, seeded evaluation fixtures, JMH benchmarks.
-
----
-
-## Open milestones
-
-### 🚧 v0.5 - Search Foundations: Zobrist & TT
-
-- **Scope**: Caching groundwork required before any deeper search.
-- **Key Deliverables**:
-  - Zobrist hashing over position, active color, castling, en passant, and the remaining dice pool.
-  - Transposition table with bound-typed entries (exact / lower / upper) and thread-safe reads.
-  - Search/evaluation hot-path groundwork (KCP optimization track).
-
-### 🚧 v0.6 - Star Pruning & Search Depth 3
-
-- **Scope**: Cutoffs at chance nodes and the first depth increase. Tracked by [Epic #56](https://github.com/fortemate/dicechess-engine/issues/56); design in the internal wiki (`model/star-pruning-depth-3`).
-- **Key Deliverables**:
-  - Star1 pruning in `ExpectimaxSearch` chance nodes (weight-ordered rolls, fail-soft bounds, cutoff telemetry).
-  - Star2 probing with batched top-1 opponent replies.
-  - Configurable `searchDepth`; depth-3 implementation gated by paired SPRT duels.
-
-### 🚧 v0.7 - Fast Learned Evaluation (NNUE track)
-
-- **Scope**: Engine-side support for a fast learned evaluator — the designated remaining strength lever once search is squeezed (value-model roadmap step 3c).
-- **Key Deliverables**:
-  - Quantized integer inference with an incremental (NNUE-style) accumulator inside make/undo.
-  - Replacing ONNX Runtime on the search hot path; ONNX stays for training-side export and analysis serving.
-
-### 🚧 v0.8 - Self-Play & Book Distillation
-
-- **Scope**: The engine as a data generator for training flywheels.
-- **Key Deliverables**:
-  - In-engine self-play generation (`TurnGenerator`-based) with seeded reproducibility.
-  - Self-play-distilled opening book to replace the human-game book (measured weaker in arena: booked vs bookless 327–316).
-
-### 🚀 v1.0 - Production & Optimization
-
-- **Scope**: Deployment optimization and infrastructure operations.
-- **Key Deliverables**:
-  - GraalVM Native Image compilation for fast startup.
-  - Dockerfile optimization for containerized deployment.
-  - CI/CD pipeline improvements (release automation, publishing).
-  - Deployment configurations for Oracle Cloud (Ampere ARM64).
-  - Structured concurrency with Virtual Threads (`Ox`) for parallel chance-node evaluation ([#61](https://github.com/fortemate/dicechess-engine/issues/61)) — gated on a production width measurement, moved here from v0.6.
+For current priorities, use the live GitHub trackers above. A closed milestone or completed
+implementation does not by itself establish production adoption or a measured playing-strength gain.

@@ -5,123 +5,39 @@ sidebar:
   order: 3
 ---
 
-The engine currently has a complete 5-level primitive bot roster: `RandomSearch`, `CheckmateAwareSearch`, `GreedySearch` (baseline), `GreedySearchV2` (Cautious Greedy), and `AggressiveSearch`. Level 6 is the non-primitive `MonteCarloSearch` bot.
+The engine includes five single-turn heuristic bots and the rollout-based `MonteCarloSearch`.
+The Scala search API also provides configurable **two- or three-ply expectimax** with
+**Star1/Star2 pruning, Zobrist hashing and transposition caching**. These are implemented;
+they are no longer future stages of the roadmap.
 
-This forms a solid baseline for move evaluation, but single-turn bots are limited to a 1-turn horizon. To develop a stronger, grandmaster-level engine, we need to transition from single-turn heuristics to a deep, probabilistic search tree.
+See [Expectimax Search](/dicechess-engine/architecture/search/06-expectimax-search/) for the
+algorithm and [Project Status & Roadmap](/dicechess-engine/architecture/milestones/) for the
+broader delivery overview. The default npm bot roster does not include expectimax.
 
-This document defines:
-1. the revised implementation roadmap for deep search algorithms and optimizations
-2. the evaluation protocol that every new search algorithm must pass before it replaces the baseline
+## Search capabilities and remaining work
 
-## Goals
+| Capability | Status | Reference |
+| --- | --- | --- |
+| Full-turn heuristic bots | Implemented | [Primitive bots](/dicechess-engine/architecture/search/01-primitive-search/) |
+| Monte-Carlo pre-roll equity and rollout bot | Implemented | [Monte-Carlo equity](/dicechess-engine/architecture/search/04-monte-carlo-equity/) |
+| Clock-aware search budgets | Implemented | [Time management](/dicechess-engine/architecture/search/05-time-management/) |
+| Expectimax, Star1/Star2 and transposition tables | Implemented, configurable through the Scala API | [Expectimax](/dicechess-engine/architecture/search/06-expectimax-search/) |
+| ONNX evaluation and model serving contract | Implemented on JVM; models supplied by the host | [ONNX integration](/dicechess-engine/architecture/search/07-onnx-integration/), [model contract](/dicechess-engine/architecture/search/10-model-contract/) |
+| Parallel chance-node evaluation with Ox | Proposed, not implemented | [Issue #61](https://github.com/fortemate/dicechess-engine/issues/61) |
 
-The search roadmap should improve move quality without losing the properties that already matter:
+Implementation and evaluation answer different questions. A configurable deeper search
+must still demonstrate useful move quality within a target application's time and memory
+budget. Do not infer playing strength, deployment status or hardware requirements from a
+completed implementation alone.
 
-* legal move selection under the maximum micro-moves rule
-* deterministic and reproducible testing
-* predictable runtime for browser and JVM usage
-* a clear migration path from simple heuristics to probabilistic tree search
+## Goals and baseline
 
-Future changes should therefore be judged on two axes:
+Future changes should preserve full-turn legality, reproducible testing and bounded runtime.
+Compare both move quality and the cost in time, memory and implementation complexity.
 
-* **playing strength** against the current baseline (`GreedySearch` or the latest optimized bot)
-* **cost** in runtime, implementation complexity, and memory footprint (minimizing garbage collection on the hot path)
-
-## Baseline
-
-The current baseline is `GreedySearch` (Level 3).
-
-While primitive, it has several advantages:
-* it reasons over the full Dice Chess turn, not a single micro-move
-* it is deterministic
-* it is easy to explain and debug
-* it creates a stable reference point for head-to-head testing
-
-The baseline remains available even after stronger algorithms are added. It serves as the control group for all future experiments.
-
-## Revised Roadmap
-
-The search roadmap is divided into progressive optimization and tree-search stages.
-
-### Stage 1: Deep Expectimax Search
-
-This stage introduces depth-first traversal of multiple plies (turns), reasoning about future turns.
-
-Expected characteristics:
-* **Chance Nodes:** Representing the stochastic dice roll outcomes (216 ordered rolls / 56 unique multisets) of both sides.
-* **Decision Nodes:** Selecting the optimal full-turn path (1-3 micro-moves) for the active player.
-* **Bounded Depth:** Dynamically adjusted search depth based on remaining time controls.
-
-**Milestone fit**:
-* primarily **v0.6 - Expectimax Search Engine**
-
-### Stage 2: Search Optimizations (Star1 & Star2 Pruning)
-
-Traversing a deep expectimax tree scales exponentially. We must implement advanced alpha-beta pruning extensions for games with chance nodes:
-* **Star1/Star2 Pruning:** Prunes chance nodes by calculating bounds on the mathematical expectation and skipping subtrees that cannot affect the optimal choice.
-* **Zobrist Hashing & Transposition Tables (TT):** Caches previously computed node values, bounds, and search depths. Zobrist keys must include the board position, active color, and remaining dice pool.
-
-**Milestone fit**:
-* primarily **v0.6 - Expectimax Search Engine** and **v0.5** (Zobrist/TT groundwork)
-
-### Stage 3: Parallel Search with Ox Concurrency
-
-Nothing here is implemented, and the stage is gated rather than scheduled — see
-[#61](https://github.com/fortemate/dicechess-engine/issues/61) for the current scope and its preconditions.
-
-The idea is to parallelize the evaluation of chance-node subtrees on hosts that have spare cores:
-* Use **Java Virtual Threads** (via the `Ox` structured concurrency library) to spawn lightweight concurrent branch evaluations.
-* Ensure thread-safe read operations on transposition tables.
-* Implement structured cancellation to stop running threads immediately when a beta-cutoff is triggered or when search time expires.
-
-Two caveats that earlier revisions of this page got wrong. The stage was originally motivated by 4-core
-ARM nodes on Oracle Cloud; that Always Free shape was withdrawn in June 2026, and no such host runs the
-search today. And it was positioned as the step that makes depth 3 affordable, which Stage 2's depth-3
-gate has since ruled out on magnitude. Whether spare cores convert into completed candidates at all is
-an open measurement, not an assumption.
-
-**Milestone fit**:
-* **v1.0 - Production & Optimization** (moved out of v0.6, which shipped without it)
-
-### Stage 4: Monte-Carlo Pre-Roll Equity
-
-Parallel to the exact tree search, a Rao-Blackwellized Monte-Carlo estimator gives an *on-demand*
-pre-roll win-probability estimate for positions too sparse in the games database to read empirically.
-It integrates the exact per-ply king-capture probability (`KingCaptureProbability`) along a random
-rollout weighted by survival, which cuts variance sharply versus vanilla 0/1 rollouts. It reuses
-`TurnGenerator` + the `RandomSearch` policy and exposes a configurable budget (rollouts / target CI
-width / ply horizon).
-
-See [Monte-Carlo Pre-Roll Equity](/architecture/search/04-monte-carlo-equity/) for the algorithm,
-the variance rationale, and budgeting. It complements position canonicalization (which pools
-empirical statistics across symmetric positions) for genuinely off-book positions, and shares the
-`KingCaptureProbability` machinery with the expectimax chance-node evaluation.
-
-The estimator also drives a bot: **`MonteCarloSearch`** (Level 6, registered in `BotRegistry`) scores
-every legal turn by the Monte-Carlo win probability of the resulting position and plays the best,
-preferring an immediate king capture. It is the first non-primitive bot (rollout-based lookahead
-rather than a one-ply heuristic). Per-move cost scales with the number of legal turns × the rollout
-budget, so a multi-game win-rate match is validated offline in the JVM Battle Arena — not in CI.
-
-**Time control.** Because per-move cost grows with the branching factor, an unbounded heavy bot loses
-on the clock in complex positions. Clock handling is *not* specific to this bot: it is an
-engine-wide, two-layer subsystem — `TimeManager` (a shared, pure policy turning a game clock into a
-per-turn budget) and `TimeBudgetedSearch` (the capability mix-in each algorithm implements to honour
-a deadline). See [Time Management](/architecture/search/05-time-management/) for the budget formula,
-the constants, and which algorithms are budgeted.
-
-`MonteCarloSearch` was the first implementor: it takes any immediate king capture for free, otherwise
-ranks turns by a cheap material score, keeps the top *K*, and Monte-Carlo-evaluates them within an
-equal slice of the remaining time, always falling back to the best material turn so a legal move is
-returned even if the deadline elapses first. Its own budget paths (rollouts / target-error) stay
-deterministic for tests; only the wall-clock path is non-deterministic.
-The acceptance gate is whether time-limited Monte-Carlo beats `AggressiveSearch` (L5) within a
-one-minute game budget — otherwise the heavy search is not worth it over the empirical-statistics path.
-
-**Milestone fit**:
-* feeds the analytics equity guidance now; aligns with **v0.6 - Expectimax Search Engine** machinery.
-
----
+`GreedySearch` (Level 3) remains a simple reference bot with random tie-breaking. Every experiment
+should explicitly name its baseline, even when comparing against a stronger configured
+search. The protocol below applies to changes in existing algorithms as well as new ones.
 
 ## Evaluation Pyramid
 
@@ -230,26 +146,10 @@ Opponent Bot    | Total | Wins (W/B)   | Losses (W/B) | Draws (W/B)  | Win Rate 
 
 This makes search changes reviewable inside pull requests instead of relying on anecdotal observations.
 
-## Suggested Issue Decomposition
+## Tracking further work
 
-[Search evaluation reports and fixtures](https://github.com/fortemate/dicechess-engine/issues/24) are implemented.
-The remaining future search engine tasks are decomposed as follows:
-
-1. `Expectimax search skeleton` (Milestone v0.6)
-2. `Star1 and Star2 pruning implementation`
-3. `Zobrist Hashing & Transposition Table integration`
-4. `Structured concurrency: parallelize chance-nodes using Ox`
-
-## Milestone Mapping
-
-The recommended milestone mapping is:
-
-* **v0.5 - Evaluation & Heuristics**
-  * Zobrist Hashing implementation
-  * Transposition Table structure
-* **v0.6 - Expectimax Search Engine**
-  * Expectimax implementation and chance-node evaluations
-  * Star1/Star2 pruning
-  * Concurrency and parallel search improvements with `Ox`
-
-This keeps the project aligned with the approved milestones published in the [Roadmap & Milestones](../milestones/) guide.
+[Search evaluation reports and fixtures](https://github.com/fortemate/dicechess-engine/issues/24)
+are implemented. Use the [open issues](https://github.com/fortemate/dicechess-engine/issues)
+for current work rather than recreating the completed expectimax, pruning or hashing stages.
+The [project status page](/dicechess-engine/architecture/milestones/) links the release history
+and live milestones.
