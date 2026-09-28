@@ -109,7 +109,8 @@ export interface DiceChessApi {
      * to move, and a face repeated as often as the most dice showing it that one legal turn spends.
      * The result is `""` when no legal turn continues: after a complete turn, a king capture
      * included, and for a roll with no legal move or a DFEN without dice. It is `undefined` for an
-     * invalid DFEN, or when `moves` is not the beginning of a legal turn.
+     * invalid DFEN, when `moves` is not an array of UCI strings, and when it is not the beginning
+     * of a legal turn.
      *
      * A client holding the tree needs the call only when the current node has children but no path
      * below it has as many actions as there are dice left: an empty node means no die is playable,

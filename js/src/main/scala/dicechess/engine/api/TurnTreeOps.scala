@@ -36,28 +36,36 @@ private[engine] object TurnTreeOps:
       yield diceField(dice, state.activeColor)
     playable.orUndefined
 
-  /** The moves the UCI strings of `moves` name, in order: none when it is omitted or `null`, and `None` as soon as one
-    * of them is not UCI.
+  /** The moves the UCI strings of `moves` name, in order: none when it is omitted or `null`, and `None` when it is not
+    * an array or as soon as one of its elements is not a UCI string.
     *
     * Whether they begin a legal turn is for [[dicechess.engine.search.PlayableDice.of]] to decide. It compares moves as
     * UCI names them, so a move built here from its squares needs no position.
     */
   private def movesNamed(moves: js.UndefOr[js.Array[String]]): Option[List[Move]] =
     moves.toOption.flatMap(Option(_)) match
-      case None        => Some(Nil)
-      case Some(array) =>
-        var named = Option(List.empty[Move])
-        var i     = array.length - 1
+      case None                                    => Some(Nil)
+      case Some(array) if !js.Array.isArray(array) => None
+      case Some(array)                             =>
+        // JavaScript can put any value in the array, so each element is read as it is and checked to be a string.
+        val elements = array.asInstanceOf[js.Array[Any]]
+        var named    = Option(List.empty[Move])
+        var i        = elements.length - 1
         while i >= 0 do
-          named = for later <- named; move <- moveNamed(array(i)) yield move :: later
+          named = for later <- named; move <- moveNamed(elements(i)) yield move :: later
           i -= 1
         named
 
-  /** The move `uci` names, such as `e2e4` or `e7e8q`, or `None` when it is not UCI. */
-  private def moveNamed(uci: String): Option[Move] =
-    if Option(uci).isEmpty || (uci.length != 4 && uci.length != 5) then None
+  /** The move `element` names when it is a UCI string, such as `e2e4` or `e7e8q`, and `None` otherwise. */
+  private def moveNamed(element: Any): Option[Move] =
+    // `js.typeOf` rather than a `String` pattern, which links an instance test into the module shared with `./rules`.
+    if js.typeOf(element) != "string" then None
     else
-      val flags = if uci.length == 4 then Move.QuietMove else promotionFlags(uci.charAt(4))
+      val uci   = element.asInstanceOf[String]
+      val flags = uci.length match
+        case 4 => Move.QuietMove
+        case 5 => promotionFlags(uci.charAt(4))
+        case _ => -1
       if flags < 0 then None
       else
         for

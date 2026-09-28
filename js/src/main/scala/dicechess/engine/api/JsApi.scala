@@ -120,7 +120,8 @@ object JsApi:
     *   The playable dice, written as the DFEN dice field writes them: ascending by face, upper case for White and lower
     *   case for Black, a face repeated as often as the most dice showing it that one legal turn spends. `""` when no
     *   legal turn continues: after a complete turn, a king capture included, and for a roll with no legal move or a
-    *   DFEN without dice. `undefined` for an invalid DFEN, or when `moves` is not the beginning of a legal turn.
+    *   DFEN without dice. `undefined` for an invalid DFEN, when `moves` is not an array of UCI strings, and when it is
+    *   not the beginning of a legal turn.
     */
   @JSExport
   @JSExportTopLevel("getPlayableDice")

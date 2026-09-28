@@ -162,7 +162,8 @@ if (typeof full.DiceChess?.getLegalTurnTree !== 'function') {
 }
 // The playable dice come from TurnGenerator as well, so they are on the "." entry only (#293). In the start position
 // with QRN only a knight can move first, but the rook can follow it; a king capture ends the turn although two dice
-// are left; and a quiet knight move after c2c4 begins no legal turn.
+// are left; a quiet knight move after c2c4 begins no legal turn; and a move that is not a string, even one with the
+// length of a UCI string, gives undefined rather than an exception.
 if (typeof full.DiceChess?.getPlayableDice !== 'function') {
   fail('the "." entry lost DiceChess.getPlayableDice');
 } else {
@@ -171,6 +172,7 @@ if (typeof full.DiceChess?.getPlayableDice !== 'function') {
     [`${INITIAL_DFEN} QRN`, ['b1a3'], 'R'],
     [KING_CAPTURE_DFEN, ['b3c5'], ''],
     [KING_CAPTURE_DFEN, ['c2c4', 'b3a5'], undefined],
+    [`${INITIAL_DFEN} QRN`, [{ length: 4 }], undefined],
   ]) {
     const playable = full.DiceChess.getPlayableDice(dfen, moves);
     if (playable !== expected) {

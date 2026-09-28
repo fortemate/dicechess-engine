@@ -530,6 +530,16 @@ class JsApiSpec extends FunSuite:
     )
   }
 
+  test("getPlayableDice: undefined, not an exception, when moves is not an array of strings") {
+    val dfen = s"$initialDfen QRN"
+    // JavaScript can pass any value, and an object or an array with the length of a UCI string is still not a string.
+    for element <- List[Any](42, js.undefined, js.Dynamic.literal(length = 4), js.Array("b", "1", "a", "3")) do
+      val moves = js.Array[Any](element).asInstanceOf[js.Array[String]]
+      assertEquals(JsApi.getPlayableDice(dfen, moves).toOption, None, s"element $element")
+    for moves <- List[Any]("b1a3", 42, js.Dynamic.literal(length = 1)) do
+      assertEquals(JsApi.getPlayableDice(dfen, moves.asInstanceOf[js.Array[String]]).toOption, None, s"moves $moves")
+  }
+
   test("getPlayableDice: at every node of the turn tree, the dice some continuation below it spends") {
     val choice   = "4k3/8/8/8/8/8/PP2P1P1/QN2KB2 w - - 0 1 PBQ"
     val castling = "4k3/8/8/8/8/8/8/4K2R w K - 0 1 RK"

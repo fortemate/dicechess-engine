@@ -112,7 +112,8 @@ because each action played only narrows the turns that can follow.
   dice showing it that one legal turn spends, so `"NN"` means both knight dice can be used.
 - **`""`** means that no legal turn continues: the turn is complete, a king capture included, the
   roll has no legal move, or the DFEN has no dice.
-- **`undefined`** means an invalid DFEN, or `moves` that are not the beginning of a legal turn.
+- **`undefined`** means an invalid DFEN, `moves` that are not an array of UCI strings, or moves
+  that are not the beginning of a legal turn.
 
 The answer is about the whole turn, not about the next action. In the start position with the dice
 queen, rook and knight, only a knight can move first. After `b1a3`, though, the rook can go
