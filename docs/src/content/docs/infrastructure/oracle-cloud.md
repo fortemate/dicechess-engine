@@ -4,7 +4,7 @@ description: Choose local JavaScript, WasmGC or JVM execution based on your appl
 ---
 
 The engine runs inside its host application. It does not require a particular cloud provider
-or an engine server. Browser practice play and Dice Chess TV both use local execution;
+or an engine server. The browser client prototype and Dice Chess TV both use local execution;
 a service or remote bot can use the JVM artifacts instead.
 
 This page replaces an early Oracle Cloud hosting proposal. Its URL is retained for existing
