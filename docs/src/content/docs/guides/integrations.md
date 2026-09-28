@@ -19,8 +19,8 @@ client can use the same rules without rewriting them in its UI language.
 | JavaScript application targeting a WasmGC runtime | `@fortemate/dicechess-engine-wasm` | Same full JavaScript-facing API |
 
 **The two rules-only paths are different.** The Maven rules jar includes `TurnGenerator`;
-the lightweight npm `./rules` entry does not include `getLegalTurnTree`. An interactive
-JavaScript game that follows complete legal turns should use the full npm entry.
+the lightweight npm `./rules` entry does not include `getLegalTurnTree` or `getPlayableDice`.
+An interactive JavaScript game that follows complete legal turns should use the full npm entry.
 The [artifact guide](/dicechess-engine/architecture/artifacts/) lists the exact boundaries.
 
 ## JavaScript and TypeScript
@@ -42,6 +42,9 @@ console.log(choices);
 const afterPawn = DiceChess.applyMove(rolled, 'e2', 'e4');
 const continuations = turns['e2e4']; // Follow this branch for the rest of the turn.
 console.log(afterPawn, Object.keys(continuations));
+
+// The dice the rest of the turn can still spend. Pass the roll and the moves, not afterPawn.
+const playable = DiceChess.getPlayableDice(rolled, ['e2e4']); // "NN": dim any other die
 ```
 
 Generate the tree once for the roll and descend through it as actions are played.

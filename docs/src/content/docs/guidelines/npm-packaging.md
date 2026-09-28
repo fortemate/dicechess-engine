@@ -44,7 +44,8 @@ packages you intend to deploy.
 ### When to use which package?
 
 * **Use `@fortemate/dicechess-engine/rules`** for basic rules operations and board tooling
-  that do not need complete turn trees or bots. It does not export `getLegalTurnTree`.
+  that do not need complete turn trees or bots. It does not export `getLegalTurnTree` or
+  `getPlayableDice`.
 * **Use `@fortemate/dicechess-engine`** for interactive games following a full legal turn
   tree and for built-in bots. `applyMove` transforms state; it is not a complete legality
   check. A client must follow the tree throughout the turn.
