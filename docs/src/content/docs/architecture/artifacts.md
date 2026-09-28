@@ -102,8 +102,9 @@ target (JavaScript versus WasmGC). They export the same API, typed by the hand-w
 `dicechess-engine.d.ts`:
 
 - `DiceChess` — the primary facade: DFEN helpers, `getLegalUciMoves`, the legal turn tree
-  `getLegalTurnTree`, `applyMove`, `endTurn`, bot discovery and `getBestMove` with clock-aware
-  budgets, doubling-cube and draw-offer decisions, `estimateEquity`, `perft`; see the
+  `getLegalTurnTree`, the playable dice `getPlayableDice`, `applyMove`, `endTurn`, bot discovery
+  and `getBestMove` with clock-aware budgets, doubling-cube and draw-offer decisions,
+  `estimateEquity`, `perft`; see the
   [JavaScript API Reference](/dicechess-engine/architecture/javascript-api/).
 - `EngineFacade` — the legacy facade (`getBotMove`, `getPieceTypeAt`, `applyMove`, `endTurn`), kept
   for existing callers.
@@ -140,7 +141,8 @@ What `./rules` cannot reach is the point of it: `BotRegistry`, the bots, `Evalua
 book, time management, `MonteCarloEquity`, `TurnGenerator` and `KingCaptureProbability` (with its
 scratch board) are in the `.` module only. `.mise/lib/check-npm-package-entries.mjs` proves it over
 the linked modules every time `dist/` is assembled, and fails the build otherwise. The legal turn
-tree, `getLegalTurnTree`, is built from `TurnGenerator` and is therefore on the `.` entry only.
+tree, `getLegalTurnTree`, and the playable dice, `getPlayableDice`, are built from `TurnGenerator`
+and are therefore on the `.` entry only.
 
 The linker assigns whole classes to modules, so the boundary is kept by *class*, not by export: the
 rules-level implementation both roots call (`RulesOps`) lives in the shared chunk, and a single

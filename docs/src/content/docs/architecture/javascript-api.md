@@ -16,10 +16,10 @@ import { DiceChess } from '@fortemate/dicechess-engine/rules'; // rules only, ~4
 
 The `./rules` subpath carries `getLegalUciMoves`, `generateMoves`, `applyMove`, `endTurn`, `perft`,
 `getPieceFromDice` and `canonicalKey` — identical in name and behaviour — and nothing that reaches
-the search package. Everything else below (`getLegalTurnTree`, `getBestMove`, bot discovery, time
-policies, the doubling and draw decisions, `estimateEquity`) lives on the full entry only;
-`getLegalTurnTree` is there because it is built from `TurnGenerator`, which `./rules` does not
-carry. See [Published Artifacts](/dicechess-engine/architecture/artifacts/#the-rules-only-entry)
+the search package. Everything else below (`getLegalTurnTree`, `getPlayableDice`, `getBestMove`,
+bot discovery, time policies, the doubling and draw decisions, `estimateEquity`) lives on the full
+entry only; `getLegalTurnTree` and `getPlayableDice` are there because they are built from
+`TurnGenerator`, which `./rules` does not carry. See [Published Artifacts](/dicechess-engine/architecture/artifacts/#the-rules-only-entry)
 for the sizes and the reason the WebAssembly package has no such subpath.
 
 ## `DiceChess`
@@ -87,6 +87,72 @@ Object.keys(tree.c2c4)  // ["b3c5"]
 A client walks the tree alongside [`applyMove`](#applymove): play an action that is a key of the
 current node and descend into its child. An empty child completes the turn: call `endTurn`, unless
 the last action captured the king, which ends the game.
+
+---
+
+### `getPlayableDice`
+
+Returns the dice that a legal turn can still spend, given the micro-moves already played. Full
+entry only.
+
+```typescript
+function getPlayableDice(dfen: string, moves?: string[]): string | undefined
+```
+
+A die is **playable** while at least one legal turn that begins with `moves` spends it after them.
+A client can dim every other die. No turn left can use it, and none will for the rest of the turn,
+because each action played only narrows the turns that can follow.
+
+- **`dfen` is the roll**: the position at the start of the turn with its dice, as for
+  [`getLegalTurnTree`](#getlegalturntree).
+- **`moves` are the micro-moves played since**, in UCI and in order: a path from the root of the
+  tree. Omitted, they are none.
+- **The result** is the playable dice as the DFEN dice field writes them: ascending by face
+  (`PNBRQK`), upper case for White and lower case for Black. A face appears as often as the most
+  dice showing it that one legal turn spends, so `"NN"` means both knight dice can be used.
+- **`""`** means that no legal turn continues: the turn is complete, a king capture included, the
+  roll has no legal move, or the DFEN has no dice.
+- **`undefined`** means an invalid DFEN, `moves` that are not an array of UCI strings, or moves
+  that are not the beginning of a legal turn.
+
+The answer is about the whole turn, not about the next action. In the start position with the dice
+queen, rook and knight, only a knight can move first. After `b1a3`, though, the rook can go
+`a1b1`, and every legal turn is "knight, then rook". The rook die is therefore playable although
+the rook cannot move first:
+
+```typescript
+const roll = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 QRN'
+DiceChess.getPlayableDice(roll)                   // "NR": only the queen die is lost
+DiceChess.getPlayableDice(roll, ['b1a3'])         // "R"
+DiceChess.getPlayableDice(roll, ['b1a3', 'a1b1']) // "": the turn is complete
+```
+
+**Pass the roll and the moves, not the DFEN after them.** The Maximum Micro-moves Rule counts the
+dice the whole turn could use, and a turn that takes the king ends there. The DFEN after an action
+records neither. With `8/8/8/2k5/8/1N6/2P5/K7 w - - 0 1 NPP`, `Nb3xc5` takes the king and ends the
+turn, yet the DFEN it leaves still carries both pawn dice:
+
+```typescript
+const roll = '8/8/8/2k5/8/1N6/2P5/K7 w - - 0 1 NPP'
+DiceChess.getPlayableDice(roll, ['b3c5'])                      // "": the turn is over
+DiceChess.getPlayableDice('8/8/8/2N5/8/8/2P5/K7 w - - 0 1 PP') // "PP": asked afresh, and wrong
+```
+
+**When to call it.** A client that already holds the tree knows the answer without a call in the two
+common cases, at the roll and after each action alike:
+
+- **The current node is empty**, so no legal turn continues: no die is playable.
+- **Some path below the current node has as many actions as there are dice left.** Every action
+  spends at least one die, so that path spends them all, and every die left is playable.
+
+Only in between does it need the call: with three dice, when the longest path below the current node
+has one or two actions. A castling path can have fewer actions than the dice it spends, and then the
+call simply answers that every die is playable.
+
+**Cost.** Each call enumerates the legal turns of the roll and replays their moves, still less work
+than `getLegalTurnTree`, which builds the tree. Following the rule above keeps that cost off the large
+trees: they almost always have a path that spends every die, while a call after every action would
+enumerate them again each time.
 
 ---
 

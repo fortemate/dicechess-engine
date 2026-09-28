@@ -109,6 +109,9 @@ const legalMoves = DiceChess.getLegalUciMoves(dfen); // e.g. ["e2e3", "e2e4", "b
 // Every legal turn as a prefix tree of micro-moves; a client follows a turn by walking it
 const turns = DiceChess.getLegalTurnTree(dfen); // e.g. { "e2e4": { "g1f3": {}, ... }, ... }
 
+// The dice the rest of the turn can still spend, given the roll and the moves played; dim the others
+const playable = DiceChess.getPlayableDice(dfen, ['e2e4']); // "N": the knight die can still be used
+
 // Play the turn one micro-move at a time (each result keeps the unspent dice), then close it
 const afterPawn = DiceChess.applyMove(dfen, 'e2', 'e4'); // knight die left
 const afterKnight = DiceChess.applyMove(afterPawn, 'g1', 'f3'); // a leaf of the tree: the turn is complete
@@ -119,7 +122,7 @@ const bot = DiceChess.getBestMove(`${nextTurn} pn`, { algorithm: 'greedy' }); //
 console.log('Bot plays:', bot.moves, 'score', bot.score);
 ```
 
-The full surface (`getLegalTurnTree`, `getAvailableBots`, clock-aware `getBestMove`, doubling and draw decisions, `estimateEquity`) is documented in the [JavaScript API Reference](https://fortemate.github.io/dicechess-engine/architecture/javascript-api/).
+The full surface (`getLegalTurnTree`, `getPlayableDice`, `getAvailableBots`, clock-aware `getBestMove`, doubling and draw decisions, `estimateEquity`) is documented in the [JavaScript API Reference](https://fortemate.github.io/dicechess-engine/architecture/javascript-api/).
 
 ### Java / Kotlin (JVM Facade)
 

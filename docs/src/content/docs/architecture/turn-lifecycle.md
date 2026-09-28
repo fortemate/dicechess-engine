@@ -61,6 +61,20 @@ Any path that does not consume the maximum possible number of dice (or capture t
 
 After `c2c4` a quiet knight move would end a two-dice turn, while `c2c3, c3c4, Nb3xc5` spends all three dice: `c2c4` is legal only as the start of `c2c4, Nb3xc5`. A client that follows a turn one action at a time must walk the tree rather than call `getLegalUciMoves` after each micro-move.
 
+### Which dice the turn can still spend
+
+The same rule decides which dice are still of use. `getPlayableDice(dfen, moves)` takes the rolled DFEN and the micro-moves played since, and returns the dice that at least one legal turn beginning with those moves spends after them. A client can dim the other dice: no turn left can use them.
+
+* **A die can be playable although its piece cannot move first.** In the start position with the dice `QRN`, only a knight can move first. After `b1a3`, though, the rook can go `a1b1`, so the answer is `NR`, and only the queen die is lost. After `b1a3` it is `R`.
+* **It is judged over the whole turn, from the roll.** A turn that captures the King ends at once, however many dice are left, and the DFEN after the capture does not record that. The table below shows the difference.
+* **A die that is not playable stays so for the rest of the turn.** Each action only narrows the turns that can follow.
+* **Most of the time no call is needed.** A client holding the tree knows that no die is playable when the current node is empty, and that every die left is playable when a path below the node has as many actions as there are dice left. It calls `getPlayableDice` only in between: with three dice, when the longest path has one or two actions.
+
+| Step | `getPlayableDice` with the roll and the moves | Asked afresh of the current DFEN |
+| :--- | :--- | :--- |
+| Start: `8/8/8/2k5/8/1N6/2P5/K7 w - - 0 1 NPP` | `PPN` | `PPN` |
+| After `b3c5`, which takes the King, dice `PP` left | nothing: the turn is over | `PP` |
+
 ## 3. The Micro-moves Loop (`applyMove`)
 
 A player executes their turn incrementally.
@@ -70,7 +84,7 @@ Each time they make a move, the engine performs a **micro-move**:
 * It updates castling rights or adds a new *en-passant* target if a pawn was double-pushed.
 * It removes the corresponding die from the dice pool; castling removes both the King and the Rook die. The DFEN that `applyMove` returns carries the dice that are left, and a move that no die allows is refused.
 
-A client that walks the tree plays one of the current node's keys with `applyMove` and descends into that key's child. When the child is empty, the turn is complete.
+A client that walks the tree plays one of the current node's keys with `applyMove` and descends into that key's child. When the child is empty, the turn is complete. To show which of the dice left the rest of the turn can still spend, it calls `getPlayableDice` with the rolled DFEN and the moves played so far.
 
 > [!WARNING]  
 > **Color Preservation:** During `applyMove`, the active color **does not change**. If White plays their first micro-move, the resulting state still belongs to White.

@@ -96,6 +96,29 @@ export interface DiceChessApi {
     getLegalTurnTree(dfen: string): MoveTree;
 
     /**
+     * Returns the dice that a legal turn can still spend once `moves` have been played: those that
+     * at least one legal turn beginning with `moves` spends after them. A client can dim the other
+     * dice, which no turn left can use.
+     *
+     * The turn is judged as a whole, so pass the rolled DFEN at the start of the turn, as for
+     * `getLegalTurnTree`, and the UCI micro-moves played since, not the DFEN after them. `moves`
+     * default to none. In the start position with `QRN` this returns `"NR"`: only a knight can
+     * move first, but the rook can follow it.
+     *
+     * The dice come as the DFEN dice field writes them: ascending by face, in the case of the side
+     * to move, and a face repeated as often as the most dice showing it that one legal turn spends.
+     * The result is `""` when no legal turn continues: after a complete turn, a king capture
+     * included, and for a roll with no legal move or a DFEN without dice. It is `undefined` for an
+     * invalid DFEN, when `moves` is not an array of UCI strings, and when it is not the beginning
+     * of a legal turn.
+     *
+     * A client holding the tree needs the call only when the current node has children but no path
+     * below it has as many actions as there are dice left: an empty node means no die is playable,
+     * and a path as long as the dice left means every one of them is.
+     */
+    getPlayableDice(dfen: string, moves?: string[]): string | undefined;
+
+    /**
      * Executes perft (performance test) counting leaf nodes at given depth.
      * @param dfen The position in DFEN notation.
      * @param depth Search depth (0 or greater).

@@ -75,6 +75,11 @@ const turns = DiceChess.getLegalTurnTree(dfen);
 console.log("Continuations of e2e4:", Object.keys(turns["e2e4"]));
 // e.g. ["b1a3", "b1c3", "g1e2", "g1f3", "g1h3"]
 
+// The dice a legal turn can still spend: pass the rolled DFEN and the moves played since, not the
+// DFEN after them, because the turn is judged as a whole. A client can dim every other die.
+console.log("Playable after e2e4:", DiceChess.getPlayableDice(dfen, ["e2e4"]));
+// "N"
+
 // 3. Apply a micro-move. applyMove preserves the active color (White), since a Dice Chess turn
 // may consist of multiple micro-moves, and keeps the dice the move did not spend ("N" here).
 // Arguments: (dfen, fromSquare, toSquare, optionalPromotionPiece)
