@@ -127,8 +127,13 @@ jobs:
             echo "No Scoverage reports found"
             echo "report_paths=" >> "$GITHUB_OUTPUT"
           fi
+      # The scanner configures a branch or a pull request only for push and pull_request events: a dispatched
+      # run gets neither, and SonarCloud would record a feature branch's code as main (#300). Analysing it as
+      # its own branch needs a paid SonarCloud plan, so a dispatch on anything but main skips the scan instead.
       - name: SonarQube Scan
-        if: github.actor != 'dependabot[bot]' && env.SONAR_TOKEN != '' && steps.scoverage.outputs.report_paths != ''
+        if: >-
+          github.actor != 'dependabot[bot]' && env.SONAR_TOKEN != '' && steps.scoverage.outputs.report_paths != ''
+          && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
         continue-on-error: true
         uses: SonarSource/sonarqube-scan-action@ba9859eae8dd6bd29e412f25ddbbef3d032000f4 # v8.2.2
         env:
