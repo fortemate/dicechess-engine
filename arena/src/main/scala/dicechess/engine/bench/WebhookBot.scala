@@ -116,6 +116,7 @@ final class WebhookBot(url: String, secret: String, client: HttpClient = Webhook
         "gameId" -> Json.str(gameId),
         "seat"   -> Json.str(seatName),
         "state"  -> Json.obj(
+          "version"     -> Json.int(2L * (state.fullMoveNumber - 1) + (if seat.isWhite then 0L else 1L)),
           "dfen"        -> Json.str(FenParser.serialize(state)),
           "activeSeat"  -> Json.str(seatName),
           "dicePending" -> Json.bool(true),

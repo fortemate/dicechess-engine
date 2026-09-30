@@ -56,9 +56,16 @@ class WebhookBotSpec extends FunSuite:
                   case Mode.ServerError => (500, """{"error":"boom"}""")
                   case Mode.Illegal     => (200, """{"moves":["a1a1"]}""")
                   case _                =>
-                    val tree = json.field("state").flatMap(_.field("legalMoves")).getOrElse(Json.JObj(Nil))
-                    val path = firstPath(tree)
-                    (200, Json.render(Json.obj("moves" -> Json.JArr(path.map(Json.str)))))
+                    val stateObj  = json.field("state")
+                    val versionOk = stateObj.flatMap(_.field("version")).exists {
+                      case Json.JInt(_) => true
+                      case _            => false
+                    }
+                    if !versionOk then (400, """{"error":"missing or invalid state.version"}""")
+                    else
+                      val tree = stateObj.flatMap(_.field("legalMoves")).getOrElse(Json.JObj(Nil))
+                      val path = firstPath(tree)
+                      (200, Json.render(Json.obj("moves" -> Json.JArr(path.map(Json.str)))))
             case _ => (400, """{"error":"unrecognized type"}""")
           val bytes = response.getBytes(UTF_8)
           exchange.getResponseHeaders.set("Content-Type", "application/json")
