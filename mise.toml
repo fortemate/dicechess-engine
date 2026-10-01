@@ -1,7 +1,7 @@
 [tools]
 # --- Core Runtime & Build ---
 java = "temurin-25"            # Primary runtime, aligned with CI (Java 25)
-sbt = "2.0.8"                  # sbt runner; MUST match sbt.version in project/build.properties (also provisions the Jules VM)
+sbt = "2.0.9"                  # sbt runner; MUST match sbt.version in project/build.properties (also provisions the Jules VM)
 node = "26"                    # Required for Astro/Starlight documentation
 
 # --- Git Hooks & Formatting ---
@@ -53,7 +53,7 @@ run = "bash .mise/lib/check-spdx.sh"
 description = "✅ Run a full validation cycle"
 run = [
   "bash .mise/lib/check-spdx.sh",
-  "bash .mise/lib/sbt-cold-cache.sh 'scalafixAll --check; scalafmtCheckAll; rulesJVM/assertRulesBinaryCompatible; clean; coverage; testOnly *; rulesJVM/coverageDataCheck; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport; rootJVM/assertOnnxRuntimeOptionalInPom'",
+  "bash .mise/lib/sbt-cold-cache.sh 'scalafixAll --check; scalafmtCheckAll; scalafmtSbtCheck; rulesJVM/assertRulesBinaryCompatible; clean; coverage; testOnly *; rulesJVM/coverageDataCheck; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport; rootJVM/assertOnnxRuntimeOptionalInPom'",
 ]
 
 [tasks.console]
@@ -110,11 +110,11 @@ run = "sbt clean"
 
 [tasks.format]
 description = "✨ Reformat codebase"
-run = "sbt 'scalafmtAll; scalafixAll'"
+run = "sbt 'scalafmtAll; scalafmtSbt; scalafixAll'"
 
 [tasks."format:check"]
 description = "🔍 Verify code formatting"
-run = "sbt scalafmtCheckAll"
+run = "sbt 'scalafmtCheckAll; scalafmtSbtCheck'"
 
 [tasks."publish:local"]
 description = "📦 Publish the JVM artifact to the local Ivy repository (for downstream development)"
