@@ -72,7 +72,7 @@ jobs:
       - name: Show sbt version
         run: sbt --version
       - name: scalafmt check
-        run: sbt --server scalafmtCheckAll
+        run: sbt --server 'scalafmtCheckAll; scalafmtSbtCheck'
       # Assembling dist/ is the only place the module split (#222) is observable: it runs the
       # linker, renames the two export roots to their published names and checks that `./rules`
       # still answers like `.` while carrying none of the search package. It runs BEFORE the
