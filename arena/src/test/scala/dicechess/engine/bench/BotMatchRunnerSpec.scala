@@ -568,12 +568,37 @@ class BotMatchRunnerSpec extends FunSuite:
   }
 
   test("BotMatchRunner.command: --fen accepts custom valid FEN and rejects invalid FEN") {
-    val validFen = "8/8/8/4k3/8/8/4K3/4Q3 w - - 0 1"
-    val resValid = ArenaOptions.parseAndRun(
-      BotMatchRunner.command,
-      Array("--base-bot", "greedy", "--opponent", "random", "--games", "1", "--fen", validFen)
-    )
-    assertEquals(resValid, Right(()))
+    val validFen   = "8/8/8/4k3/8/8/4K3/4Q3 w - - 0 1"
+    val untimedOut = java.nio.file.Files.createTempFile("arena-untimed-fen-test", ".json")
+    val out        = new java.io.ByteArrayOutputStream()
+    try
+      val resValid = Console.withOut(out) {
+        ArenaOptions.parseAndRun(
+          BotMatchRunner.command,
+          Array(
+            "--base-bot",
+            "greedy",
+            "--opponent",
+            "random",
+            "--games",
+            "1",
+            "--seed",
+            "42",
+            "--fen",
+            validFen,
+            "--json",
+            untimedOut.toString
+          )
+        )
+      }
+      assertEquals(resValid, Right(()))
+      val consoleOutput = out.toString("UTF-8")
+      assert(consoleOutput.contains(s"Starting FEN: $validFen"))
+
+      val report = Json.parse(java.nio.file.Files.readString(untimedOut)).getOrElse(fail("invalid untimed JSON"))
+      assertEquals(report.field("kind").flatMap(_.asStr), Some("untimed_arena"))
+      assertEquals(report.field("startFen").flatMap(_.asStr), Some(validFen))
+    finally java.nio.file.Files.deleteIfExists(untimedOut)
 
     val resInvalid = ArenaOptions.parseAndRun(
       BotMatchRunner.command,
@@ -599,6 +624,8 @@ class BotMatchRunnerSpec extends FunSuite:
             "1",
             "--presets",
             "6+0",
+            "--seed",
+            "42",
             "--fen",
             validFen,
             "--json",
