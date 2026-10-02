@@ -12,6 +12,7 @@ object EgtbSolverMain:
     var discount   = 0.995
     var epsilon    = 1e-4
     var outputPath = "kq_vs_k.egtb"
+    var maxKw      = 64
 
     var i = 0
     while i < args.length do
@@ -28,6 +29,8 @@ object EgtbSolverMain:
           epsilon = args(i + 1).toDouble; i += 2
         case "--output" if i + 1 < args.length =>
           outputPath = args(i + 1); i += 2
+        case "--max-kw" if i + 1 < args.length =>
+          maxKw = args(i + 1).toInt; i += 2
         case _ =>
           i += 1
 
@@ -47,7 +50,8 @@ object EgtbSolverMain:
           discount = discount,
           epsilon = epsilon,
           maxIterations = iterations,
-          threads = threads
+          threads = threads,
+          maxKw = maxKw
         )
         val result = KQEgtbSolver.solve(config)
 
@@ -71,7 +75,8 @@ object EgtbSolverMain:
           discount = discount,
           epsilon = epsilon,
           maxIterations = iterations,
-          threads = threads
+          threads = threads,
+          maxKw = maxKw
         )
         val result = KREgtbSolver.solve(config)
 
@@ -95,7 +100,8 @@ object EgtbSolverMain:
           discount = discount,
           epsilon = epsilon,
           maxIterations = iterations,
-          threads = threads
+          threads = threads,
+          maxKw = maxKw
         )
         val result = KBEgtbSolver.solve(config)
 
@@ -119,7 +125,8 @@ object EgtbSolverMain:
           discount = discount,
           epsilon = epsilon,
           maxIterations = iterations,
-          threads = threads
+          threads = threads,
+          maxKw = maxKw
         )
         val result = KNEgtbSolver.solve(config)
 
@@ -151,7 +158,8 @@ object EgtbSolverMain:
           discount = discount,
           epsilon = epsilon,
           maxIterations = iterations,
-          threads = threads
+          threads = threads,
+          maxKw = maxKw
         )
         val result = KPEgtbSolver.solve(kqTable, config)
 

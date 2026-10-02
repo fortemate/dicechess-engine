@@ -28,7 +28,8 @@ object KPEgtbSolver:
       discount: Double = 0.995,
       epsilon: Double = 1e-4,
       maxIterations: Int = 500,
-      threads: Int = Runtime.getRuntime.availableProcessors()
+      threads: Int = Runtime.getRuntime.availableProcessors(),
+      maxKw: Int = 64
   )
 
   final case class SolverResult(
@@ -66,7 +67,7 @@ object KPEgtbSolver:
       while iteration < config.maxIterations && maxDelta > config.epsilon do
         iteration += 1
 
-        val tasks = (0 until 64).map { kw =>
+        val tasks = (0 until config.maxKw).map { kw =>
           new Callable[Double] {
             override def call(): Double =
               var localMaxDelta = 0.0
