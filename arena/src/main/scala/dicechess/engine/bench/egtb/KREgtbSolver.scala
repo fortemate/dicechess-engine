@@ -45,16 +45,14 @@ object KREgtbSolver:
     )
 
   private def evaluateWhiteTurn(kw: Int, kb: Int, r: Int, vBlack: Array[Float], gamma: Float): Float =
-    val occ = (1L << kw) | (1L << kb) | (1L << r)
-
     val val00 = gamma * vBlack(stateIndex(kw, kb, r))
     val val10 = bestKingMoves(kw, kb, r, 1, vBlack, gamma)
-    val val01 = bestRookMoves(kw, kb, r, 1, occ, vBlack, gamma)
+    val val01 = bestRookMoves(kw, kb, r, 1, vBlack, gamma)
     val val20 = math.max(val10, bestKingMoves(kw, kb, r, 2, vBlack, gamma))
-    val val02 = math.max(val01, bestRookMoves(kw, kb, r, 2, occ, vBlack, gamma))
-    val val11 = math.max(math.max(val10, val01), bestKingAndRookMoves(kw, kb, r, occ, vBlack, gamma))
+    val val02 = math.max(val01, bestRookMoves(kw, kb, r, 2, vBlack, gamma))
+    val val11 = math.max(math.max(val10, val01), bestKingAndRookMoves(kw, kb, r, vBlack, gamma))
     val val30 = math.max(val20, bestKingMoves(kw, kb, r, 3, vBlack, gamma))
-    val val03 = math.max(val02, bestRookMoves(kw, kb, r, 3, occ, vBlack, gamma))
+    val val03 = math.max(val02, bestRookMoves(kw, kb, r, 3, vBlack, gamma))
     // (2,1) [3/216] and (1,2) [3/216]: 3-dice outcomes mixing King and Rook moves (6/216 total probability).
     // Intentionally bounded using 2-ply composite lower-bound approximations max(val11, val20) and max(val11, val02)
     // to maintain fast value iteration while guaranteeing conservative monotonic convergence.
@@ -93,85 +91,91 @@ object KREgtbSolver:
   ): Float =
     EgtbSearch.bestKingMoves(kw, kb, r, maxMoves, vBlack, gamma)
 
+  private def evaluateRookStep(
+      nextR: Int,
+      kw: Int,
+      kb: Int,
+      movesLeft: Int,
+      vBlack: Array[Float],
+      gamma: Float
+  ): Float =
+    if nextR == kb then 1.0f
+    else
+      val vPos = gamma * vBlack(stateIndex(kw, kb, nextR))
+      if movesLeft <= 1 then vPos
+      else math.max(vPos, bestRookMoves(kw, kb, nextR, movesLeft - 1, vBlack, gamma))
+
   private def bestRookMoves(
       kw: Int,
       kb: Int,
       r: Int,
       maxMoves: Int,
-      occ: Long,
       vBlack: Array[Float],
       gamma: Float
   ): Float =
+    val occ  = (1L << kw) | (1L << kb) | (1L << r)
     var best = 0.0f
-    var b1   = rookAttacks(r, kw, occ)
-    while b1 != 0L do
-      val r1 = java.lang.Long.numberOfTrailingZeros(b1)
-      b1 &= b1 - 1
-      if r1 == kb then return 1.0f
-      else
-        val v1 = gamma * vBlack(stateIndex(kw, kb, r1))
-        if v1 > best then best = v1
-
-        if maxMoves >= 2 then
-          val occ1 = (occ & ~(1L << r)) | (1L << r1)
-          var b2   = rookAttacks(r1, kw, occ1)
-          while b2 != 0L do
-            val r2 = java.lang.Long.numberOfTrailingZeros(b2)
-            b2 &= b2 - 1
-            if r2 == kb then return 1.0f
-            else
-              val v2 = gamma * vBlack(stateIndex(kw, kb, r2))
-              if v2 > best then best = v2
-
-              if maxMoves >= 3 then
-                val occ2 = (occ1 & ~(1L << r1)) | (1L << r2)
-                var b3   = rookAttacks(r2, kw, occ2)
-                while b3 != 0L do
-                  val r3 = java.lang.Long.numberOfTrailingZeros(b3)
-                  b3 &= b3 - 1
-                  if r3 == kb then return 1.0f
-                  else
-                    val v3 = gamma * vBlack(stateIndex(kw, kb, r3))
-                    if v3 > best then best = v3
+    var b    = rookAttacks(r, kw, occ)
+    while b != 0L do
+      val nextR = java.lang.Long.numberOfTrailingZeros(b)
+      b &= b - 1
+      val stepVal = evaluateRookStep(nextR, kw, kb, maxMoves, vBlack, gamma)
+      if stepVal == 1.0f then return 1.0f
+      if stepVal > best then best = stepVal
     best
 
-  private def bestKingAndRookMoves(kw: Int, kb: Int, r: Int, occ: Long, vBlack: Array[Float], gamma: Float): Float =
+  private def searchRookMoves(kw1: Int, kb: Int, r: Int, vBlack: Array[Float], gamma: Float): Float =
+    val occ  = (1L << kw1) | (1L << kb) | (1L << r)
     var best = 0.0f
-
-    // Branch A: King first, then Rook
-    var bK = KingAttacks(kw) & ~(1L << r)
-    while bK != 0L do
-      val kw1 = java.lang.Long.numberOfTrailingZeros(bK)
-      bK &= bK - 1
-      if kw1 == kb then return 1.0f
-      else
-        val occ1 = (occ & ~(1L << kw)) | (1L << kw1)
-        var bR   = rookAttacks(r, kw1, occ1)
-        while bR != 0L do
-          val r1 = java.lang.Long.numberOfTrailingZeros(bR)
-          bR &= bR - 1
-          if r1 == kb then return 1.0f
-          else
-            val v = gamma * vBlack(stateIndex(kw1, kb, r1))
-            if v > best then best = v
-
-    // Branch B: Rook first, then King
-    var bR = rookAttacks(r, kw, occ)
+    var bR   = rookAttacks(r, kw1, occ)
     while bR != 0L do
       val r1 = java.lang.Long.numberOfTrailingZeros(bR)
       bR &= bR - 1
       if r1 == kb then return 1.0f
-      else
-        var bK2 = KingAttacks(kw) & ~(1L << r1)
-        while bK2 != 0L do
-          val kw1 = java.lang.Long.numberOfTrailingZeros(bK2)
-          bK2 &= bK2 - 1
-          if kw1 == kb then return 1.0f
-          else
-            val v = gamma * vBlack(stateIndex(kw1, kb, r1))
-            if v > best then best = v
-
+      val v = gamma * vBlack(stateIndex(kw1, kb, r1))
+      if v > best then best = v
     best
+
+  private def bestKingThenRookMoves(kw: Int, kb: Int, r: Int, vBlack: Array[Float], gamma: Float): Float =
+    var best = 0.0f
+    var bK   = KingAttacks(kw) & ~(1L << r)
+    while bK != 0L do
+      val kw1 = java.lang.Long.numberOfTrailingZeros(bK)
+      bK &= bK - 1
+      if kw1 == kb then return 1.0f
+      val v = searchRookMoves(kw1, kb, r, vBlack, gamma)
+      if v == 1.0f then return 1.0f
+      if v > best then best = v
+    best
+
+  private def searchKingMoves(kw: Int, kb: Int, r1: Int, vBlack: Array[Float], gamma: Float): Float =
+    var best = 0.0f
+    var bK   = KingAttacks(kw) & ~(1L << r1)
+    while bK != 0L do
+      val kw1 = java.lang.Long.numberOfTrailingZeros(bK)
+      bK &= bK - 1
+      if kw1 == kb then return 1.0f
+      val v = gamma * vBlack(stateIndex(kw1, kb, r1))
+      if v > best then best = v
+    best
+
+  private def bestRookThenKingMoves(kw: Int, kb: Int, r: Int, vBlack: Array[Float], gamma: Float): Float =
+    val occ  = (1L << kw) | (1L << kb) | (1L << r)
+    var best = 0.0f
+    var bR   = rookAttacks(r, kw, occ)
+    while bR != 0L do
+      val r1 = java.lang.Long.numberOfTrailingZeros(bR)
+      bR &= bR - 1
+      if r1 == kb then return 1.0f
+      val v = searchKingMoves(kw, kb, r1, vBlack, gamma)
+      if v == 1.0f then return 1.0f
+      if v > best then best = v
+    best
+
+  private def bestKingAndRookMoves(kw: Int, kb: Int, r: Int, vBlack: Array[Float], gamma: Float): Float =
+    val valA = bestKingThenRookMoves(kw, kb, r, vBlack, gamma)
+    if valA == 1.0f then 1.0f
+    else math.max(valA, bestRookThenKingMoves(kw, kb, r, vBlack, gamma))
 
   @inline private def bestBlackKingMoves(
       kw: Int,

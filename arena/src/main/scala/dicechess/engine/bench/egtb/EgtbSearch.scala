@@ -25,22 +25,39 @@ object EgtbSearch:
       vBlack: Array[Float],
       gamma: Float
   ): Float =
-    def search(curKw: Int, movesLeft: Int): Float =
-      var best    = 0.0f
-      var attacks = KingAttacks(curKw) & ~(1L << aux)
-      while attacks != 0L do
-        val nextKw = java.lang.Long.numberOfTrailingZeros(attacks)
-        attacks &= attacks - 1
-        if nextKw == kb then return 1.0f
-        val vPos = gamma * vBlack(stateIndex(nextKw, kb, aux))
-        if vPos > best then best = vPos
-        if movesLeft > 1 then
-          val vNext = search(nextKw, movesLeft - 1)
-          if vNext == 1.0f then return 1.0f
-          if vNext > best then best = vNext
-      best
+    searchWhiteKing(kw, kb, aux, maxMoves, vBlack, gamma)
 
-    search(kw, maxMoves)
+  private def evaluateWhiteKingStep(
+      nextKw: Int,
+      kb: Int,
+      aux: Int,
+      movesLeft: Int,
+      vBlack: Array[Float],
+      gamma: Float
+  ): Float =
+    if nextKw == kb then 1.0f
+    else
+      val vPos = gamma * vBlack(stateIndex(nextKw, kb, aux))
+      if movesLeft <= 1 then vPos
+      else math.max(vPos, searchWhiteKing(nextKw, kb, aux, movesLeft - 1, vBlack, gamma))
+
+  private def searchWhiteKing(
+      curKw: Int,
+      kb: Int,
+      aux: Int,
+      movesLeft: Int,
+      vBlack: Array[Float],
+      gamma: Float
+  ): Float =
+    var best    = 0.0f
+    var attacks = KingAttacks(curKw) & ~(1L << aux)
+    while attacks != 0L do
+      val nextKw = java.lang.Long.numberOfTrailingZeros(attacks)
+      attacks &= attacks - 1
+      val stepVal = evaluateWhiteKingStep(nextKw, kb, aux, movesLeft, vBlack, gamma)
+      if stepVal == 1.0f then return 1.0f
+      if stepVal > best then best = stepVal
+    best
 
   /** Evaluates Black King moves up to `maxMoves` plies (Black minimizes White win probability). If White King is
     * captured, returns 0.0f immediately (terminal Black win). If auxiliary piece is captured, the game transitions to K
@@ -54,22 +71,37 @@ object EgtbSearch:
       vWhite: Array[Float],
       gamma: Float
   ): Float =
-    def search(curKb: Int, movesLeft: Int): Float =
-      var best    = 1.0f
-      var attacks = KingAttacks(curKb)
-      while attacks != 0L do
-        val nextKb = java.lang.Long.numberOfTrailingZeros(attacks)
-        attacks &= attacks - 1
-        if nextKb == kw then return 0.0f
-        else if nextKb == aux then
-          if 0.5f < best then best = 0.5f
-        else
-          val vPos = gamma * vWhite(stateIndex(kw, nextKb, aux))
-          if vPos < best then best = vPos
-          if movesLeft > 1 then
-            val vNext = search(nextKb, movesLeft - 1)
-            if vNext == 0.0f then return 0.0f
-            if vNext < best then best = vNext
-      best
+    searchBlackKing(kb, kw, aux, maxMoves, vWhite, gamma)
 
-    search(kb, maxMoves)
+  private def evaluateBlackKingStep(
+      nextKb: Int,
+      kw: Int,
+      aux: Int,
+      movesLeft: Int,
+      vWhite: Array[Float],
+      gamma: Float
+  ): Float =
+    if nextKb == kw then 0.0f
+    else if nextKb == aux then 0.5f
+    else
+      val vPos = gamma * vWhite(stateIndex(kw, nextKb, aux))
+      if movesLeft <= 1 then vPos
+      else math.min(vPos, searchBlackKing(nextKb, kw, aux, movesLeft - 1, vWhite, gamma))
+
+  private def searchBlackKing(
+      curKb: Int,
+      kw: Int,
+      aux: Int,
+      movesLeft: Int,
+      vWhite: Array[Float],
+      gamma: Float
+  ): Float =
+    var best    = 1.0f
+    var attacks = KingAttacks(curKb)
+    while attacks != 0L do
+      val nextKb = java.lang.Long.numberOfTrailingZeros(attacks)
+      attacks &= attacks - 1
+      val stepVal = evaluateBlackKingStep(nextKb, kw, aux, movesLeft, vWhite, gamma)
+      if stepVal == 0.0f then return 0.0f
+      if stepVal < best then best = stepVal
+    best

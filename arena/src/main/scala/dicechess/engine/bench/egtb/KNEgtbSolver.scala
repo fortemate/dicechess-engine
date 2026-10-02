@@ -88,6 +88,20 @@ object KNEgtbSolver:
   ): Float =
     EgtbSearch.bestKingMoves(kw, kb, n, maxMoves, vBlack, gamma)
 
+  private def evaluateKnightStep(
+      nextN: Int,
+      kw: Int,
+      kb: Int,
+      movesLeft: Int,
+      vBlack: Array[Float],
+      gamma: Float
+  ): Float =
+    if nextN == kb then 1.0f
+    else
+      val vPos = gamma * vBlack(stateIndex(kw, kb, nextN))
+      if movesLeft <= 1 then vPos
+      else math.max(vPos, bestKnightMoves(kw, kb, nextN, movesLeft - 1, vBlack, gamma))
+
   private def bestKnightMoves(
       kw: Int,
       kb: Int,
@@ -97,72 +111,65 @@ object KNEgtbSolver:
       gamma: Float
   ): Float =
     var best = 0.0f
-    var b1   = KnightAttacks(n) & ~(1L << kw)
-    while b1 != 0L do
-      val n1Sq = java.lang.Long.numberOfTrailingZeros(b1)
-      b1 &= b1 - 1
-      if n1Sq == kb then return 1.0f
-      else
-        val v1 = gamma * vBlack(stateIndex(kw, kb, n1Sq))
-        if v1 > best then best = v1
-
-        if maxMoves >= 2 then
-          var b2 = KnightAttacks(n1Sq) & ~(1L << kw)
-          while b2 != 0L do
-            val n2Sq = java.lang.Long.numberOfTrailingZeros(b2)
-            b2 &= b2 - 1
-            if n2Sq == kb then return 1.0f
-            else
-              val v2 = gamma * vBlack(stateIndex(kw, kb, n2Sq))
-              if v2 > best then best = v2
-
-              if maxMoves >= 3 then
-                var b3 = KnightAttacks(n2Sq) & ~(1L << kw)
-                while b3 != 0L do
-                  val n3Sq = java.lang.Long.numberOfTrailingZeros(b3)
-                  b3 &= b3 - 1
-                  if n3Sq == kb then return 1.0f
-                  else
-                    val v3 = gamma * vBlack(stateIndex(kw, kb, n3Sq))
-                    if v3 > best then best = v3
+    var b    = KnightAttacks(n) & ~(1L << kw)
+    while b != 0L do
+      val nextN = java.lang.Long.numberOfTrailingZeros(b)
+      b &= b - 1
+      val stepVal = evaluateKnightStep(nextN, kw, kb, maxMoves, vBlack, gamma)
+      if stepVal == 1.0f then return 1.0f
+      if stepVal > best then best = stepVal
     best
 
-  private def bestKingAndKnightMoves(kw: Int, kb: Int, n: Int, vBlack: Array[Float], gamma: Float): Float =
+  private def searchKnightMoves(kw1: Int, kb: Int, n: Int, vBlack: Array[Float], gamma: Float): Float =
     var best = 0.0f
-
-    // Branch A: King first, then Knight
-    var bK = KingAttacks(kw) & ~(1L << n)
-    while bK != 0L do
-      val kw1 = java.lang.Long.numberOfTrailingZeros(bK)
-      bK &= bK - 1
-      if kw1 == kb then return 1.0f
-      else
-        var bN = KnightAttacks(n) & ~(1L << kw1)
-        while bN != 0L do
-          val n1Sq = java.lang.Long.numberOfTrailingZeros(bN)
-          bN &= bN - 1
-          if n1Sq == kb then return 1.0f
-          else
-            val v = gamma * vBlack(stateIndex(kw1, kb, n1Sq))
-            if v > best then best = v
-
-    // Branch B: Knight first, then King
-    var bN = KnightAttacks(n) & ~(1L << kw)
+    var bN   = KnightAttacks(n) & ~(1L << kw1)
     while bN != 0L do
       val n1Sq = java.lang.Long.numberOfTrailingZeros(bN)
       bN &= bN - 1
       if n1Sq == kb then return 1.0f
-      else
-        var bK2 = KingAttacks(kw) & ~(1L << n1Sq)
-        while bK2 != 0L do
-          val kw1 = java.lang.Long.numberOfTrailingZeros(bK2)
-          bK2 &= bK2 - 1
-          if kw1 == kb then return 1.0f
-          else
-            val v = gamma * vBlack(stateIndex(kw1, kb, n1Sq))
-            if v > best then best = v
-
+      val v = gamma * vBlack(stateIndex(kw1, kb, n1Sq))
+      if v > best then best = v
     best
+
+  private def bestKingThenKnightMoves(kw: Int, kb: Int, n: Int, vBlack: Array[Float], gamma: Float): Float =
+    var best = 0.0f
+    var bK   = KingAttacks(kw) & ~(1L << n)
+    while bK != 0L do
+      val kw1 = java.lang.Long.numberOfTrailingZeros(bK)
+      bK &= bK - 1
+      if kw1 == kb then return 1.0f
+      val v = searchKnightMoves(kw1, kb, n, vBlack, gamma)
+      if v == 1.0f then return 1.0f
+      if v > best then best = v
+    best
+
+  private def searchKingMoves(kw: Int, kb: Int, n1Sq: Int, vBlack: Array[Float], gamma: Float): Float =
+    var best = 0.0f
+    var bK   = KingAttacks(kw) & ~(1L << n1Sq)
+    while bK != 0L do
+      val kw1 = java.lang.Long.numberOfTrailingZeros(bK)
+      bK &= bK - 1
+      if kw1 == kb then return 1.0f
+      val v = gamma * vBlack(stateIndex(kw1, kb, n1Sq))
+      if v > best then best = v
+    best
+
+  private def bestKnightThenKingMoves(kw: Int, kb: Int, n: Int, vBlack: Array[Float], gamma: Float): Float =
+    var best = 0.0f
+    var bN   = KnightAttacks(n) & ~(1L << kw)
+    while bN != 0L do
+      val n1Sq = java.lang.Long.numberOfTrailingZeros(bN)
+      bN &= bN - 1
+      if n1Sq == kb then return 1.0f
+      val v = searchKingMoves(kw, kb, n1Sq, vBlack, gamma)
+      if v == 1.0f then return 1.0f
+      if v > best then best = v
+    best
+
+  private def bestKingAndKnightMoves(kw: Int, kb: Int, n: Int, vBlack: Array[Float], gamma: Float): Float =
+    val valA = bestKingThenKnightMoves(kw, kb, n, vBlack, gamma)
+    if valA == 1.0f then 1.0f
+    else math.max(valA, bestKnightThenKingMoves(kw, kb, n, vBlack, gamma))
 
   @inline private def bestBlackKingMoves(
       kw: Int,

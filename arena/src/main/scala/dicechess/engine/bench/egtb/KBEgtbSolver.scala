@@ -45,16 +45,14 @@ object KBEgtbSolver:
     )
 
   private def evaluateWhiteTurn(kw: Int, kb: Int, b: Int, vBlack: Array[Float], gamma: Float): Float =
-    val occ = (1L << kw) | (1L << kb) | (1L << b)
-
     val val00 = gamma * vBlack(stateIndex(kw, kb, b))
     val val10 = bestKingMoves(kw, kb, b, 1, vBlack, gamma)
-    val val01 = bestBishopMoves(kw, kb, b, 1, occ, vBlack, gamma)
+    val val01 = bestBishopMoves(kw, kb, b, 1, vBlack, gamma)
     val val20 = math.max(val10, bestKingMoves(kw, kb, b, 2, vBlack, gamma))
-    val val02 = math.max(val01, bestBishopMoves(kw, kb, b, 2, occ, vBlack, gamma))
-    val val11 = math.max(math.max(val10, val01), bestKingAndBishopMoves(kw, kb, b, occ, vBlack, gamma))
+    val val02 = math.max(val01, bestBishopMoves(kw, kb, b, 2, vBlack, gamma))
+    val val11 = math.max(math.max(val10, val01), bestKingAndBishopMoves(kw, kb, b, vBlack, gamma))
     val val30 = math.max(val20, bestKingMoves(kw, kb, b, 3, vBlack, gamma))
-    val val03 = math.max(val02, bestBishopMoves(kw, kb, b, 3, occ, vBlack, gamma))
+    val val03 = math.max(val02, bestBishopMoves(kw, kb, b, 3, vBlack, gamma))
     // (2,1) [3/216] and (1,2) [3/216]: 3-dice outcomes mixing King and Bishop moves (6/216 total probability).
     // Intentionally bounded using 2-ply composite lower-bound approximations max(val11, val20) and max(val11, val02)
     // to maintain fast value iteration while guaranteeing conservative monotonic convergence.
@@ -93,85 +91,91 @@ object KBEgtbSolver:
   ): Float =
     EgtbSearch.bestKingMoves(kw, kb, b, maxMoves, vBlack, gamma)
 
+  private def evaluateBishopStep(
+      nextB: Int,
+      kw: Int,
+      kb: Int,
+      movesLeft: Int,
+      vBlack: Array[Float],
+      gamma: Float
+  ): Float =
+    if nextB == kb then 1.0f
+    else
+      val vPos = gamma * vBlack(stateIndex(kw, kb, nextB))
+      if movesLeft <= 1 then vPos
+      else math.max(vPos, bestBishopMoves(kw, kb, nextB, movesLeft - 1, vBlack, gamma))
+
   private def bestBishopMoves(
       kw: Int,
       kb: Int,
       b: Int,
       maxMoves: Int,
-      occ: Long,
       vBlack: Array[Float],
       gamma: Float
   ): Float =
+    val occ  = (1L << kw) | (1L << kb) | (1L << b)
     var best = 0.0f
     var b1   = bishopAttacks(b, kw, occ)
     while b1 != 0L do
-      val b1Sq = java.lang.Long.numberOfTrailingZeros(b1)
+      val nextB = java.lang.Long.numberOfTrailingZeros(b1)
       b1 &= b1 - 1
-      if b1Sq == kb then return 1.0f
-      else
-        val v1 = gamma * vBlack(stateIndex(kw, kb, b1Sq))
-        if v1 > best then best = v1
-
-        if maxMoves >= 2 then
-          val occ1 = (occ & ~(1L << b)) | (1L << b1Sq)
-          var b2   = bishopAttacks(b1Sq, kw, occ1)
-          while b2 != 0L do
-            val b2Sq = java.lang.Long.numberOfTrailingZeros(b2)
-            b2 &= b2 - 1
-            if b2Sq == kb then return 1.0f
-            else
-              val v2 = gamma * vBlack(stateIndex(kw, kb, b2Sq))
-              if v2 > best then best = v2
-
-              if maxMoves >= 3 then
-                val occ2 = (occ1 & ~(1L << b1Sq)) | (1L << b2Sq)
-                var b3   = bishopAttacks(b2Sq, kw, occ2)
-                while b3 != 0L do
-                  val b3Sq = java.lang.Long.numberOfTrailingZeros(b3)
-                  b3 &= b3 - 1
-                  if b3Sq == kb then return 1.0f
-                  else
-                    val v3 = gamma * vBlack(stateIndex(kw, kb, b3Sq))
-                    if v3 > best then best = v3
+      val stepVal = evaluateBishopStep(nextB, kw, kb, maxMoves, vBlack, gamma)
+      if stepVal == 1.0f then return 1.0f
+      if stepVal > best then best = stepVal
     best
 
-  private def bestKingAndBishopMoves(kw: Int, kb: Int, b: Int, occ: Long, vBlack: Array[Float], gamma: Float): Float =
+  private def searchBishopMoves(kw1: Int, kb: Int, b: Int, vBlack: Array[Float], gamma: Float): Float =
+    val occ  = (1L << kw1) | (1L << kb) | (1L << b)
     var best = 0.0f
-
-    // Branch A: King first, then Bishop
-    var bK = KingAttacks(kw) & ~(1L << b)
-    while bK != 0L do
-      val kw1 = java.lang.Long.numberOfTrailingZeros(bK)
-      bK &= bK - 1
-      if kw1 == kb then return 1.0f
-      else
-        val occ1 = (occ & ~(1L << kw)) | (1L << kw1)
-        var bB   = bishopAttacks(b, kw1, occ1)
-        while bB != 0L do
-          val b1Sq = java.lang.Long.numberOfTrailingZeros(bB)
-          bB &= bB - 1
-          if b1Sq == kb then return 1.0f
-          else
-            val v = gamma * vBlack(stateIndex(kw1, kb, b1Sq))
-            if v > best then best = v
-
-    // Branch B: Bishop first, then King
-    var bB = bishopAttacks(b, kw, occ)
+    var bB   = bishopAttacks(b, kw1, occ)
     while bB != 0L do
       val b1Sq = java.lang.Long.numberOfTrailingZeros(bB)
       bB &= bB - 1
       if b1Sq == kb then return 1.0f
-      else
-        var bK2 = KingAttacks(kw) & ~(1L << b1Sq)
-        while bK2 != 0L do
-          val kw1 = java.lang.Long.numberOfTrailingZeros(bK2)
-          bK2 &= bK2 - 1
-          if kw1 == kb then return 1.0f
-          else
-            val v = gamma * vBlack(stateIndex(kw1, kb, b1Sq))
-            if v > best then best = v
-
+      val v = gamma * vBlack(stateIndex(kw1, kb, b1Sq))
+      if v > best then best = v
     best
+
+  private def bestKingThenBishopMoves(kw: Int, kb: Int, b: Int, vBlack: Array[Float], gamma: Float): Float =
+    var best = 0.0f
+    var bK   = KingAttacks(kw) & ~(1L << b)
+    while bK != 0L do
+      val kw1 = java.lang.Long.numberOfTrailingZeros(bK)
+      bK &= bK - 1
+      if kw1 == kb then return 1.0f
+      val v = searchBishopMoves(kw1, kb, b, vBlack, gamma)
+      if v == 1.0f then return 1.0f
+      if v > best then best = v
+    best
+
+  private def searchKingMoves(kw: Int, kb: Int, b1Sq: Int, vBlack: Array[Float], gamma: Float): Float =
+    var best = 0.0f
+    var bK   = KingAttacks(kw) & ~(1L << b1Sq)
+    while bK != 0L do
+      val kw1 = java.lang.Long.numberOfTrailingZeros(bK)
+      bK &= bK - 1
+      if kw1 == kb then return 1.0f
+      val v = gamma * vBlack(stateIndex(kw1, kb, b1Sq))
+      if v > best then best = v
+    best
+
+  private def bestBishopThenKingMoves(kw: Int, kb: Int, b: Int, vBlack: Array[Float], gamma: Float): Float =
+    val occ  = (1L << kw) | (1L << kb) | (1L << b)
+    var best = 0.0f
+    var bB   = bishopAttacks(b, kw, occ)
+    while bB != 0L do
+      val b1Sq = java.lang.Long.numberOfTrailingZeros(bB)
+      bB &= bB - 1
+      if b1Sq == kb then return 1.0f
+      val v = searchKingMoves(kw, kb, b1Sq, vBlack, gamma)
+      if v == 1.0f then return 1.0f
+      if v > best then best = v
+    best
+
+  private def bestKingAndBishopMoves(kw: Int, kb: Int, b: Int, vBlack: Array[Float], gamma: Float): Float =
+    val valA = bestKingThenBishopMoves(kw, kb, b, vBlack, gamma)
+    if valA == 1.0f then 1.0f
+    else math.max(valA, bestBishopThenKingMoves(kw, kb, b, vBlack, gamma))
 
   @inline private def bestBlackKingMoves(
       kw: Int,

@@ -140,15 +140,7 @@ object EgtbTable:
       new EgtbTable(pieceType, vW, vB)
     finally in.close()
 
-  def save(
-      targetFile: File,
-      pieceType: PieceType,
-      vWhite: Array[Float],
-      vBlack: Array[Float],
-      force: Boolean = false,
-      allowedDir: Option[Path] = Some(Paths.get("").toAbsolutePath.normalize())
-  ): File =
-    val targetPath = targetFile.toPath.toAbsolutePath.normalize()
+  private def validateTargetPath(targetPath: Path, allowedDir: Option[Path], force: Boolean): Unit =
     if Files.isSymbolicLink(targetPath) then
       throw new IllegalArgumentException(s"Refusing to write EGTB to symbolic link: $targetPath")
 
@@ -175,6 +167,51 @@ object EgtbTable:
         s"EGTB output file already exists at '$targetPath'. Pass --force to overwrite."
       )
 
+  private def writeBinaryTable(
+      tempFile: Path,
+      pieceType: PieceType,
+      vWhite: Array[Float],
+      vBlack: Array[Float]
+  ): Unit =
+    val outStream = Files.newOutputStream(tempFile, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)
+    val out       = new DataOutputStream(new BufferedOutputStream(outStream))
+    try
+      out.writeBytes("EGTB")
+      out.writeByte(1)
+      val typeCode = pieceType match
+        case PieceType.Queen  => 0
+        case PieceType.Rook   => 1
+        case PieceType.Bishop => 2
+        case PieceType.Knight => 3
+        case PieceType.Pawn   => 4
+        case other            => throw new IllegalArgumentException(s"Unsupported EGTB piece type: $other")
+      out.writeByte(typeCode)
+      out.writeShort(64)
+
+      var i = 0
+      while i < KQEgtbSolver.StatesPerTurn do
+        val wFixed = (vWhite(i).min(1.0f).max(0.0f) * 65535.0f).round.toShort
+        out.writeShort(wFixed)
+        i += 1
+
+      i = 0
+      while i < KQEgtbSolver.StatesPerTurn do
+        val bFixed = (vBlack(i).min(1.0f).max(0.0f) * 65535.0f).round.toShort
+        out.writeShort(bFixed)
+        i += 1
+    finally out.close()
+
+  def save(
+      targetFile: File,
+      pieceType: PieceType,
+      vWhite: Array[Float],
+      vBlack: Array[Float],
+      force: Boolean = false,
+      allowedDir: Option[Path] = Some(Paths.get("").toAbsolutePath.normalize())
+  ): File =
+    val targetPath = targetFile.toPath.toAbsolutePath.normalize()
+    validateTargetPath(targetPath, allowedDir, force)
+
     val parent = targetPath.getParent
     if parent != null && !Files.exists(parent) then Files.createDirectories(parent)
 
@@ -184,34 +221,7 @@ object EgtbTable:
       ".tmp"
     )
     try
-      val outStream = Files.newOutputStream(tempFile, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)
-      val out       = new DataOutputStream(new BufferedOutputStream(outStream))
-      try
-        out.writeBytes("EGTB")
-        out.writeByte(1)
-        val typeCode = pieceType match
-          case PieceType.Queen  => 0
-          case PieceType.Rook   => 1
-          case PieceType.Bishop => 2
-          case PieceType.Knight => 3
-          case PieceType.Pawn   => 4
-          case other            => throw new IllegalArgumentException(s"Unsupported EGTB piece type: $other")
-        out.writeByte(typeCode)
-        out.writeShort(64)
-
-        var i = 0
-        while i < KQEgtbSolver.StatesPerTurn do
-          val wFixed = (vWhite(i).min(1.0f).max(0.0f) * 65535.0f).round.toShort
-          out.writeShort(wFixed)
-          i += 1
-
-        i = 0
-        while i < KQEgtbSolver.StatesPerTurn do
-          val bFixed = (vBlack(i).min(1.0f).max(0.0f) * 65535.0f).round.toShort
-          out.writeShort(bFixed)
-          i += 1
-      finally out.close()
-
+      writeBinaryTable(tempFile, pieceType, vWhite, vBlack)
       if force then
         Files.move(tempFile, targetPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
       else Files.move(tempFile, targetPath, StandardCopyOption.ATOMIC_MOVE)
@@ -219,6 +229,13 @@ object EgtbTable:
       println(s"Saved compressed EGTB to $targetPath (${Files.size(targetPath)} bytes)")
       targetPath.toFile
     finally Files.deleteIfExists(tempFile)
+
+  final private case class ValueArrays(
+      vWhiteCurrent: Array[Float],
+      vBlackCurrent: Array[Float],
+      vWhiteNext: Array[Float],
+      vBlackNext: Array[Float]
+  )
 
   def runValueIteration(
       name: String,
@@ -257,14 +274,12 @@ object EgtbTable:
       while iteration < config.maxIterations && maxDelta > config.epsilon do
         iteration += 1
 
-        val tasks = (0 until config.maxKw).map { kw =>
+        val arrays = ValueArrays(vWhiteCurrent, vBlackCurrent, vWhiteNext, vBlackNext)
+        val tasks  = (0 until config.maxKw).map { kw =>
           createIterationTask(
             kw,
             auxRange,
-            vWhiteCurrent,
-            vBlackCurrent,
-            vWhiteNext,
-            vBlackNext,
+            arrays,
             gamma,
             evalWhite,
             evalBlack
@@ -296,10 +311,7 @@ object EgtbTable:
   private def createIterationTask(
       kw: Int,
       auxRange: Range,
-      vWhiteCurrent: Array[Float],
-      vBlackCurrent: Array[Float],
-      vWhiteNext: Array[Float],
-      vBlackNext: Array[Float],
+      arrays: ValueArrays,
       gamma: Float,
       evalWhite: (Int, Int, Int, Array[Float], Float) => Float,
       evalBlack: (Int, Int, Int, Array[Float], Float) => Float
@@ -314,14 +326,14 @@ object EgtbTable:
         do
           val idx = KQEgtbSolver.stateIndex(kw, kb, aux)
           if KQEgtbSolver.isLegal(kw, kb, aux) then
-            val newW   = evalWhite(kw, kb, aux, vBlackCurrent, gamma)
-            val deltaW = math.abs(newW - vWhiteCurrent(idx))
-            vWhiteNext(idx) = newW
+            val newW   = evalWhite(kw, kb, aux, arrays.vBlackCurrent, gamma)
+            val deltaW = math.abs(newW - arrays.vWhiteCurrent(idx))
+            arrays.vWhiteNext(idx) = newW
             if deltaW > localMaxDelta then localMaxDelta = deltaW
 
-            val newB   = evalBlack(kw, kb, aux, vWhiteCurrent, gamma)
-            val deltaB = math.abs(newB - vBlackCurrent(idx))
-            vBlackNext(idx) = newB
+            val newB   = evalBlack(kw, kb, aux, arrays.vWhiteCurrent, gamma)
+            val deltaB = math.abs(newB - arrays.vBlackCurrent(idx))
+            arrays.vBlackNext(idx) = newB
             if deltaB > localMaxDelta then localMaxDelta = deltaB
 
         localMaxDelta

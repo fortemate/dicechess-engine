@@ -52,10 +52,7 @@ object KQEgtbSolver:
   // White Turn Evaluation (White maximizes White win probability)
   // =========================================================================
   private def evaluateWhiteTurn(kw: Int, kb: Int, q: Int, vBlack: Array[Float], gamma: Float): Float =
-    val occ = (1L << kw) | (1L << kb) | (1L << q)
-
     // Functional outcomes for White in KQvK:
-    // (nK, nQ):
     // (0,0) [64/216]: pass
     val val00 = gamma * vBlack(stateIndex(kw, kb, q))
 
@@ -63,22 +60,22 @@ object KQEgtbSolver:
     val val10 = bestKingMoves(kw, kb, q, 1, vBlack, gamma)
 
     // (0,1) [48/216]: 1 Queen move
-    val val01 = bestQueenMoves(kw, kb, q, 1, occ, vBlack, gamma)
+    val val01 = bestQueenMoves(kw, kb, q, 1, vBlack, gamma)
 
     // (2,0) [12/216]: up to 2 King moves
     val val20 = math.max(val10, bestKingMoves(kw, kb, q, 2, vBlack, gamma))
 
     // (0,2) [12/216]: up to 2 Queen moves
-    val val02 = math.max(val01, bestQueenMoves(kw, kb, q, 2, occ, vBlack, gamma))
+    val val02 = math.max(val01, bestQueenMoves(kw, kb, q, 2, vBlack, gamma))
 
     // (1,1) [24/216]: 1 King + 1 Queen move in either order
-    val val11 = math.max(math.max(val10, val01), bestKingAndQueenMoves(kw, kb, q, occ, vBlack, gamma))
+    val val11 = math.max(math.max(val10, val01), bestKingAndQueenMoves(kw, kb, q, vBlack, gamma))
 
     // (3,0) [1/216]: up to 3 King moves
     val val30 = math.max(val20, bestKingMoves(kw, kb, q, 3, vBlack, gamma))
 
     // (0,3) [1/216]: up to 3 Queen moves
-    val val03 = math.max(val02, bestQueenMoves(kw, kb, q, 3, occ, vBlack, gamma))
+    val val03 = math.max(val02, bestQueenMoves(kw, kb, q, 3, vBlack, gamma))
 
     // (2,1) [3/216] and (1,2) [3/216]: 3-dice outcomes mixing King and Queen moves (6/216 total probability).
     // Intentionally bounded using 2-ply composite lower-bound approximations max(val11, val20) and max(val11, val02)
@@ -138,85 +135,91 @@ object KQEgtbSolver:
   ): Float =
     EgtbSearch.bestKingMoves(kw, kb, q, maxMoves, vBlack, gamma)
 
+  private def evaluateQueenStep(
+      nextQ: Int,
+      kw: Int,
+      kb: Int,
+      movesLeft: Int,
+      vBlack: Array[Float],
+      gamma: Float
+  ): Float =
+    if nextQ == kb then 1.0f
+    else
+      val vPos = gamma * vBlack(stateIndex(kw, kb, nextQ))
+      if movesLeft <= 1 then vPos
+      else math.max(vPos, bestQueenMoves(kw, kb, nextQ, movesLeft - 1, vBlack, gamma))
+
   private def bestQueenMoves(
       kw: Int,
       kb: Int,
       q: Int,
       maxMoves: Int,
-      occ: Long,
       vBlack: Array[Float],
       gamma: Float
   ): Float =
+    val occ  = (1L << kw) | (1L << kb) | (1L << q)
     var best = 0.0f
-    var b1   = queenAttacks(q, kw, occ)
-    while b1 != 0L do
-      val q1 = java.lang.Long.numberOfTrailingZeros(b1)
-      b1 &= b1 - 1
-      if q1 == kb then return 1.0f // Immediate win by queen capture of king!
-      else
-        val v1 = gamma * vBlack(stateIndex(kw, kb, q1))
-        if v1 > best then best = v1
-
-        if maxMoves >= 2 then
-          val occ1 = (occ & ~(1L << q)) | (1L << q1)
-          var b2   = queenAttacks(q1, kw, occ1)
-          while b2 != 0L do
-            val q2 = java.lang.Long.numberOfTrailingZeros(b2)
-            b2 &= b2 - 1
-            if q2 == kb then return 1.0f
-            else
-              val v2 = gamma * vBlack(stateIndex(kw, kb, q2))
-              if v2 > best then best = v2
-
-              if maxMoves >= 3 then
-                val occ2 = (occ1 & ~(1L << q1)) | (1L << q2)
-                var b3   = queenAttacks(q2, kw, occ2)
-                while b3 != 0L do
-                  val q3 = java.lang.Long.numberOfTrailingZeros(b3)
-                  b3 &= b3 - 1
-                  if q3 == kb then return 1.0f
-                  else
-                    val v3 = gamma * vBlack(stateIndex(kw, kb, q3))
-                    if v3 > best then best = v3
+    var b    = queenAttacks(q, kw, occ)
+    while b != 0L do
+      val nextQ = java.lang.Long.numberOfTrailingZeros(b)
+      b &= b - 1
+      val stepVal = evaluateQueenStep(nextQ, kw, kb, maxMoves, vBlack, gamma)
+      if stepVal == 1.0f then return 1.0f
+      if stepVal > best then best = stepVal
     best
 
-  private def bestKingAndQueenMoves(kw: Int, kb: Int, q: Int, occ: Long, vBlack: Array[Float], gamma: Float): Float =
+  private def searchQueenMoves(kw1: Int, kb: Int, q: Int, vBlack: Array[Float], gamma: Float): Float =
+    val occ  = (1L << kw1) | (1L << kb) | (1L << q)
     var best = 0.0f
-
-    // Branch A: King first, then Queen
-    var bK = KingAttacks(kw) & ~(1L << q)
-    while bK != 0L do
-      val kw1 = java.lang.Long.numberOfTrailingZeros(bK)
-      bK &= bK - 1
-      if kw1 == kb then return 1.0f
-      else
-        val occ1 = (occ & ~(1L << kw)) | (1L << kw1)
-        var bQ   = queenAttacks(q, kw1, occ1)
-        while bQ != 0L do
-          val q1 = java.lang.Long.numberOfTrailingZeros(bQ)
-          bQ &= bQ - 1
-          if q1 == kb then return 1.0f
-          else
-            val v = gamma * vBlack(stateIndex(kw1, kb, q1))
-            if v > best then best = v
-
-    // Branch B: Queen first, then King
-    var bQ = queenAttacks(q, kw, occ)
+    var bQ   = queenAttacks(q, kw1, occ)
     while bQ != 0L do
       val q1 = java.lang.Long.numberOfTrailingZeros(bQ)
       bQ &= bQ - 1
       if q1 == kb then return 1.0f
-      else
-        var bK2 = KingAttacks(kw) & ~(1L << q1)
-        while bK2 != 0L do
-          val kw1 = java.lang.Long.numberOfTrailingZeros(bK2)
-          bK2 &= bK2 - 1
-          if kw1 == kb then return 1.0f
-          else
-            val v = gamma * vBlack(stateIndex(kw1, kb, q1))
-            if v > best then best = v
-
+      val v = gamma * vBlack(stateIndex(kw1, kb, q1))
+      if v > best then best = v
     best
+
+  private def bestKingThenQueenMoves(kw: Int, kb: Int, q: Int, vBlack: Array[Float], gamma: Float): Float =
+    var best = 0.0f
+    var bK   = KingAttacks(kw) & ~(1L << q)
+    while bK != 0L do
+      val kw1 = java.lang.Long.numberOfTrailingZeros(bK)
+      bK &= bK - 1
+      if kw1 == kb then return 1.0f
+      val v = searchQueenMoves(kw1, kb, q, vBlack, gamma)
+      if v == 1.0f then return 1.0f
+      if v > best then best = v
+    best
+
+  private def searchKingMoves(kw: Int, kb: Int, q1: Int, vBlack: Array[Float], gamma: Float): Float =
+    var best = 0.0f
+    var bK   = KingAttacks(kw) & ~(1L << q1)
+    while bK != 0L do
+      val kw1 = java.lang.Long.numberOfTrailingZeros(bK)
+      bK &= bK - 1
+      if kw1 == kb then return 1.0f
+      val v = gamma * vBlack(stateIndex(kw1, kb, q1))
+      if v > best then best = v
+    best
+
+  private def bestQueenThenKingMoves(kw: Int, kb: Int, q: Int, vBlack: Array[Float], gamma: Float): Float =
+    val occ  = (1L << kw) | (1L << kb) | (1L << q)
+    var best = 0.0f
+    var bQ   = queenAttacks(q, kw, occ)
+    while bQ != 0L do
+      val q1 = java.lang.Long.numberOfTrailingZeros(bQ)
+      bQ &= bQ - 1
+      if q1 == kb then return 1.0f
+      val v = searchKingMoves(kw, kb, q1, vBlack, gamma)
+      if v == 1.0f then return 1.0f
+      if v > best then best = v
+    best
+
+  private def bestKingAndQueenMoves(kw: Int, kb: Int, q: Int, vBlack: Array[Float], gamma: Float): Float =
+    val valA = bestKingThenQueenMoves(kw, kb, q, vBlack, gamma)
+    if valA == 1.0f then 1.0f
+    else math.max(valA, bestQueenThenKingMoves(kw, kb, q, vBlack, gamma))
 
   // --- Move Generators for Black ---
 

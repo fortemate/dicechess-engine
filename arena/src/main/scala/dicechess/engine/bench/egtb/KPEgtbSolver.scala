@@ -16,7 +16,9 @@ object KPEgtbSolver:
     (kw << 12) | (kb << 6) | p
 
   @inline def isLegal(kw: Int, kb: Int, p: Int): Boolean =
-    kw != kb && kw != p && kb != p && p >= 8 && p <= 55
+    val distinct  = kw != kb && kw != p && kb != p
+    val validRank = p >= 8 && p <= 55
+    distinct && validRank
 
   private val KingAttacks: Array[Long] = EgtbSearch.KingAttacks
 
@@ -91,6 +93,64 @@ object KPEgtbSolver:
   ): Float =
     EgtbSearch.bestKingMoves(kw, kb, p, maxMoves, vBlack, gamma)
 
+  private def canPawnCaptureKing(p: Int, kb: Int): Boolean =
+    val leftCapture  = p % 8 > 0 && p + 7 == kb
+    val rightCapture = p % 8 < 7 && p + 9 == kb
+    leftCapture || rightCapture
+
+  private def canDoublePush(kw: Int, kb: Int, p: Int): Boolean =
+    if (p >> 3) != 1 then false
+    else
+      val step1Blocked = (p + 8 == kw) || (p + 8 == kb)
+      val step2Blocked = (p + 16 == kw) || (p + 16 == kb)
+      !step1Blocked && !step2Blocked
+
+  private def evalPawnSquare(
+      kw: Int,
+      kb: Int,
+      pSq: Int,
+      vBlack: Array[Float],
+      gamma: Float,
+      kqTable: EgtbTable
+  ): Float =
+    if pSq >= 56 then gamma * kqTable.probe(kw, kb, pSq, false).getOrElse(0.85).toFloat
+    else gamma * vBlack(stateIndex(kw, kb, pSq))
+
+  private def searchPawnSinglePushes(
+      kw: Int,
+      kb: Int,
+      curP: Int,
+      movesLeft: Int,
+      vBlack: Array[Float],
+      gamma: Float,
+      kqTable: EgtbTable
+  ): Float =
+    val nextP = curP + 8
+    if nextP == kw || nextP == kb then 0.0f
+    else
+      val vStep = evalPawnSquare(kw, kb, nextP, vBlack, gamma, kqTable)
+      if nextP >= 56 || movesLeft <= 1 then vStep
+      else if canPawnCaptureKing(nextP, kb) then 1.0f
+      else math.max(vStep, searchPawnSinglePushes(kw, kb, nextP, movesLeft - 1, vBlack, gamma, kqTable))
+
+  private def evalDoublePush(
+      kw: Int,
+      kb: Int,
+      p: Int,
+      maxMoves: Int,
+      vBlack: Array[Float],
+      gamma: Float
+  ): Float =
+    val step2 = p + 16
+    var v     = gamma * vBlack(stateIndex(kw, kb, step2))
+    if maxMoves >= 2 then
+      if canPawnCaptureKing(step2, kb) then return 1.0f
+      val p3 = step2 + 8
+      if p3 != kw && p3 != kb then
+        val v3 = gamma * vBlack(stateIndex(kw, kb, p3))
+        if v3 > v then v = v3
+    v
+
   private def bestPawnMoves(
       kw: Int,
       kb: Int,
@@ -100,69 +160,112 @@ object KPEgtbSolver:
       gamma: Float,
       kqTable: EgtbTable
   ): Float =
+    if canPawnCaptureKing(p, kb) then return 1.0f
+
     var best  = 0.0f
     var moved = false
 
-    // 1. Diagonal captures of Black King
-    if p % 8 > 0 && p + 7 == kb then return 1.0f
-    if p % 8 < 7 && p + 9 == kb then return 1.0f
-
-    // 2. Single forward push
     val p1 = p + 8
     if p1 != kw && p1 != kb then
       moved = true
-      if p1 >= 56 then
-        val vPromo = gamma * kqTable.probe(kw, kb, p1, false).getOrElse(0.85).toFloat
-        if vPromo > best then best = vPromo
-      else
-        val v1 = gamma * vBlack(stateIndex(kw, kb, p1))
-        if v1 > best then best = v1
+      val vSingle = searchPawnSinglePushes(kw, kb, p, maxMoves, vBlack, gamma, kqTable)
+      if vSingle == 1.0f then return 1.0f
+      if vSingle > best then best = vSingle
 
-        if maxMoves >= 2 then
-          if p1 % 8 > 0 && p1 + 7 == kb then return 1.0f
-          if p1 % 8 < 7 && p1 + 9 == kb then return 1.0f
-
-          val p2 = p1 + 8
-          if p2 != kw && p2 != kb then
-            if p2 >= 56 then
-              val vPromo2 = gamma * kqTable.probe(kw, kb, p2, false).getOrElse(0.85).toFloat
-              if vPromo2 > best then best = vPromo2
-            else
-              val v2 = gamma * vBlack(stateIndex(kw, kb, p2))
-              if v2 > best then best = v2
-
-              if maxMoves >= 3 then
-                if p2 % 8 > 0 && p2 + 7 == kb then return 1.0f
-                if p2 % 8 < 7 && p2 + 9 == kb then return 1.0f
-
-                val p3 = p2 + 8
-                if p3 != kw && p3 != kb then
-                  if p3 >= 56 then
-                    val vPromo3 = gamma * kqTable.probe(kw, kb, p3, false).getOrElse(0.85).toFloat
-                    if vPromo3 > best then best = vPromo3
-                  else
-                    val v3 = gamma * vBlack(stateIndex(kw, kb, p3))
-                    if v3 > best then best = v3
-
-    // 3. Double forward push from rank 2 (p in [8, 15])
-    if (p >> 3) == 1 then
-      val step1 = p + 8
-      val step2 = p + 16
-      if step1 != kw && step1 != kb && step2 != kw && step2 != kb then
-        moved = true
-        val vD = gamma * vBlack(stateIndex(kw, kb, step2))
-        if vD > best then best = vD
-
-        if maxMoves >= 2 then
-          if step2 % 8 > 0 && step2 + 7 == kb then return 1.0f
-          if step2 % 8 < 7 && step2 + 9 == kb then return 1.0f
-
-          val p3 = step2 + 8
-          if p3 != kw && p3 != kb then
-            val v3 = gamma * vBlack(stateIndex(kw, kb, p3))
-            if v3 > best then best = v3
+    if canDoublePush(kw, kb, p) then
+      moved = true
+      val vDouble = evalDoublePush(kw, kb, p, maxMoves, vBlack, gamma)
+      if vDouble == 1.0f then return 1.0f
+      if vDouble > best then best = vDouble
 
     if moved then best else gamma * vBlack(stateIndex(kw, kb, p))
+
+  private def evalPawnAfterKing(
+      kw1: Int,
+      kb: Int,
+      p: Int,
+      vBlack: Array[Float],
+      gamma: Float,
+      kqTable: EgtbTable
+  ): Float =
+    if canPawnCaptureKing(p, kb) then return 1.0f
+
+    var best      = 0.0f
+    var pawnMoved = false
+
+    val p1 = p + 8
+    if p1 != kw1 && p1 != kb then
+      pawnMoved = true
+      val v = evalPawnSquare(kw1, kb, p1, vBlack, gamma, kqTable)
+      if v > best then best = v
+
+    if canDoublePush(kw1, kb, p) then
+      pawnMoved = true
+      val v = gamma * vBlack(stateIndex(kw1, kb, p + 16))
+      if v > best then best = v
+
+    if pawnMoved then best else gamma * vBlack(stateIndex(kw1, kb, p))
+
+  private def bestKingThenPawnMoves(
+      kw: Int,
+      kb: Int,
+      p: Int,
+      vBlack: Array[Float],
+      gamma: Float,
+      kqTable: EgtbTable
+  ): Float =
+    var best = 0.0f
+    var bK   = KingAttacks(kw) & ~(1L << p)
+    while bK != 0L do
+      val kw1 = java.lang.Long.numberOfTrailingZeros(bK)
+      bK &= bK - 1
+      if kw1 == kb then return 1.0f
+      val v = evalPawnAfterKing(kw1, kb, p, vBlack, gamma, kqTable)
+      if v == 1.0f then return 1.0f
+      if v > best then best = v
+    best
+
+  private def searchKingAfterPawn(
+      kw: Int,
+      kb: Int,
+      pNext: Int,
+      vBlack: Array[Float],
+      gamma: Float,
+      kqTable: EgtbTable
+  ): Float =
+    var best = 0.0f
+    var bK2  = KingAttacks(kw) & ~(1L << pNext)
+    while bK2 != 0L do
+      val kw1 = java.lang.Long.numberOfTrailingZeros(bK2)
+      bK2 &= bK2 - 1
+      if kw1 == kb then return 1.0f
+      val v = evalPawnSquare(kw1, kb, pNext, vBlack, gamma, kqTable)
+      if v > best then best = v
+    best
+
+  private def bestPawnThenKingMoves(
+      kw: Int,
+      kb: Int,
+      p: Int,
+      vBlack: Array[Float],
+      gamma: Float,
+      kqTable: EgtbTable
+  ): Float =
+    if canPawnCaptureKing(p, kb) then return 1.0f
+
+    var best = 0.0f
+    val p1   = p + 8
+    if p1 != kw && p1 != kb then
+      val v1 = searchKingAfterPawn(kw, kb, p1, vBlack, gamma, kqTable)
+      if v1 == 1.0f then return 1.0f
+      if v1 > best then best = v1
+
+    if canDoublePush(kw, kb, p) then
+      val v2 = searchKingAfterPawn(kw, kb, p + 16, vBlack, gamma, kqTable)
+      if v2 == 1.0f then return 1.0f
+      if v2 > best then best = v2
+
+    best
 
   private def bestKingAndPawnMoves(
       kw: Int,
@@ -172,87 +275,9 @@ object KPEgtbSolver:
       gamma: Float,
       kqTable: EgtbTable
   ): Float =
-    var best = 0.0f
-
-    // Branch A: King first, then Pawn
-    var bK = KingAttacks(kw) & ~(1L << p)
-    while bK != 0L do
-      val kw1 = java.lang.Long.numberOfTrailingZeros(bK)
-      bK &= bK - 1
-      if kw1 == kb then return 1.0f
-      else
-        // Pawn captures kb
-        if p % 8 > 0 && p + 7 == kb then return 1.0f
-        if p % 8 < 7 && p + 9 == kb then return 1.0f
-
-        var pawnMoved = false
-        // Pawn single push
-        val p1 = p + 8
-        if p1 != kw1 && p1 != kb then
-          pawnMoved = true
-          if p1 >= 56 then
-            val v = gamma * kqTable.probe(kw1, kb, p1, false).getOrElse(0.85).toFloat
-            if v > best then best = v
-          else
-            val v = gamma * vBlack(stateIndex(kw1, kb, p1))
-            if v > best then best = v
-
-        // Pawn double push from rank 2
-        if (p >> 3) == 1 then
-          val step1 = p + 8
-          val step2 = p + 16
-          if step1 != kw1 && step1 != kb && step2 != kw1 && step2 != kb then
-            pawnMoved = true
-            val v = gamma * vBlack(stateIndex(kw1, kb, step2))
-            if v > best then best = v
-
-        if !pawnMoved then
-          val vPass = gamma * vBlack(stateIndex(kw1, kb, p))
-          if vPass > best then best = vPass
-
-    // Branch B: Pawn first, then King
-    // Pawn captures kb
-    if p % 8 > 0 && p + 7 == kb then return 1.0f
-    if p % 8 < 7 && p + 9 == kb then return 1.0f
-
-    // Pawn single push
-    val p1 = p + 8
-    if p1 != kw && p1 != kb then
-      if p1 >= 56 then
-        // Pawn promoted to Queen on p1, now King moves
-        var bK2 = KingAttacks(kw) & ~(1L << p1)
-        while bK2 != 0L do
-          val kw1 = java.lang.Long.numberOfTrailingZeros(bK2)
-          bK2 &= bK2 - 1
-          if kw1 == kb then return 1.0f
-          else
-            val v = gamma * kqTable.probe(kw1, kb, p1, false).getOrElse(0.85).toFloat
-            if v > best then best = v
-      else
-        var bK2 = KingAttacks(kw) & ~(1L << p1)
-        while bK2 != 0L do
-          val kw1 = java.lang.Long.numberOfTrailingZeros(bK2)
-          bK2 &= bK2 - 1
-          if kw1 == kb then return 1.0f
-          else
-            val v = gamma * vBlack(stateIndex(kw1, kb, p1))
-            if v > best then best = v
-
-    // Pawn double push from rank 2
-    if (p >> 3) == 1 then
-      val step1 = p + 8
-      val step2 = p + 16
-      if step1 != kw && step1 != kb && step2 != kw && step2 != kb then
-        var bK2 = KingAttacks(kw) & ~(1L << step2)
-        while bK2 != 0L do
-          val kw1 = java.lang.Long.numberOfTrailingZeros(bK2)
-          bK2 &= bK2 - 1
-          if kw1 == kb then return 1.0f
-          else
-            val v = gamma * vBlack(stateIndex(kw1, kb, step2))
-            if v > best then best = v
-
-    best
+    val valA = bestKingThenPawnMoves(kw, kb, p, vBlack, gamma, kqTable)
+    if valA == 1.0f then 1.0f
+    else math.max(valA, bestPawnThenKingMoves(kw, kb, p, vBlack, gamma, kqTable))
 
   @inline private def bestBlackKingMoves(
       kw: Int,
