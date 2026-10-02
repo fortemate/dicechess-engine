@@ -24,6 +24,9 @@ final case class EgtbConfig(
 ):
   require(maxKw >= 1 && maxKw <= 64, s"maxKw must be in [1, 64], got $maxKw")
   require(threads >= 1, s"threads must be >= 1, got $threads")
+  require(discount.isFinite && discount > 0.0 && discount <= 1.0, s"discount must be in (0.0, 1.0], got $discount")
+  require(epsilon.isFinite && epsilon > 0.0, s"epsilon must be finite and > 0, got $epsilon")
+  require(maxIterations >= 1, s"maxIterations must be >= 1, got $maxIterations")
 
 final case class EgtbResult(
     iterations: Int,
@@ -140,27 +143,32 @@ object EgtbTable:
       new EgtbTable(pieceType, vW, vB)
     finally in.close()
 
+  private def findExistingParent(path: Path): Option[Path] =
+    var checkDir = path.getParent
+    while checkDir != null && !Files.exists(checkDir) do checkDir = checkDir.getParent
+    Option(checkDir)
+
+  private def checkAllowedDirectory(targetPath: Path, base: Path): Unit =
+    val normalizedBase = base.toAbsolutePath.normalize()
+    val realBase       = if Files.exists(normalizedBase) then normalizedBase.toRealPath() else normalizedBase
+    if !targetPath.startsWith(normalizedBase) && !targetPath.startsWith(realBase) then
+      throw new IllegalArgumentException(
+        s"Refusing to write EGTB to unauthorized path '$targetPath'. Output must reside within '$normalizedBase'."
+      )
+
+    findExistingParent(targetPath).foreach { parent =>
+      val realParent = parent.toRealPath()
+      if !realParent.startsWith(realBase) then
+        throw new IllegalArgumentException(
+          s"Refusing to write EGTB to unauthorized path '$targetPath'. Directory resolves via symlink to '$realParent', outside authorized '$realBase'."
+        )
+    }
+
   private def validateTargetPath(targetPath: Path, allowedDir: Option[Path], force: Boolean): Unit =
     if Files.isSymbolicLink(targetPath) then
       throw new IllegalArgumentException(s"Refusing to write EGTB to symbolic link: $targetPath")
 
-    allowedDir.foreach { base =>
-      val normalizedBase = base.toAbsolutePath.normalize()
-      val realBase       = if Files.exists(normalizedBase) then normalizedBase.toRealPath() else normalizedBase
-      if !targetPath.startsWith(normalizedBase) && !targetPath.startsWith(realBase) then
-        throw new IllegalArgumentException(
-          s"Refusing to write EGTB to unauthorized path '$targetPath'. Output must reside within '$normalizedBase'."
-        )
-
-      var checkDir = targetPath.getParent
-      while checkDir != null && !Files.exists(checkDir) do checkDir = checkDir.getParent
-      if checkDir != null then
-        val realExistingParent = checkDir.toRealPath()
-        if !realExistingParent.startsWith(realBase) then
-          throw new IllegalArgumentException(
-            s"Refusing to write EGTB to unauthorized path '$targetPath'. Directory resolves via symlink to '$realExistingParent', outside authorized '$realBase'."
-          )
-    }
+    allowedDir.foreach(base => checkAllowedDirectory(targetPath, base))
 
     if Files.exists(targetPath) && !force then
       throw new FileAlreadyExistsException(
@@ -224,7 +232,12 @@ object EgtbTable:
       writeBinaryTable(tempFile, pieceType, vWhite, vBlack)
       if force then
         Files.move(tempFile, targetPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-      else Files.move(tempFile, targetPath, StandardCopyOption.ATOMIC_MOVE)
+      else
+        if Files.exists(targetPath) then
+          throw new FileAlreadyExistsException(
+            s"EGTB output file already exists at '$targetPath'. Pass --force to overwrite."
+          )
+        Files.move(tempFile, targetPath)
 
       println(s"Saved compressed EGTB to $targetPath (${Files.size(targetPath)} bytes)")
       targetPath.toFile

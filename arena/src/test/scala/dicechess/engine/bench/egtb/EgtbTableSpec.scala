@@ -27,32 +27,32 @@ class EgtbTableSpec extends FunSuite:
   lazy val kpTableOpt: Option[EgtbTable] = loadFixture("kp_vs_k")
 
   test("load KQvK tablebase and verify header and metadata"):
-    assume(kqTableOpt.isDefined, "kq_vs_k.egtb must exist for test")
+    assert(kqTableOpt.isDefined, "kq_vs_k.egtb must exist for test")
     val table = kqTableOpt.get
     assertEquals(table.pieceType, PieceType.Queen)
 
   test("load KRvK tablebase and verify header and metadata"):
-    assume(krTableOpt.isDefined, "kr_vs_k.egtb must exist for test")
+    assert(krTableOpt.isDefined, "kr_vs_k.egtb must exist for test")
     val table = krTableOpt.get
     assertEquals(table.pieceType, PieceType.Rook)
 
   test("load KBvK tablebase and verify header and metadata"):
-    assume(kbTableOpt.isDefined, "kb_vs_k.egtb must exist for test")
+    assert(kbTableOpt.isDefined, "kb_vs_k.egtb must exist for test")
     val table = kbTableOpt.get
     assertEquals(table.pieceType, PieceType.Bishop)
 
   test("load KNvK tablebase and verify header and metadata"):
-    assume(knTableOpt.isDefined, "kn_vs_k.egtb must exist for test")
+    assert(knTableOpt.isDefined, "kn_vs_k.egtb must exist for test")
     val table = knTableOpt.get
     assertEquals(table.pieceType, PieceType.Knight)
 
   test("load KPvK tablebase and verify header and metadata"):
-    assume(kpTableOpt.isDefined, "kp_vs_k.egtb must exist for test")
+    assert(kpTableOpt.isDefined, "kp_vs_k.egtb must exist for test")
     val table = kpTableOpt.get
     assertEquals(table.pieceType, PieceType.Pawn)
 
   test("KQvK probes are well-formed probabilities in [0.0, 1.0]"):
-    assume(kqTableOpt.isDefined, "kq_vs_k.egtb must exist for test")
+    assert(kqTableOpt.isDefined, "kq_vs_k.egtb must exist for test")
     val table = kqTableOpt.get
 
     // Cornered Black King: Ke1, Qd1, Kh8
@@ -71,7 +71,7 @@ class EgtbTableSpec extends FunSuite:
     assert(pBlack.get >= 0.0 && pBlack.get <= 1.0)
 
   test("probeState matches probe result for standard FEN"):
-    assume(kqTableOpt.isDefined, "kq_vs_k.egtb must exist for test")
+    assert(kqTableOpt.isDefined, "kq_vs_k.egtb must exist for test")
     val table = kqTableOpt.get
 
     val fen   = "7k/8/8/8/8/8/8/3QK3 w - - 0 1"
@@ -89,7 +89,7 @@ class EgtbTableSpec extends FunSuite:
     assertEquals(stateProbe, directProbe)
 
   test("KRvK provides decisive winning gradient for White"):
-    assume(krTableOpt.isDefined, "kr_vs_k.egtb must exist for test")
+    assert(krTableOpt.isDefined, "kr_vs_k.egtb must exist for test")
     val table = krTableOpt.get
 
     // Cornered Black King: Ke1, Ra1, Kh8
@@ -100,13 +100,19 @@ class EgtbTableSpec extends FunSuite:
     assert(probe.isDefined)
     assert(probe.get >= 0.85, s"Expected KRvK win prob >= 0.85, got ${probe.get}")
 
-  test("EgtbConfig validates maxKw and threads"):
+  test("EgtbConfig validates arguments"):
     intercept[IllegalArgumentException](EgtbConfig(maxKw = 0))
     intercept[IllegalArgumentException](EgtbConfig(maxKw = 65))
     intercept[IllegalArgumentException](EgtbConfig(threads = 0))
+    intercept[IllegalArgumentException](EgtbConfig(discount = Double.NaN))
+    intercept[IllegalArgumentException](EgtbConfig(discount = 0.0))
+    intercept[IllegalArgumentException](EgtbConfig(discount = 1.5))
+    intercept[IllegalArgumentException](EgtbConfig(epsilon = Double.NaN))
+    intercept[IllegalArgumentException](EgtbConfig(epsilon = 0.0))
+    intercept[IllegalArgumentException](EgtbConfig(maxIterations = 0))
 
   test("KPvK probe for blockaded pawn position returns non-zero win probability"):
-    assume(kpTableOpt.isDefined, "kp_vs_k.egtb must exist for test")
+    assert(kpTableOpt.isDefined, "kp_vs_k.egtb must exist for test")
     val table = kpTableOpt.get
     // White pawn e5 (sq 36), Black king e6 (sq 44), White king a1 (sq 0)
     val kw     = Square('a', 1).index
@@ -137,7 +143,7 @@ class EgtbTableSpec extends FunSuite:
     assert(res.avgWhiteValue > 0.0)
 
   test("KPEgtbSolver executes 1 iteration correctly"):
-    assume(kqTableOpt.isDefined, "kq_vs_k.egtb must exist for test")
+    assert(kqTableOpt.isDefined, "kq_vs_k.egtb must exist for test")
     val kqTable = kqTableOpt.get
     val res     = KPEgtbSolver.solve(kqTable, KPEgtbSolver.SolverConfig(maxIterations = 1, threads = 2, maxKw = 4))
     assertEquals(res.iterations, 1)
