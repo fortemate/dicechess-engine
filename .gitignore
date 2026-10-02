@@ -30,3 +30,6 @@ opening_book.json
 opening_book.tsv
 *.book.json
 *.book.tsv
+
+# Benchmark run results
+benchmark/results/
