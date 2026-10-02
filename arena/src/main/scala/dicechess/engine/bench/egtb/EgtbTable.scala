@@ -11,7 +11,7 @@ import java.io.{
   FileInputStream,
   InputStream
 }
-import java.nio.file.{FileAlreadyExistsException, Files, Paths, StandardCopyOption, StandardOpenOption}
+import java.nio.file.{FileAlreadyExistsException, Files, Path, Paths, StandardCopyOption, StandardOpenOption}
 import java.util.concurrent.{Callable, Executors}
 import scala.jdk.CollectionConverters.*
 
@@ -78,7 +78,10 @@ final class EgtbTable private (
     val kwBit = whitePieces & kings
     val kbBit = blackPieces & kings
 
-    if kwBit.count == 1 && kbBit.count == 1 && blackPieces.count == 1 && whitePieces.count == 2 then
+    val hasValidKings  = kwBit.count == 1 && kbBit.count == 1
+    val hasValidPieces = blackPieces.count == 1 && whitePieces.count == 2
+
+    if hasValidKings && hasValidPieces then
       val auxPieces = whitePieces & ~kings
       if auxPieces.count == 1 then
         val kw        = java.lang.Long.numberOfTrailingZeros(kwBit.value)
@@ -140,11 +143,30 @@ object EgtbTable:
       pieceType: PieceType,
       vWhite: Array[Float],
       vBlack: Array[Float],
-      force: Boolean = false
+      force: Boolean = false,
+      allowedDir: Option[Path] = Some(Paths.get("").toAbsolutePath.normalize())
   ): File =
     val targetPath = targetFile.toPath.toAbsolutePath.normalize()
     if Files.isSymbolicLink(targetPath) then
       throw new IllegalArgumentException(s"Refusing to write EGTB to symbolic link: $targetPath")
+
+    allowedDir.foreach { base =>
+      val normalizedBase = base.toAbsolutePath.normalize()
+      val realBase       = if Files.exists(normalizedBase) then normalizedBase.toRealPath() else normalizedBase
+      if !targetPath.startsWith(normalizedBase) && !targetPath.startsWith(realBase) then
+        throw new IllegalArgumentException(
+          s"Refusing to write EGTB to unauthorized path '$targetPath'. Output must reside within '$normalizedBase'."
+        )
+
+      var checkDir = targetPath.getParent
+      while checkDir != null && !Files.exists(checkDir) do checkDir = checkDir.getParent
+      if checkDir != null then
+        val realExistingParent = checkDir.toRealPath()
+        if !realExistingParent.startsWith(realBase) then
+          throw new IllegalArgumentException(
+            s"Refusing to write EGTB to unauthorized path '$targetPath'. Directory resolves via symlink to '$realExistingParent', outside authorized '$realBase'."
+          )
+    }
 
     if Files.exists(targetPath) && !force then
       throw new FileAlreadyExistsException(
@@ -213,7 +235,11 @@ object EgtbTable:
     var vWhiteNext    = new Array[Float](KQEgtbSolver.StatesPerTurn)
     var vBlackNext    = new Array[Float](KQEgtbSolver.StatesPerTurn)
 
-    for kw <- 0 until 64; kb <- 0 until 64; aux <- auxRange do
+    for
+      kw  <- 0 until 64
+      kb  <- 0 until 64
+      aux <- auxRange
+    do
       val idx = KQEgtbSolver.stateIndex(kw, kb, aux)
       if KQEgtbSolver.isLegal(kw, kb, aux) then
         vWhiteCurrent(idx) = initWhite
@@ -228,32 +254,29 @@ object EgtbTable:
         iteration += 1
 
         val tasks = (0 until config.maxKw).map { kw =>
-          new Callable[Double] {
-            override def call(): Double =
-              var localMaxDelta = 0.0
-
-              for kb <- 0 until 64; aux <- auxRange do
-                val idx = KQEgtbSolver.stateIndex(kw, kb, aux)
-                if KQEgtbSolver.isLegal(kw, kb, aux) then
-                  val newW   = evalWhite(kw, kb, aux, vBlackCurrent, gamma)
-                  val deltaW = math.abs(newW - vWhiteCurrent(idx))
-                  vWhiteNext(idx) = newW
-                  if deltaW > localMaxDelta then localMaxDelta = deltaW
-
-                  val newB   = evalBlack(kw, kb, aux, vWhiteCurrent, gamma)
-                  val deltaB = math.abs(newB - vBlackCurrent(idx))
-                  vBlackNext(idx) = newB
-                  if deltaB > localMaxDelta then localMaxDelta = deltaB
-
-              localMaxDelta
-          }
+          createIterationTask(
+            kw,
+            auxRange,
+            vWhiteCurrent,
+            vBlackCurrent,
+            vWhiteNext,
+            vBlackNext,
+            gamma,
+            evalWhite,
+            evalBlack
+          )
         }
 
         val futures = executor.invokeAll(tasks.asJava)
         maxDelta = futures.asScala.map(_.get()).max
 
-        val tmpW = vWhiteCurrent; vWhiteCurrent = vWhiteNext; vWhiteNext = tmpW
-        val tmpB = vBlackCurrent; vBlackCurrent = vBlackNext; vBlackNext = tmpB
+        val tmpW = vWhiteCurrent
+        vWhiteCurrent = vWhiteNext
+        vWhiteNext = tmpW
+
+        val tmpB = vBlackCurrent
+        vBlackCurrent = vBlackNext
+        vBlackNext = tmpB
 
         if iteration % 25 == 0 || maxDelta <= config.epsilon then
           val elapsed = System.currentTimeMillis() - startTime
@@ -261,23 +284,69 @@ object EgtbTable:
             f"[EGTB $name] Iteration $iteration%3d | maxDelta = $maxDelta%.6f | elapsed = ${elapsed / 1000.0}%.2fs"
           )
 
-    finally
-      executor.shutdown()
+    finally executor.shutdown()
 
     val elapsed = System.currentTimeMillis() - startTime
+    computeFinalStats(iteration, maxDelta, elapsed, vWhiteCurrent, vBlackCurrent, auxRange)
 
+  private def createIterationTask(
+      kw: Int,
+      auxRange: Range,
+      vWhiteCurrent: Array[Float],
+      vBlackCurrent: Array[Float],
+      vWhiteNext: Array[Float],
+      vBlackNext: Array[Float],
+      gamma: Float,
+      evalWhite: (Int, Int, Int, Array[Float], Float) => Float,
+      evalBlack: (Int, Int, Int, Array[Float], Float) => Float
+  ): Callable[Double] =
+    new Callable[Double] {
+      override def call(): Double =
+        var localMaxDelta = 0.0
+
+        for
+          kb  <- 0 until 64
+          aux <- auxRange
+        do
+          val idx = KQEgtbSolver.stateIndex(kw, kb, aux)
+          if KQEgtbSolver.isLegal(kw, kb, aux) then
+            val newW   = evalWhite(kw, kb, aux, vBlackCurrent, gamma)
+            val deltaW = math.abs(newW - vWhiteCurrent(idx))
+            vWhiteNext(idx) = newW
+            if deltaW > localMaxDelta then localMaxDelta = deltaW
+
+            val newB   = evalBlack(kw, kb, aux, vWhiteCurrent, gamma)
+            val deltaB = math.abs(newB - vBlackCurrent(idx))
+            vBlackNext(idx) = newB
+            if deltaB > localMaxDelta then localMaxDelta = deltaB
+
+        localMaxDelta
+    }
+
+  private def computeFinalStats(
+      iteration: Int,
+      maxDelta: Double,
+      elapsedMs: Long,
+      vWhite: Array[Float],
+      vBlack: Array[Float],
+      auxRange: Range
+  ): EgtbResult =
     var sumW        = 0.0
     var sumB        = 0.0
     var count       = 0
     var whiteWins   = 0
     var blackUpsets = 0
 
-    for kw <- 0 until 64; kb <- 0 until 64; aux <- auxRange do
+    for
+      kw  <- 0 until 64
+      kb  <- 0 until 64
+      aux <- auxRange
+    do
       val idx = KQEgtbSolver.stateIndex(kw, kb, aux)
       if KQEgtbSolver.isLegal(kw, kb, aux) then
         count += 1
-        val w = vWhiteCurrent(idx)
-        val b = vBlackCurrent(idx)
+        val w = vWhite(idx)
+        val b = vBlack(idx)
         sumW += w
         sumB += b
         if w >= 0.95f then whiteWins += 1
@@ -286,9 +355,9 @@ object EgtbTable:
     EgtbResult(
       iterations = iteration,
       maxDelta = maxDelta,
-      elapsedMs = elapsed,
-      vWhite = vWhiteCurrent,
-      vBlack = vBlackCurrent,
+      elapsedMs = elapsedMs,
+      vWhite = vWhite,
+      vBlack = vBlack,
       avgWhiteValue = if count > 0 then sumW / count else 0.0,
       avgBlackValue = if count > 0 then sumB / count else 0.0,
       whiteWinCount = whiteWins,

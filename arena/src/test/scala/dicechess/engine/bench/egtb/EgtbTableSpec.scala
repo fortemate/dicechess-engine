@@ -118,7 +118,9 @@ class EgtbTableSpec extends FunSuite:
     assert(res.avgWhiteValue > 0.0)
 
   test("EgtbSolverMain runs single iteration execution"):
-    val tmp = File.createTempFile("egtb_test", ".egtb")
+    val testDir = Paths.get("target", "test-egtb")
+    Files.createDirectories(testDir)
+    val tmp = Files.createTempFile(testDir, "egtb_test", ".egtb").toFile
     tmp.delete()
     try
       EgtbSolverMain.main(
@@ -148,7 +150,8 @@ class EgtbTableSpec extends FunSuite:
           PieceType.Queen,
           new Array[Float](KQEgtbSolver.StatesPerTurn),
           new Array[Float](KQEgtbSolver.StatesPerTurn),
-          force = false
+          force = false,
+          allowedDir = None
         )
       assertEquals(Files.readString(tmp.toPath), "DO-NOT-OVERWRITE")
     finally tmp.delete()
@@ -162,13 +165,16 @@ class EgtbTableSpec extends FunSuite:
         PieceType.Queen,
         new Array[Float](KQEgtbSolver.StatesPerTurn),
         new Array[Float](KQEgtbSolver.StatesPerTurn),
-        force = true
+        force = true,
+        allowedDir = None
       )
       assertEquals(tmp.length(), 1048584L)
     finally tmp.delete()
 
   test("EgtbSolverMain with --force overwrites existing file"):
-    val tmp = File.createTempFile("egtb_main_force", ".egtb")
+    val testDir = Paths.get("target", "test-egtb")
+    Files.createDirectories(testDir)
+    val tmp = Files.createTempFile(testDir, "egtb_main_force", ".egtb").toFile
     try
       Files.writeString(tmp.toPath, "INITIAL-DATA")
       EgtbSolverMain.main(
@@ -189,6 +195,53 @@ class EgtbTableSpec extends FunSuite:
       assertEquals(tmp.length(), 1048584L)
     finally tmp.delete()
 
+  test("EgtbSolverMain rejects absolute path outside authorized directory"):
+    intercept[IllegalArgumentException]:
+      EgtbSolverMain.main(
+        Array(
+          "--endgame",
+          "kq-vs-k",
+          "--iterations",
+          "1",
+          "--threads",
+          "1",
+          "--max-kw",
+          "1",
+          "--output",
+          "/tmp/dicechess-egtb-poc/nested/created.egtb"
+        )
+      )
+
+  test("EgtbSolverMain rejects relative path escaping authorized directory"):
+    intercept[IllegalArgumentException]:
+      EgtbSolverMain.main(
+        Array(
+          "--endgame",
+          "kq-vs-k",
+          "--iterations",
+          "1",
+          "--threads",
+          "1",
+          "--max-kw",
+          "1",
+          "--output",
+          "../../unauthorized.egtb"
+        )
+      )
+
+  test("EgtbTable.save rejects path outside allowedDir"):
+    val tmp = File.createTempFile("egtb_unauth", ".egtb")
+    try
+      intercept[IllegalArgumentException]:
+        EgtbTable.save(
+          tmp,
+          PieceType.Queen,
+          new Array[Float](KQEgtbSolver.StatesPerTurn),
+          new Array[Float](KQEgtbSolver.StatesPerTurn),
+          allowedDir = Some(Paths.get("arena"))
+        )
+    finally tmp.delete()
+
   test("EgtbTable.save rejects writing to symbolic link"):
     val target   = File.createTempFile("egtb_symlink_target", ".egtb")
     val linkPath = Paths.get(target.getParent, s"symlink_${System.nanoTime()}.egtb")
@@ -200,7 +253,8 @@ class EgtbTableSpec extends FunSuite:
           PieceType.Queen,
           new Array[Float](KQEgtbSolver.StatesPerTurn),
           new Array[Float](KQEgtbSolver.StatesPerTurn),
-          force = true
+          force = true,
+          allowedDir = None
         )
     finally
       Files.deleteIfExists(linkPath)

@@ -43,38 +43,38 @@ object KNEgtbSolver:
     )
 
   private def evaluateWhiteTurn(kw: Int, kb: Int, n: Int, vBlack: Array[Float], gamma: Float): Float =
-    val val_0_0 = gamma * vBlack(stateIndex(kw, kb, n))
-    val val_1_0 = bestKingMoves(kw, kb, n, 1, vBlack, gamma)
-    val val_0_1 = bestKnightMoves(kw, kb, n, 1, vBlack, gamma)
-    val val_2_0 = math.max(val_1_0, bestKingMoves(kw, kb, n, 2, vBlack, gamma))
-    val val_0_2 = math.max(val_0_1, bestKnightMoves(kw, kb, n, 2, vBlack, gamma))
-    val val_1_1 = math.max(math.max(val_1_0, val_0_1), bestKingAndKnightMoves(kw, kb, n, vBlack, gamma))
-    val val_3_0 = math.max(val_2_0, bestKingMoves(kw, kb, n, 3, vBlack, gamma))
-    val val_0_3 = math.max(val_0_2, bestKnightMoves(kw, kb, n, 3, vBlack, gamma))
-    val val_2_1 = math.max(val_1_1, val_2_0)
-    val val_1_2 = math.max(val_1_1, val_0_2)
+    val val00 = gamma * vBlack(stateIndex(kw, kb, n))
+    val val10 = bestKingMoves(kw, kb, n, 1, vBlack, gamma)
+    val val01 = bestKnightMoves(kw, kb, n, 1, vBlack, gamma)
+    val val20 = math.max(val10, bestKingMoves(kw, kb, n, 2, vBlack, gamma))
+    val val02 = math.max(val01, bestKnightMoves(kw, kb, n, 2, vBlack, gamma))
+    val val11 = math.max(math.max(val10, val01), bestKingAndKnightMoves(kw, kb, n, vBlack, gamma))
+    val val30 = math.max(val20, bestKingMoves(kw, kb, n, 3, vBlack, gamma))
+    val val03 = math.max(val02, bestKnightMoves(kw, kb, n, 3, vBlack, gamma))
+    val val21 = math.max(val11, val20)
+    val val12 = math.max(val11, val02)
 
-    (val_0_0 * 64 +
-      val_1_0 * 48 +
-      val_0_1 * 48 +
-      val_2_0 * 12 +
-      val_0_2 * 12 +
-      val_1_1 * 24 +
-      val_3_0 * 1 +
-      val_0_3 * 1 +
-      val_2_1 * 3 +
-      val_1_2 * 3) / 216.0f
+    (val00 * 64 +
+      val10 * 48 +
+      val01 * 48 +
+      val20 * 12 +
+      val02 * 12 +
+      val11 * 24 +
+      val30 * 1 +
+      val03 * 1 +
+      val21 * 3 +
+      val12 * 3) / 216.0f
 
   private def evaluateBlackTurn(kw: Int, kb: Int, n: Int, vWhite: Array[Float], gamma: Float): Float =
-    val val_0 = gamma * vWhite(stateIndex(kw, kb, n))
-    val val_1 = bestBlackKingMoves(kw, kb, n, 1, vWhite, gamma)
-    val val_2 = math.min(val_1, bestBlackKingMoves(kw, kb, n, 2, vWhite, gamma))
-    val val_3 = math.min(val_2, bestBlackKingMoves(kw, kb, n, 3, vWhite, gamma))
+    val val0 = gamma * vWhite(stateIndex(kw, kb, n))
+    val val1 = bestBlackKingMoves(kw, kb, n, 1, vWhite, gamma)
+    val val2 = math.min(val1, bestBlackKingMoves(kw, kb, n, 2, vWhite, gamma))
+    val val3 = math.min(val2, bestBlackKingMoves(kw, kb, n, 3, vWhite, gamma))
 
-    (val_0 * 125 +
-      val_1 * 75 +
-      val_2 * 15 +
-      val_3 * 1) / 216.0f
+    (val0 * 125 +
+      val1 * 75 +
+      val2 * 15 +
+      val3 * 1) / 216.0f
 
   private def bestKingMoves(kw: Int, kb: Int, n: Int, maxMoves: Int, vBlack: Array[Float], gamma: Float): Float =
     var best = 0.0f
