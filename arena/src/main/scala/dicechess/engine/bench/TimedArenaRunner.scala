@@ -3,6 +3,7 @@ package dicechess.engine.bench
 
 import com.monovore.decline.*
 import cats.implicits.*
+import dicechess.engine.domain.FenParser
 import dicechess.engine.search.TimeManager
 
 /** Executable entry point for the time-controlled arena (the #372 gate).
@@ -33,6 +34,8 @@ import dicechess.engine.search.TimeManager
   * `gamesPerColor` becomes a cap instead of a fixed count, and each control stops as soon as the mirrored-pair evidence
   * is decisive — see [[BotMatchRunner.runTimedMatch]].
   *
+  * An optional `--fen <fen>` flag sets a custom starting position in FEN or DFEN notation.
+  *
   * Example:
   * `sbt 'arena/runMain dicechess.engine.bench.TimedArenaRunner --bot monte-carlo --baseline aggressive --games 10 --presets 1+0,3+2,10+10'`
   */
@@ -54,8 +57,11 @@ object TimedArenaRunner:
       jsonPathOpt,
       sprtConfigOpt,
       timePolicyOpt("bot-time-policy", "bot under test"),
-      timePolicyOpt("baseline-time-policy", "baseline")
-    ).mapN { (botId, baseline, games, presets, seed, jsonPath, sprtConfig, botPolicy, baselinePolicy) =>
+      timePolicyOpt("baseline-time-policy", "baseline"),
+      fenOpt
+    ).mapN { (botId, baseline, games, presets, seed, jsonPath, sprtConfig, botPolicy, baselinePolicy, fenOptStr) =>
+      val startFen     = fenOptStr.getOrElse(BotMatchRunner.StartFen)
+      val parsedState  = FenParser.parse(startFen).getOrElse(sys.error(s"Invalid start FEN: $startFen"))
       val timeControls = TimedArenaRunner.parsePresets(presets)
       val results      =
         timeControls.map(tc =>
@@ -65,6 +71,7 @@ object TimedArenaRunner:
             TimedMatchSetup(
               games,
               tc,
+              startState = parsedState,
               seed = seed,
               sprtConfig = sprtConfig,
               botTimeManager = TimeManager(botPolicy),
@@ -72,9 +79,12 @@ object TimedArenaRunner:
             )
           )
         )
-      BotMatchRunner.printTimedSummary(botId, baseline, results)
+      BotMatchRunner.printTimedSummary(botId, baseline, results, startFen)
       jsonPath.foreach { path =>
-        BotMatchRunner.writeJsonReport(path, BotMatchRunner.timedReportJson(botId, baseline, games, seed, results))
+        BotMatchRunner.writeJsonReport(
+          path,
+          BotMatchRunner.timedReportJson(botId, baseline, games, seed, results, startFen = startFen)
+        )
       }
     }
   }

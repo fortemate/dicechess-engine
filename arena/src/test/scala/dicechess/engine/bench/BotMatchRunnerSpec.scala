@@ -567,6 +567,65 @@ class BotMatchRunnerSpec extends FunSuite:
       java.nio.file.Files.deleteIfExists(timedOut)
   }
 
+  test("BotMatchRunner.command: --fen accepts custom valid FEN and rejects invalid FEN") {
+    val validFen = "8/8/8/4k3/8/8/4K3/4Q3 w - - 0 1"
+    val resValid = ArenaOptions.parseAndRun(
+      BotMatchRunner.command,
+      Array("--base-bot", "greedy", "--opponent", "random", "--games", "1", "--fen", validFen)
+    )
+    assertEquals(resValid, Right(()))
+
+    val resInvalid = ArenaOptions.parseAndRun(
+      BotMatchRunner.command,
+      Array("--base-bot", "greedy", "--opponent", "random", "--games", "1", "--fen", "invalid-fen")
+    )
+    assert(resInvalid.isLeft)
+  }
+
+  test("TimedArenaRunner.command: --fen accepts custom valid FEN and records it in summary and report") {
+    val validFen = "8/8/8/4k3/8/8/4K3/4Q3 w - - 0 1"
+    val timedOut = java.nio.file.Files.createTempFile("arena-fen-test", ".json")
+    val out      = new java.io.ByteArrayOutputStream()
+    try
+      val res = Console.withOut(out) {
+        ArenaOptions.parseAndRun(
+          TimedArenaRunner.command,
+          Array(
+            "--bot",
+            "greedy",
+            "--baseline",
+            "random",
+            "--games",
+            "1",
+            "--presets",
+            "6+0",
+            "--fen",
+            validFen,
+            "--json",
+            timedOut.toString
+          )
+        )
+      }
+      assertEquals(res, Right(()))
+      val consoleOutput = out.toString("UTF-8")
+      assert(consoleOutput.contains(s"Starting FEN: $validFen"))
+
+      val timed = Json.parse(java.nio.file.Files.readString(timedOut)).getOrElse(fail("invalid timed JSON"))
+      assertEquals(timed.field("kind").flatMap(_.asStr), Some("timed_arena"))
+      assertEquals(timed.field("startFen").flatMap(_.asStr), Some(validFen))
+      assertEquals(
+        timed.field("setup").flatMap(_.field("startFen")).flatMap(_.asStr),
+        Some(validFen)
+      )
+    finally java.nio.file.Files.deleteIfExists(timedOut)
+
+    val resInvalid = ArenaOptions.parseAndRun(
+      TimedArenaRunner.command,
+      Array("--bot", "greedy", "--baseline", "random", "--games", "1", "--presets", "6+0", "--fen", "bad")
+    )
+    assert(resInvalid.isLeft)
+  }
+
   test("printSummaryTable/printTimedSummary: pin Locale.ROOT, so %f fields never render a comma decimal") {
     val originalLocale = java.util.Locale.getDefault
     val out            = new java.io.ByteArrayOutputStream()

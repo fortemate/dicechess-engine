@@ -17,22 +17,24 @@ import cats.implicits.*
   */
 object BotMatchRunner:
   def main(args: Array[String]): Unit =
-    val command = Command(
-      name = "BotMatchRunner",
-      header = "Dice Chess Bot Arena - JVM Match Runner"
-    ) {
-      import ArenaOptions.*
-      (baseBotOpt(), opponentOpt("").orNone, gamesOpt(), seedOpt(), jsonPathOpt).mapN {
-        (baseBotId, opponentOptStr, gamesPerColor, seed, jsonPath) =>
-          val opponentBotId = opponentOptStr.filter(_.nonEmpty)
-          try runArena(baseBotId, opponentBotId, gamesPerColor, StartFen, seed, jsonPath)
-          catch
-            case e: Exception =>
-              System.err.println(e.getMessage)
-              sys.exit(1)
-      }
-    }
     ArenaOptions.runCommand(command, args)
+
+  private[bench] val command: Command[Unit] = Command(
+    name = "BotMatchRunner",
+    header = "Dice Chess Bot Arena - JVM Match Runner"
+  ) {
+    import ArenaOptions.*
+    (baseBotOpt(), opponentOpt("").orNone, gamesOpt(), seedOpt(), jsonPathOpt, fenOpt).mapN {
+      (baseBotId, opponentOptStr, gamesPerColor, seed, jsonPath, fenOptStr) =>
+        val opponentBotId = opponentOptStr.filter(_.nonEmpty)
+        val startFen      = fenOptStr.getOrElse(StartFen)
+        try runArena(baseBotId, opponentBotId, gamesPerColor, startFen, seed, jsonPath)
+        catch
+          case e: Exception =>
+            System.err.println(e.getMessage)
+            sys.exit(1)
+    }
+  }
 
   private[bench] val StartFen   = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
   private val SectionSeparator  = "=" * 80
@@ -598,9 +600,15 @@ object BotMatchRunner:
       pentanomial = pentanomial
     )
 
-  private[bench] def printTimedSummary(botId: String, baselineId: String, results: List[TimedMatchResult]): Unit =
+  private[bench] def printTimedSummary(
+      botId: String,
+      baselineId: String,
+      results: List[TimedMatchResult],
+      startFen: String = StartFen
+  ): Unit =
     println(SectionSeparator)
     println(s"🎲♟️  Time-Controlled Arena — $botId (bot under test) vs $baselineId")
+    if startFen != StartFen then println(s"Starting FEN: $startFen")
     results.headOption.foreach(r =>
       println(s"Time policies: ${r.botTimePolicyId} (bot) vs ${r.baselineTimePolicyId} (baseline)")
     )
@@ -925,18 +933,25 @@ object BotMatchRunner:
       gamesPerColor: Int,
       seed: Long,
       results: List[TimedMatchResult],
-      setup: Map[String, String] = Map.empty
+      setup: Map[String, String] = Map.empty,
+      startFen: String = StartFen
   ): Json =
+    val effectiveSetup =
+      if startFen != StartFen && !setup.contains("startFen") then setup + ("startFen" -> startFen)
+      else setup
+    val fenField =
+      if startFen != StartFen then Seq("startFen" -> Json.str(startFen))
+      else Seq.empty
     val fields = Seq(
       "kind"           -> Json.str("timed_arena"),
       "botUnderTestId" -> Json.str(botUnderTestId),
       "baselineId"     -> Json.str(baselineId),
       "gamesPerColor"  -> Json.int(gamesPerColor),
       "seed"           -> Json.int(seed)
-    )
+    ) ++ fenField
     val setupField =
-      if setup.isEmpty then Seq.empty
-      else Seq("setup" -> Json.obj(setup.toSeq.sortBy(_._1).map((k, v) => k -> Json.str(v))*))
+      if effectiveSetup.isEmpty then Seq.empty
+      else Seq("setup" -> Json.obj(effectiveSetup.toSeq.sortBy(_._1).map((k, v) => k -> Json.str(v))*))
     Json.obj((fields ++ setupField :+ ("results" -> Json.arr(results.map(timedMatchResultJson)*)))*)
 
   private def timedMatchResultJson(r: TimedMatchResult): Json =

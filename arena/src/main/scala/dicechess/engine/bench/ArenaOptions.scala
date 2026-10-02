@@ -4,6 +4,7 @@ package dicechess.engine.bench
 import cats.data.Validated
 
 import com.monovore.decline.*
+import dicechess.engine.domain.FenParser
 import dicechess.engine.search.{ExpectimaxConfig, TimePolicies, TimePolicy}
 
 private[bench] object ArenaOptions:
@@ -69,6 +70,21 @@ private[bench] object ArenaOptions:
 
   val jsonPathOpt: Opts[Option[String]] =
     Opts.option[String]("json", help = "Path to write machine-readable JSON report").orNone
+
+  val fenOpt: Opts[Option[String]] =
+    Opts
+      .option[String]("fen", help = "Starting board position in FEN or DFEN notation")
+      .mapValidated { fen =>
+        FenParser.parse(fen) match
+          case Right(state) =>
+            if (state.kings & state.whitePieces).isEmpty then
+              Validated.invalidNel(s"Invalid starting FEN '$fen': missing white king")
+            else if (state.kings & state.blackPieces).isEmpty then
+              Validated.invalidNel(s"Invalid starting FEN '$fen': missing black king")
+            else Validated.valid(fen)
+          case Left(err) => Validated.invalidNel(s"Invalid starting FEN '$fen': $err")
+      }
+      .orNone
 
   val sprtConfigOpt: Opts[Option[SprtConfig]] =
     Opts
