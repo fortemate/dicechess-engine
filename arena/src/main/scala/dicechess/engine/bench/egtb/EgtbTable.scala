@@ -21,7 +21,9 @@ final case class EgtbConfig(
     maxIterations: Int = 500,
     threads: Int = Runtime.getRuntime.availableProcessors(),
     maxKw: Int = 64
-)
+):
+  require(maxKw >= 1 && maxKw <= 64, s"maxKw must be in [1, 64], got $maxKw")
+  require(threads >= 1, s"threads must be >= 1, got $threads")
 
 final case class EgtbResult(
     iterations: Int,
@@ -245,6 +247,8 @@ object EgtbTable:
         vWhiteCurrent(idx) = initWhite
         vBlackCurrent(idx) = initBlack
 
+    require(config.maxKw >= 1 && config.maxKw <= 64, s"maxKw must be in [1, 64], got ${config.maxKw}")
+    require(config.threads >= 1, s"threads must be >= 1, got ${config.threads}")
     val executor  = Executors.newFixedThreadPool(config.threads)
     var iteration = 0
     var maxDelta  = 1.0

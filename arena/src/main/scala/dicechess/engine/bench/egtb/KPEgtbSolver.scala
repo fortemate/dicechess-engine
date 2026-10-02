@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dicechess.engine.bench.egtb
 
-import dicechess.engine.movegen.LeaperAttacks
 import java.io.File
 
 /** Stochastic Endgame Tablebase (EGTB) solver for King + Pawn vs King (KPvK) in Dice Chess.
@@ -19,8 +18,7 @@ object KPEgtbSolver:
   @inline def isLegal(kw: Int, kb: Int, p: Int): Boolean =
     kw != kb && kw != p && kb != p && p >= 8 && p <= 55
 
-  private val KingAttacks: Array[Long] =
-    Array.tabulate(64)(sq => LeaperAttacks.kingAttacks(sq).value)
+  private val KingAttacks: Array[Long] = EgtbSearch.KingAttacks
 
   type SolverConfig = EgtbConfig
   val SolverConfig = EgtbConfig
@@ -55,6 +53,9 @@ object KPEgtbSolver:
     val val11 = math.max(math.max(val10, val01), bestKingAndPawnMoves(kw, kb, p, vBlack, gamma, kqTable))
     val val30 = math.max(val20, bestKingMoves(kw, kb, p, 3, vBlack, gamma))
     val val03 = math.max(val02, bestPawnMoves(kw, kb, p, 3, vBlack, gamma, kqTable))
+    // (2,1) [3/216] and (1,2) [3/216]: 3-dice outcomes mixing King and Pawn moves (6/216 total probability).
+    // Intentionally bounded using 2-ply composite lower-bound approximations max(val11, val20) and max(val11, val02)
+    // to maintain fast value iteration while guaranteeing conservative monotonic convergence.
     val val21 = math.max(val11, val20)
     val val12 = math.max(val11, val02)
 
@@ -80,37 +81,15 @@ object KPEgtbSolver:
       val2 * 15 +
       val3 * 1) / 216.0f
 
-  private def bestKingMoves(kw: Int, kb: Int, p: Int, maxMoves: Int, vBlack: Array[Float], gamma: Float): Float =
-    var best = 0.0f
-    var b1   = KingAttacks(kw) & ~(1L << p)
-    while b1 != 0L do
-      val kw1 = java.lang.Long.numberOfTrailingZeros(b1)
-      b1 &= b1 - 1
-      if kw1 == kb then return 1.0f
-      else
-        val v1 = gamma * vBlack(stateIndex(kw1, kb, p))
-        if v1 > best then best = v1
-
-        if maxMoves >= 2 then
-          var b2 = KingAttacks(kw1) & ~(1L << p)
-          while b2 != 0L do
-            val kw2 = java.lang.Long.numberOfTrailingZeros(b2)
-            b2 &= b2 - 1
-            if kw2 == kb then return 1.0f
-            else
-              val v2 = gamma * vBlack(stateIndex(kw2, kb, p))
-              if v2 > best then best = v2
-
-              if maxMoves >= 3 then
-                var b3 = KingAttacks(kw2) & ~(1L << p)
-                while b3 != 0L do
-                  val kw3 = java.lang.Long.numberOfTrailingZeros(b3)
-                  b3 &= b3 - 1
-                  if kw3 == kb then return 1.0f
-                  else
-                    val v3 = gamma * vBlack(stateIndex(kw3, kb, p))
-                    if v3 > best then best = v3
-    best
+  @inline private def bestKingMoves(
+      kw: Int,
+      kb: Int,
+      p: Int,
+      maxMoves: Int,
+      vBlack: Array[Float],
+      gamma: Float
+  ): Float =
+    EgtbSearch.bestKingMoves(kw, kb, p, maxMoves, vBlack, gamma)
 
   private def bestPawnMoves(
       kw: Int,
@@ -121,7 +100,8 @@ object KPEgtbSolver:
       gamma: Float,
       kqTable: EgtbTable
   ): Float =
-    var best = 0.0f
+    var best  = 0.0f
+    var moved = false
 
     // 1. Diagonal captures of Black King
     if p % 8 > 0 && p + 7 == kb then return 1.0f
@@ -130,6 +110,7 @@ object KPEgtbSolver:
     // 2. Single forward push
     val p1 = p + 8
     if p1 != kw && p1 != kb then
+      moved = true
       if p1 >= 56 then
         val vPromo = gamma * kqTable.probe(kw, kb, p1, false).getOrElse(0.85).toFloat
         if vPromo > best then best = vPromo
@@ -168,6 +149,7 @@ object KPEgtbSolver:
       val step1 = p + 8
       val step2 = p + 16
       if step1 != kw && step1 != kb && step2 != kw && step2 != kb then
+        moved = true
         val vD = gamma * vBlack(stateIndex(kw, kb, step2))
         if vD > best then best = vD
 
@@ -180,7 +162,7 @@ object KPEgtbSolver:
             val v3 = gamma * vBlack(stateIndex(kw, kb, p3))
             if v3 > best then best = v3
 
-    best
+    if moved then best else gamma * vBlack(stateIndex(kw, kb, p))
 
   private def bestKingAndPawnMoves(
       kw: Int,
@@ -203,9 +185,11 @@ object KPEgtbSolver:
         if p % 8 > 0 && p + 7 == kb then return 1.0f
         if p % 8 < 7 && p + 9 == kb then return 1.0f
 
+        var pawnMoved = false
         // Pawn single push
         val p1 = p + 8
         if p1 != kw1 && p1 != kb then
+          pawnMoved = true
           if p1 >= 56 then
             val v = gamma * kqTable.probe(kw1, kb, p1, false).getOrElse(0.85).toFloat
             if v > best then best = v
@@ -218,8 +202,13 @@ object KPEgtbSolver:
           val step1 = p + 8
           val step2 = p + 16
           if step1 != kw1 && step1 != kb && step2 != kw1 && step2 != kb then
+            pawnMoved = true
             val v = gamma * vBlack(stateIndex(kw1, kb, step2))
             if v > best then best = v
+
+        if !pawnMoved then
+          val vPass = gamma * vBlack(stateIndex(kw1, kb, p))
+          if vPass > best then best = vPass
 
     // Branch B: Pawn first, then King
     // Pawn captures kb
@@ -265,43 +254,15 @@ object KPEgtbSolver:
 
     best
 
-  private def bestBlackKingMoves(kw: Int, kb: Int, p: Int, maxMoves: Int, vWhite: Array[Float], gamma: Float): Float =
-    var best = 1.0f
-    var b1   = KingAttacks(kb)
-    while b1 != 0L do
-      val kb1 = java.lang.Long.numberOfTrailingZeros(b1)
-      b1 &= b1 - 1
-      if kb1 == kw then return 0.0f
-      else if kb1 == p then
-        if 0.5f < best then best = 0.5f
-      else
-        val v1 = gamma * vWhite(stateIndex(kw, kb1, p))
-        if v1 < best then best = v1
-
-        if maxMoves >= 2 then
-          var b2 = KingAttacks(kb1)
-          while b2 != 0L do
-            val kb2 = java.lang.Long.numberOfTrailingZeros(b2)
-            b2 &= b2 - 1
-            if kb2 == kw then return 0.0f
-            else if kb2 == p then
-              if 0.5f < best then best = 0.5f
-            else
-              val v2 = gamma * vWhite(stateIndex(kw, kb2, p))
-              if v2 < best then best = v2
-
-              if maxMoves >= 3 then
-                var b3 = KingAttacks(kb2)
-                while b3 != 0L do
-                  val kb3 = java.lang.Long.numberOfTrailingZeros(b3)
-                  b3 &= b3 - 1
-                  if kb3 == kw then return 0.0f
-                  else if kb3 == p then
-                    if 0.5f < best then best = 0.5f
-                  else
-                    val v3 = gamma * vWhite(stateIndex(kw, kb3, p))
-                    if v3 < best then best = v3
-    best
+  @inline private def bestBlackKingMoves(
+      kw: Int,
+      kb: Int,
+      p: Int,
+      maxMoves: Int,
+      vWhite: Array[Float],
+      gamma: Float
+  ): Float =
+    EgtbSearch.bestBlackKingMoves(kw, kb, p, maxMoves, vWhite, gamma)
 
   def saveTable(file: File, vWhite: Array[Float], vBlack: Array[Float], force: Boolean = false): Unit =
     EgtbTable.save(file, dicechess.engine.domain.PieceType.Pawn, vWhite, vBlack, force = force)

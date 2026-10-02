@@ -10,40 +10,50 @@ class EgtbTableSpec extends FunSuite:
 
   override val munitTimeout = scala.concurrent.duration.Duration(120, "s")
 
-  val kqFile = new File("arena/src/main/resources/egtb/kq_vs_k.egtb")
-  val krFile = new File("arena/src/main/resources/egtb/kr_vs_k.egtb")
-  val kbFile = new File("arena/src/main/resources/egtb/kb_vs_k.egtb")
-  val knFile = new File("arena/src/main/resources/egtb/kn_vs_k.egtb")
-  val kpFile = new File("arena/src/main/resources/egtb/kp_vs_k.egtb")
+  private def loadFixture(name: String): Option[EgtbTable] =
+    val stream = getClass.getResourceAsStream(s"/egtb/$name.egtb")
+    if stream != null then
+      try Some(EgtbTable.load(stream))
+      finally stream.close()
+    else
+      val file = new File(s"arena/src/main/resources/egtb/$name.egtb")
+      if file.exists() then Some(EgtbTable.load(file))
+      else None
+
+  lazy val kqTableOpt: Option[EgtbTable] = loadFixture("kq_vs_k")
+  lazy val krTableOpt: Option[EgtbTable] = loadFixture("kr_vs_k")
+  lazy val kbTableOpt: Option[EgtbTable] = loadFixture("kb_vs_k")
+  lazy val knTableOpt: Option[EgtbTable] = loadFixture("kn_vs_k")
+  lazy val kpTableOpt: Option[EgtbTable] = loadFixture("kp_vs_k")
 
   test("load KQvK tablebase and verify header and metadata"):
-    assume(kqFile.exists(), "kq_vs_k.egtb must exist for test")
-    val table = EgtbTable.load(kqFile)
+    assume(kqTableOpt.isDefined, "kq_vs_k.egtb must exist for test")
+    val table = kqTableOpt.get
     assertEquals(table.pieceType, PieceType.Queen)
 
   test("load KRvK tablebase and verify header and metadata"):
-    assume(krFile.exists(), "kr_vs_k.egtb must exist for test")
-    val table = EgtbTable.load(krFile)
+    assume(krTableOpt.isDefined, "kr_vs_k.egtb must exist for test")
+    val table = krTableOpt.get
     assertEquals(table.pieceType, PieceType.Rook)
 
   test("load KBvK tablebase and verify header and metadata"):
-    assume(kbFile.exists(), "kb_vs_k.egtb must exist for test")
-    val table = EgtbTable.load(kbFile)
+    assume(kbTableOpt.isDefined, "kb_vs_k.egtb must exist for test")
+    val table = kbTableOpt.get
     assertEquals(table.pieceType, PieceType.Bishop)
 
   test("load KNvK tablebase and verify header and metadata"):
-    assume(knFile.exists(), "kn_vs_k.egtb must exist for test")
-    val table = EgtbTable.load(knFile)
+    assume(knTableOpt.isDefined, "kn_vs_k.egtb must exist for test")
+    val table = knTableOpt.get
     assertEquals(table.pieceType, PieceType.Knight)
 
   test("load KPvK tablebase and verify header and metadata"):
-    assume(kpFile.exists(), "kp_vs_k.egtb must exist for test")
-    val table = EgtbTable.load(kpFile)
+    assume(kpTableOpt.isDefined, "kp_vs_k.egtb must exist for test")
+    val table = kpTableOpt.get
     assertEquals(table.pieceType, PieceType.Pawn)
 
   test("KQvK probes are well-formed probabilities in [0.0, 1.0]"):
-    assume(kqFile.exists(), "kq_vs_k.egtb must exist for test")
-    val table = EgtbTable.load(kqFile)
+    assume(kqTableOpt.isDefined, "kq_vs_k.egtb must exist for test")
+    val table = kqTableOpt.get
 
     // Cornered Black King: Ke1, Qd1, Kh8
     val kw = Square('e', 1).index
@@ -61,8 +71,8 @@ class EgtbTableSpec extends FunSuite:
     assert(pBlack.get >= 0.0 && pBlack.get <= 1.0)
 
   test("probeState matches probe result for standard FEN"):
-    assume(kqFile.exists(), "kq_vs_k.egtb must exist for test")
-    val table = EgtbTable.load(kqFile)
+    assume(kqTableOpt.isDefined, "kq_vs_k.egtb must exist for test")
+    val table = kqTableOpt.get
 
     val fen   = "7k/8/8/8/8/8/8/3QK3 w - - 0 1"
     val state = FenParser.parse(fen).toOption.get
@@ -79,8 +89,8 @@ class EgtbTableSpec extends FunSuite:
     assertEquals(stateProbe, directProbe)
 
   test("KRvK provides decisive winning gradient for White"):
-    assume(krFile.exists(), "kr_vs_k.egtb must exist for test")
-    val table = EgtbTable.load(krFile)
+    assume(krTableOpt.isDefined, "kr_vs_k.egtb must exist for test")
+    val table = krTableOpt.get
 
     // Cornered Black King: Ke1, Ra1, Kh8
     val fen   = "7k/8/8/8/8/8/8/R3K3 w - - 0 1"
@@ -89,6 +99,22 @@ class EgtbTableSpec extends FunSuite:
     val probe = table.probeState(state)
     assert(probe.isDefined)
     assert(probe.get >= 0.85, s"Expected KRvK win prob >= 0.85, got ${probe.get}")
+
+  test("EgtbConfig validates maxKw and threads"):
+    intercept[IllegalArgumentException](EgtbConfig(maxKw = 0))
+    intercept[IllegalArgumentException](EgtbConfig(maxKw = 65))
+    intercept[IllegalArgumentException](EgtbConfig(threads = 0))
+
+  test("KPvK probe for blockaded pawn position returns non-zero win probability"):
+    assume(kpTableOpt.isDefined, "kp_vs_k.egtb must exist for test")
+    val table = kpTableOpt.get
+    // White pawn e5 (sq 36), Black king e6 (sq 44), White king a1 (sq 0)
+    val kw     = Square('a', 1).index
+    val kb     = Square('e', 6).index
+    val p      = Square('e', 5).index
+    val pWhite = table.probe(kw, kb, p, isWhiteTurn = true)
+    assert(pWhite.isDefined)
+    assert(pWhite.get > 0.0, s"Blockaded pawn should have non-zero probability via turn pass, got ${pWhite.get}")
 
   test("KQEgtbSolver executes 1 iteration correctly"):
     val res = KQEgtbSolver.solve(KQEgtbSolver.SolverConfig(maxIterations = 1, threads = 2, maxKw = 4))
@@ -111,8 +137,8 @@ class EgtbTableSpec extends FunSuite:
     assert(res.avgWhiteValue > 0.0)
 
   test("KPEgtbSolver executes 1 iteration correctly"):
-    assume(kqFile.exists(), "kq_vs_k.egtb must exist for test")
-    val kqTable = EgtbTable.load(kqFile)
+    assume(kqTableOpt.isDefined, "kq_vs_k.egtb must exist for test")
+    val kqTable = kqTableOpt.get
     val res     = KPEgtbSolver.solve(kqTable, KPEgtbSolver.SolverConfig(maxIterations = 1, threads = 2, maxKw = 4))
     assertEquals(res.iterations, 1)
     assert(res.avgWhiteValue > 0.0)

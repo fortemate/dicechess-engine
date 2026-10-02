@@ -2,7 +2,7 @@
 package dicechess.engine.bench.egtb
 
 import dicechess.engine.domain.{Bitboard, Square}
-import dicechess.engine.movegen.{LeaperAttacks, MagicBitboards}
+import dicechess.engine.movegen.MagicBitboards
 import java.io.File
 
 /** Stochastic Endgame Tablebase (EGTB) solver for King + Bishop vs King (KBvK) in Dice Chess.
@@ -20,8 +20,7 @@ object KBEgtbSolver:
   @inline def isLegal(kw: Int, kb: Int, b: Int): Boolean =
     kw != kb && kw != b && kb != b
 
-  private val KingAttacks: Array[Long] =
-    Array.tabulate(64)(sq => LeaperAttacks.kingAttacks(sq).value)
+  private val KingAttacks: Array[Long] = EgtbSearch.KingAttacks
 
   @inline private def bishopAttacks(b: Int, kw: Int, occ: Long): Long =
     val sq      = Square.fromIndex(b)
@@ -56,6 +55,9 @@ object KBEgtbSolver:
     val val11 = math.max(math.max(val10, val01), bestKingAndBishopMoves(kw, kb, b, occ, vBlack, gamma))
     val val30 = math.max(val20, bestKingMoves(kw, kb, b, 3, vBlack, gamma))
     val val03 = math.max(val02, bestBishopMoves(kw, kb, b, 3, occ, vBlack, gamma))
+    // (2,1) [3/216] and (1,2) [3/216]: 3-dice outcomes mixing King and Bishop moves (6/216 total probability).
+    // Intentionally bounded using 2-ply composite lower-bound approximations max(val11, val20) and max(val11, val02)
+    // to maintain fast value iteration while guaranteeing conservative monotonic convergence.
     val val21 = math.max(val11, val20)
     val val12 = math.max(val11, val02)
 
@@ -81,37 +83,15 @@ object KBEgtbSolver:
       val2 * 15 +
       val3 * 1) / 216.0f
 
-  private def bestKingMoves(kw: Int, kb: Int, b: Int, maxMoves: Int, vBlack: Array[Float], gamma: Float): Float =
-    var best = 0.0f
-    var b1   = KingAttacks(kw) & ~(1L << b)
-    while b1 != 0L do
-      val kw1 = java.lang.Long.numberOfTrailingZeros(b1)
-      b1 &= b1 - 1
-      if kw1 == kb then return 1.0f
-      else
-        val v1 = gamma * vBlack(stateIndex(kw1, kb, b))
-        if v1 > best then best = v1
-
-        if maxMoves >= 2 then
-          var b2 = KingAttacks(kw1) & ~(1L << b)
-          while b2 != 0L do
-            val kw2 = java.lang.Long.numberOfTrailingZeros(b2)
-            b2 &= b2 - 1
-            if kw2 == kb then return 1.0f
-            else
-              val v2 = gamma * vBlack(stateIndex(kw2, kb, b))
-              if v2 > best then best = v2
-
-              if maxMoves >= 3 then
-                var b3 = KingAttacks(kw2) & ~(1L << b)
-                while b3 != 0L do
-                  val kw3 = java.lang.Long.numberOfTrailingZeros(b3)
-                  b3 &= b3 - 1
-                  if kw3 == kb then return 1.0f
-                  else
-                    val v3 = gamma * vBlack(stateIndex(kw3, kb, b))
-                    if v3 > best then best = v3
-    best
+  @inline private def bestKingMoves(
+      kw: Int,
+      kb: Int,
+      b: Int,
+      maxMoves: Int,
+      vBlack: Array[Float],
+      gamma: Float
+  ): Float =
+    EgtbSearch.bestKingMoves(kw, kb, b, maxMoves, vBlack, gamma)
 
   private def bestBishopMoves(
       kw: Int,
@@ -193,43 +173,15 @@ object KBEgtbSolver:
 
     best
 
-  private def bestBlackKingMoves(kw: Int, kb: Int, b: Int, maxMoves: Int, vWhite: Array[Float], gamma: Float): Float =
-    var best = 1.0f
-    var b1   = KingAttacks(kb)
-    while b1 != 0L do
-      val kb1 = java.lang.Long.numberOfTrailingZeros(b1)
-      b1 &= b1 - 1
-      if kb1 == kw then return 0.0f
-      else if kb1 == b then
-        if 0.5f < best then best = 0.5f
-      else
-        val v1 = gamma * vWhite(stateIndex(kw, kb1, b))
-        if v1 < best then best = v1
-
-        if maxMoves >= 2 then
-          var b2 = KingAttacks(kb1)
-          while b2 != 0L do
-            val kb2 = java.lang.Long.numberOfTrailingZeros(b2)
-            b2 &= b2 - 1
-            if kb2 == kw then return 0.0f
-            else if kb2 == b then
-              if 0.5f < best then best = 0.5f
-            else
-              val v2 = gamma * vWhite(stateIndex(kw, kb2, b))
-              if v2 < best then best = v2
-
-              if maxMoves >= 3 then
-                var b3 = KingAttacks(kb2)
-                while b3 != 0L do
-                  val kb3 = java.lang.Long.numberOfTrailingZeros(b3)
-                  b3 &= b3 - 1
-                  if kb3 == kw then return 0.0f
-                  else if kb3 == b then
-                    if 0.5f < best then best = 0.5f
-                  else
-                    val v3 = gamma * vWhite(stateIndex(kw, kb3, b))
-                    if v3 < best then best = v3
-    best
+  @inline private def bestBlackKingMoves(
+      kw: Int,
+      kb: Int,
+      b: Int,
+      maxMoves: Int,
+      vWhite: Array[Float],
+      gamma: Float
+  ): Float =
+    EgtbSearch.bestBlackKingMoves(kw, kb, b, maxMoves, vWhite, gamma)
 
   def saveTable(file: File, vWhite: Array[Float], vBlack: Array[Float], force: Boolean = false): Unit =
     EgtbTable.save(file, dicechess.engine.domain.PieceType.Bishop, vWhite, vBlack, force = force)

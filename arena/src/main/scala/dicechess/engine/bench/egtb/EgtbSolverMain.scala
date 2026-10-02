@@ -2,7 +2,6 @@
 package dicechess.engine.bench.egtb
 
 import dicechess.engine.domain.PieceType
-import java.io.File
 import java.nio.file.{Files, Path, Paths}
 
 object EgtbSolverMain:
@@ -123,7 +122,7 @@ object EgtbSolverMain:
         printSummaryAndSave(result, outputPath, "kn_vs_k.egtb", PieceType.Knight, epsilon, force)
 
       case "kp-vs-k" | "kpvk" =>
-        val kqFile  = new File(DefaultKqEgtbFileName)
+        val kqFile  = AuthorizedBaseDir.resolve(DefaultKqEgtbFileName).toFile
         val kqTable =
           if kqFile.exists() then EgtbTable.load(kqFile)
           else
