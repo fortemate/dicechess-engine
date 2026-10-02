@@ -9,6 +9,9 @@ class EgtbTableSpec extends FunSuite:
 
   val kqFile = new File("arena/src/main/resources/egtb/kq_vs_k.egtb")
   val krFile = new File("arena/src/main/resources/egtb/kr_vs_k.egtb")
+  val kbFile = new File("arena/src/main/resources/egtb/kb_vs_k.egtb")
+  val knFile = new File("arena/src/main/resources/egtb/kn_vs_k.egtb")
+  val kpFile = new File("arena/src/main/resources/egtb/kp_vs_k.egtb")
 
   test("load KQvK tablebase and verify header and metadata"):
     assume(kqFile.exists(), "kq_vs_k.egtb must exist for test")
@@ -19,6 +22,21 @@ class EgtbTableSpec extends FunSuite:
     assume(krFile.exists(), "kr_vs_k.egtb must exist for test")
     val table = EgtbTable.load(krFile)
     assertEquals(table.pieceType, PieceType.Rook)
+
+  test("load KBvK tablebase and verify header and metadata"):
+    assume(kbFile.exists(), "kb_vs_k.egtb must exist for test")
+    val table = EgtbTable.load(kbFile)
+    assertEquals(table.pieceType, PieceType.Bishop)
+
+  test("load KNvK tablebase and verify header and metadata"):
+    assume(knFile.exists(), "kn_vs_k.egtb must exist for test")
+    val table = EgtbTable.load(knFile)
+    assertEquals(table.pieceType, PieceType.Knight)
+
+  test("load KPvK tablebase and verify header and metadata"):
+    assume(kpFile.exists(), "kp_vs_k.egtb must exist for test")
+    val table = EgtbTable.load(kpFile)
+    assertEquals(table.pieceType, PieceType.Pawn)
 
   test("KQvK probes are well-formed probabilities in [0.0, 1.0]"):
     assume(kqFile.exists(), "kq_vs_k.egtb must exist for test")
@@ -68,3 +86,39 @@ class EgtbTableSpec extends FunSuite:
     val probe = table.probeState(state)
     assert(probe.isDefined)
     assert(probe.get >= 0.85, s"Expected KRvK win prob >= 0.85, got ${probe.get}")
+
+  test("KQEgtbSolver executes 1 iteration correctly"):
+    val res = KQEgtbSolver.solve(KQEgtbSolver.SolverConfig(maxIterations = 1, threads = 4))
+    assertEquals(res.iterations, 1)
+    assert(res.avgWhiteValue > 0.5)
+
+  test("KREgtbSolver executes 1 iteration correctly"):
+    val res = KREgtbSolver.solve(KREgtbSolver.SolverConfig(maxIterations = 1, threads = 4))
+    assertEquals(res.iterations, 1)
+    assert(res.avgWhiteValue > 0.5)
+
+  test("KBEgtbSolver executes 1 iteration correctly"):
+    val res = KBEgtbSolver.solve(KBEgtbSolver.SolverConfig(maxIterations = 1, threads = 4))
+    assertEquals(res.iterations, 1)
+    assert(res.avgWhiteValue > 0.5)
+
+  test("KNEgtbSolver executes 1 iteration correctly"):
+    val res = KNEgtbSolver.solve(KNEgtbSolver.SolverConfig(maxIterations = 1, threads = 4))
+    assertEquals(res.iterations, 1)
+    assert(res.avgWhiteValue > 0.5)
+
+  test("KPEgtbSolver executes 1 iteration correctly"):
+    assume(kqFile.exists(), "kq_vs_k.egtb must exist for test")
+    val kqTable = EgtbTable.load(kqFile)
+    val res     = KPEgtbSolver.solve(kqTable, KPEgtbSolver.SolverConfig(maxIterations = 1, threads = 4))
+    assertEquals(res.iterations, 1)
+    assert(res.avgWhiteValue > 0.5)
+
+  test("EgtbSolverMain runs single iteration execution"):
+    val tmp = File.createTempFile("egtb_test", ".egtb")
+    try
+      EgtbSolverMain.main(
+        Array("--endgame", "kq-vs-k", "--iterations", "1", "--threads", "4", "--output", tmp.getAbsolutePath)
+      )
+      assert(tmp.length() == 1048584L)
+    finally tmp.delete()
