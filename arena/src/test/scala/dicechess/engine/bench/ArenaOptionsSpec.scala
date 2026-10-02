@@ -137,3 +137,14 @@ class ArenaOptionsSpec extends FunSuite:
       dicechess.engine.search.KcpMobilityPawnsFeatures.extract(state, dicechess.engine.domain.Color.White).toList
     )
   }
+
+  test("fen option validation") {
+    val command = Command("test", "test")(ArenaOptions.fenOpt)
+    assertEquals(command.parse(Seq.empty, sys.env), Right(None))
+    val validFen = "8/8/8/4k3/8/8/4K3/4Q3 w - - 0 1"
+    assertEquals(command.parse(Seq("--fen", validFen), sys.env), Right(Some(validFen)))
+    val validDfen = "8/8/8/4k3/8/8/4K3/4Q3 w - - 0 1 Q"
+    assertEquals(command.parse(Seq("--fen", validDfen), sys.env), Right(Some(validDfen)))
+    assert(command.parse(Seq("--fen", "invalid fen string"), sys.env).isLeft)
+    assert(command.parse(Seq("--fen", "8/8/8/8/8/8/8/8 w - - 0 1"), sys.env).isLeft) // no kings
+  }
