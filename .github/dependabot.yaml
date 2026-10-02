@@ -27,6 +27,12 @@ updates:
       - "ci-cd"
     commit-message:
       prefix: "chore"
+    ignore:
+      # mermaid 12 is a breaking release (ES2024, Node 22.12+, new default layout engine).
+      # astro-mermaid@2.1.0 declares peerDependencies mermaid ^10 || ^11 and has not been
+      # updated for mermaid 12 yet. Hold the major until astro-mermaid supports it.
+      - dependency-name: "mermaid"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "sbt"
     directory: "/"
