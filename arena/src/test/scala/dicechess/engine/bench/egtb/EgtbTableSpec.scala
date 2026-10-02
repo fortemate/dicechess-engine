@@ -3,6 +3,7 @@ package dicechess.engine.bench.egtb
 
 import dicechess.engine.domain.{FenParser, PieceType, Square}
 import java.io.File
+import java.nio.file.{FileAlreadyExistsException, Files, Paths}
 import munit.FunSuite
 
 class EgtbTableSpec extends FunSuite:
@@ -118,6 +119,7 @@ class EgtbTableSpec extends FunSuite:
 
   test("EgtbSolverMain runs single iteration execution"):
     val tmp = File.createTempFile("egtb_test", ".egtb")
+    tmp.delete()
     try
       EgtbSolverMain.main(
         Array(
@@ -135,3 +137,71 @@ class EgtbTableSpec extends FunSuite:
       )
       assert(tmp.length() == 1048584L)
     finally tmp.delete()
+
+  test("EgtbTable.save rejects overwriting existing file without force"):
+    val tmp = File.createTempFile("egtb_safe", ".egtb")
+    try
+      Files.writeString(tmp.toPath, "DO-NOT-OVERWRITE")
+      intercept[FileAlreadyExistsException]:
+        EgtbTable.save(
+          tmp,
+          PieceType.Queen,
+          new Array[Float](KQEgtbSolver.StatesPerTurn),
+          new Array[Float](KQEgtbSolver.StatesPerTurn),
+          force = false
+        )
+      assertEquals(Files.readString(tmp.toPath), "DO-NOT-OVERWRITE")
+    finally tmp.delete()
+
+  test("EgtbTable.save allows overwriting existing file when force is true"):
+    val tmp = File.createTempFile("egtb_force", ".egtb")
+    try
+      Files.writeString(tmp.toPath, "CAN-BE-OVERWRITTEN")
+      EgtbTable.save(
+        tmp,
+        PieceType.Queen,
+        new Array[Float](KQEgtbSolver.StatesPerTurn),
+        new Array[Float](KQEgtbSolver.StatesPerTurn),
+        force = true
+      )
+      assertEquals(tmp.length(), 1048584L)
+    finally tmp.delete()
+
+  test("EgtbSolverMain with --force overwrites existing file"):
+    val tmp = File.createTempFile("egtb_main_force", ".egtb")
+    try
+      Files.writeString(tmp.toPath, "INITIAL-DATA")
+      EgtbSolverMain.main(
+        Array(
+          "--endgame",
+          "kq-vs-k",
+          "--iterations",
+          "1",
+          "--threads",
+          "2",
+          "--max-kw",
+          "4",
+          "--output",
+          tmp.getAbsolutePath,
+          "--force"
+        )
+      )
+      assertEquals(tmp.length(), 1048584L)
+    finally tmp.delete()
+
+  test("EgtbTable.save rejects writing to symbolic link"):
+    val target   = File.createTempFile("egtb_symlink_target", ".egtb")
+    val linkPath = Paths.get(target.getParent, s"symlink_${System.nanoTime()}.egtb")
+    try
+      Files.createSymbolicLink(linkPath, target.toPath)
+      intercept[IllegalArgumentException]:
+        EgtbTable.save(
+          linkPath.toFile,
+          PieceType.Queen,
+          new Array[Float](KQEgtbSolver.StatesPerTurn),
+          new Array[Float](KQEgtbSolver.StatesPerTurn),
+          force = true
+        )
+    finally
+      Files.deleteIfExists(linkPath)
+      target.delete()

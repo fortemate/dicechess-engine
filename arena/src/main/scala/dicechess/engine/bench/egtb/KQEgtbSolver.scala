@@ -3,9 +3,7 @@ package dicechess.engine.bench.egtb
 
 import dicechess.engine.domain.{Bitboard, Square}
 import dicechess.engine.movegen.{LeaperAttacks, MagicBitboards}
-import java.io.{BufferedOutputStream, DataOutputStream, File, FileOutputStream}
-import java.util.concurrent.{Callable, Executors}
-import scala.jdk.CollectionConverters.*
+import java.io.File
 
 /** Stochastic Endgame Tablebase (EGTB) solver for King + Queen vs King (KQvK) in Dice Chess.
   *
@@ -35,121 +33,21 @@ object KQEgtbSolver:
     val attacks = MagicBitboards.queenAttacks(sq, Bitboard(occ)).value
     attacks & ~(1L << kw)
 
-  final case class SolverConfig(
-      discount: Double = 0.995,
-      epsilon: Double = 1e-4,
-      maxIterations: Int = 500,
-      threads: Int = Runtime.getRuntime.availableProcessors(),
-      maxKw: Int = 64
-  )
+  type SolverConfig = EgtbConfig
+  val SolverConfig = EgtbConfig
 
-  final case class SolverResult(
-      iterations: Int,
-      maxDelta: Double,
-      elapsedMs: Long,
-      vWhite: Array[Float],
-      vBlack: Array[Float],
-      avgWhiteValue: Double,
-      avgBlackValue: Double,
-      whiteWinCount: Int,
-      blackUpsetCount: Int
-  )
+  type SolverResult = EgtbResult
+  val SolverResult = EgtbResult
 
   def solve(config: SolverConfig = SolverConfig()): SolverResult =
-    val startTime = System.currentTimeMillis()
-    val gamma     = config.discount.toFloat
-
-    var vWhiteCurrent = new Array[Float](StatesPerTurn)
-    var vBlackCurrent = new Array[Float](StatesPerTurn)
-    var vWhiteNext    = new Array[Float](StatesPerTurn)
-    var vBlackNext    = new Array[Float](StatesPerTurn)
-
-    // Initial estimate: 1.0 for White, assuming winning advantage
-    for kw <- 0 until 64; kb <- 0 until 64; q <- 0 until 64 do
-      val idx = stateIndex(kw, kb, q)
-      if isLegal(kw, kb, q) then
-        vWhiteCurrent(idx) = 0.90f
-        vBlackCurrent(idx) = 0.85f
-
-    val executor  = Executors.newFixedThreadPool(config.threads)
-    var iteration = 0
-    var maxDelta  = 1.0
-
-    try
-      while iteration < config.maxIterations && maxDelta > config.epsilon do
-        iteration += 1
-
-        // Parallel sweep over kw in [0, maxKw)
-        val tasks = (0 until config.maxKw).map { kw =>
-          new Callable[Double] {
-            override def call(): Double =
-              var localMaxDelta = 0.0
-
-              for kb <- 0 until 64; q <- 0 until 64 do
-                val idx = stateIndex(kw, kb, q)
-                if isLegal(kw, kb, q) then
-                  // 1. Evaluate White to move
-                  val newW   = evaluateWhiteTurn(kw, kb, q, vBlackCurrent, gamma)
-                  val deltaW = math.abs(newW - vWhiteCurrent(idx))
-                  vWhiteNext(idx) = newW
-                  if deltaW > localMaxDelta then localMaxDelta = deltaW
-
-                  // 2. Evaluate Black to move
-                  val newB   = evaluateBlackTurn(kw, kb, q, vWhiteCurrent, gamma)
-                  val deltaB = math.abs(newB - vBlackCurrent(idx))
-                  vBlackNext(idx) = newB
-                  if deltaB > localMaxDelta then localMaxDelta = deltaB
-
-              localMaxDelta
-          }
-        }
-
-        val futures = executor.invokeAll(tasks.asJava)
-        maxDelta = futures.asScala.map(_.get()).max
-
-        // Swap buffers
-        val tmpW = vWhiteCurrent; vWhiteCurrent = vWhiteNext; vWhiteNext = tmpW
-        val tmpB = vBlackCurrent; vBlackCurrent = vBlackNext; vBlackNext = tmpB
-
-        if iteration % 25 == 0 || maxDelta <= config.epsilon then
-          val elapsed = System.currentTimeMillis() - startTime
-          println(
-            f"[EGTB KQvK] Iteration $iteration%3d | maxDelta = $maxDelta%.6f | elapsed = ${elapsed / 1000.0}%.2fs"
-          )
-
-    finally
-      executor.shutdown()
-
-    val elapsed = System.currentTimeMillis() - startTime
-
-    // Compute stats over legal states
-    var sumW        = 0.0
-    var sumB        = 0.0
-    var count       = 0
-    var whiteWins   = 0
-    var blackUpsets = 0
-
-    for kw <- 0 until 64; kb <- 0 until 64; q <- 0 until 64 do
-      val idx = stateIndex(kw, kb, q)
-      if isLegal(kw, kb, q) then
-        count += 1
-        val w = vWhiteCurrent(idx)
-        val b = vBlackCurrent(idx)
-        sumW += w
-        sumB += b
-        if w >= 0.95f then whiteWins += 1
-        if b < 0.60f then blackUpsets += 1
-
-    SolverResult(
-      iterations = iteration,
-      maxDelta = maxDelta,
-      elapsedMs = elapsed,
-      vWhite = vWhiteCurrent,
-      vBlack = vBlackCurrent,
-      avgWhiteValue = if count > 0 then sumW / count else 0.0,
-      avgBlackValue = if count > 0 then sumB / count else 0.0,
-      whiteWinCount = whiteWins,
-      blackUpsetCount = blackUpsets
+    EgtbTable.runValueIteration(
+      name = "KQvK",
+      config = config,
+      initWhite = 0.90f,
+      initBlack = 0.85f,
+      auxRange = 0 until 64,
+      evalWhite = evaluateWhiteTurn,
+      evalBlack = evaluateBlackTurn
     )
 
   // =========================================================================
@@ -385,28 +283,5 @@ object KQEgtbSolver:
                     if v3 < best then best = v3
     best
 
-  def saveTable(file: File, vWhite: Array[Float], vBlack: Array[Float]): Unit =
-    val out = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(file)))
-    try
-      // Magic header: 4 bytes
-      out.writeBytes("EGTB")
-      out.writeByte(1)   // version
-      out.writeByte(0)   // type: 0 = KQvK
-      out.writeShort(64) // board size
-
-      // Save as 16-bit fixed point: value in [0, 1] mapped to [0, 65535]
-      // 262,144 * 2 bytes = 512 KB per turn -> 1 MB total!
-      var i = 0
-      while i < StatesPerTurn do
-        val wFixed = (vWhite(i).min(1.0f).max(0.0f) * 65535.0f).round.toShort
-        out.writeShort(wFixed)
-        i += 1
-
-      i = 0
-      while i < StatesPerTurn do
-        val bFixed = (vBlack(i).min(1.0f).max(0.0f) * 65535.0f).round.toShort
-        out.writeShort(bFixed)
-        i += 1
-
-      println(s"Saved compressed EGTB to ${file.getAbsolutePath} (${file.length()} bytes)")
-    finally out.close()
+  def saveTable(file: File, vWhite: Array[Float], vBlack: Array[Float], force: Boolean = false): Unit =
+    EgtbTable.save(file, dicechess.engine.domain.PieceType.Queen, vWhite, vBlack, force = force)

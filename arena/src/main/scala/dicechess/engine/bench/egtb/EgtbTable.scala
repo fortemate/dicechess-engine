@@ -2,7 +2,38 @@
 package dicechess.engine.bench.egtb
 
 import dicechess.engine.domain.{Color, GameState, PieceType, Square}
-import java.io.{BufferedInputStream, DataInputStream, File, FileInputStream, InputStream}
+import java.io.{
+  BufferedInputStream,
+  BufferedOutputStream,
+  DataInputStream,
+  DataOutputStream,
+  File,
+  FileInputStream,
+  InputStream
+}
+import java.nio.file.{FileAlreadyExistsException, Files, Paths, StandardCopyOption, StandardOpenOption}
+import java.util.concurrent.{Callable, Executors}
+import scala.jdk.CollectionConverters.*
+
+final case class EgtbConfig(
+    discount: Double = 0.995,
+    epsilon: Double = 1e-4,
+    maxIterations: Int = 500,
+    threads: Int = Runtime.getRuntime.availableProcessors(),
+    maxKw: Int = 64
+)
+
+final case class EgtbResult(
+    iterations: Int,
+    maxDelta: Double,
+    elapsedMs: Long,
+    vWhite: Array[Float],
+    vBlack: Array[Float],
+    avgWhiteValue: Double,
+    avgBlackValue: Double,
+    whiteWinCount: Int,
+    blackUpsetCount: Int
+)
 
 /** O(1) in-memory probe table for 3-piece Dice Chess Endgame Tablebases (EGTB).
   *
@@ -103,3 +134,163 @@ object EgtbTable:
 
       new EgtbTable(pieceType, vW, vB)
     finally in.close()
+
+  def save(
+      targetFile: File,
+      pieceType: PieceType,
+      vWhite: Array[Float],
+      vBlack: Array[Float],
+      force: Boolean = false
+  ): File =
+    val targetPath = targetFile.toPath.toAbsolutePath.normalize()
+    if Files.isSymbolicLink(targetPath) then
+      throw new IllegalArgumentException(s"Refusing to write EGTB to symbolic link: $targetPath")
+
+    if Files.exists(targetPath) && !force then
+      throw new FileAlreadyExistsException(
+        s"EGTB output file already exists at '$targetPath'. Pass --force to overwrite."
+      )
+
+    val parent = targetPath.getParent
+    if parent != null && !Files.exists(parent) then Files.createDirectories(parent)
+
+    val tempFile = Files.createTempFile(
+      if parent != null then parent else Paths.get("."),
+      s".${targetPath.getFileName.toString}.",
+      ".tmp"
+    )
+    try
+      val outStream = Files.newOutputStream(tempFile, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)
+      val out       = new DataOutputStream(new BufferedOutputStream(outStream))
+      try
+        out.writeBytes("EGTB")
+        out.writeByte(1)
+        val typeCode = pieceType match
+          case PieceType.Queen  => 0
+          case PieceType.Rook   => 1
+          case PieceType.Bishop => 2
+          case PieceType.Knight => 3
+          case PieceType.Pawn   => 4
+          case other            => throw new IllegalArgumentException(s"Unsupported EGTB piece type: $other")
+        out.writeByte(typeCode)
+        out.writeShort(64)
+
+        var i = 0
+        while i < KQEgtbSolver.StatesPerTurn do
+          val wFixed = (vWhite(i).min(1.0f).max(0.0f) * 65535.0f).round.toShort
+          out.writeShort(wFixed)
+          i += 1
+
+        i = 0
+        while i < KQEgtbSolver.StatesPerTurn do
+          val bFixed = (vBlack(i).min(1.0f).max(0.0f) * 65535.0f).round.toShort
+          out.writeShort(bFixed)
+          i += 1
+      finally out.close()
+
+      if force then
+        Files.move(tempFile, targetPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+      else Files.move(tempFile, targetPath, StandardCopyOption.ATOMIC_MOVE)
+
+      println(s"Saved compressed EGTB to $targetPath (${Files.size(targetPath)} bytes)")
+      targetPath.toFile
+    finally Files.deleteIfExists(tempFile)
+
+  def runValueIteration(
+      name: String,
+      config: EgtbConfig,
+      initWhite: Float,
+      initBlack: Float,
+      auxRange: Range = 0 until 64,
+      evalWhite: (Int, Int, Int, Array[Float], Float) => Float,
+      evalBlack: (Int, Int, Int, Array[Float], Float) => Float
+  ): EgtbResult =
+    val startTime = System.currentTimeMillis()
+    val gamma     = config.discount.toFloat
+
+    var vWhiteCurrent = new Array[Float](KQEgtbSolver.StatesPerTurn)
+    var vBlackCurrent = new Array[Float](KQEgtbSolver.StatesPerTurn)
+    var vWhiteNext    = new Array[Float](KQEgtbSolver.StatesPerTurn)
+    var vBlackNext    = new Array[Float](KQEgtbSolver.StatesPerTurn)
+
+    for kw <- 0 until 64; kb <- 0 until 64; aux <- auxRange do
+      val idx = KQEgtbSolver.stateIndex(kw, kb, aux)
+      if KQEgtbSolver.isLegal(kw, kb, aux) then
+        vWhiteCurrent(idx) = initWhite
+        vBlackCurrent(idx) = initBlack
+
+    val executor  = Executors.newFixedThreadPool(config.threads)
+    var iteration = 0
+    var maxDelta  = 1.0
+
+    try
+      while iteration < config.maxIterations && maxDelta > config.epsilon do
+        iteration += 1
+
+        val tasks = (0 until config.maxKw).map { kw =>
+          new Callable[Double] {
+            override def call(): Double =
+              var localMaxDelta = 0.0
+
+              for kb <- 0 until 64; aux <- auxRange do
+                val idx = KQEgtbSolver.stateIndex(kw, kb, aux)
+                if KQEgtbSolver.isLegal(kw, kb, aux) then
+                  val newW   = evalWhite(kw, kb, aux, vBlackCurrent, gamma)
+                  val deltaW = math.abs(newW - vWhiteCurrent(idx))
+                  vWhiteNext(idx) = newW
+                  if deltaW > localMaxDelta then localMaxDelta = deltaW
+
+                  val newB   = evalBlack(kw, kb, aux, vWhiteCurrent, gamma)
+                  val deltaB = math.abs(newB - vBlackCurrent(idx))
+                  vBlackNext(idx) = newB
+                  if deltaB > localMaxDelta then localMaxDelta = deltaB
+
+              localMaxDelta
+          }
+        }
+
+        val futures = executor.invokeAll(tasks.asJava)
+        maxDelta = futures.asScala.map(_.get()).max
+
+        val tmpW = vWhiteCurrent; vWhiteCurrent = vWhiteNext; vWhiteNext = tmpW
+        val tmpB = vBlackCurrent; vBlackCurrent = vBlackNext; vBlackNext = tmpB
+
+        if iteration % 25 == 0 || maxDelta <= config.epsilon then
+          val elapsed = System.currentTimeMillis() - startTime
+          println(
+            f"[EGTB $name] Iteration $iteration%3d | maxDelta = $maxDelta%.6f | elapsed = ${elapsed / 1000.0}%.2fs"
+          )
+
+    finally
+      executor.shutdown()
+
+    val elapsed = System.currentTimeMillis() - startTime
+
+    var sumW        = 0.0
+    var sumB        = 0.0
+    var count       = 0
+    var whiteWins   = 0
+    var blackUpsets = 0
+
+    for kw <- 0 until 64; kb <- 0 until 64; aux <- auxRange do
+      val idx = KQEgtbSolver.stateIndex(kw, kb, aux)
+      if KQEgtbSolver.isLegal(kw, kb, aux) then
+        count += 1
+        val w = vWhiteCurrent(idx)
+        val b = vBlackCurrent(idx)
+        sumW += w
+        sumB += b
+        if w >= 0.95f then whiteWins += 1
+        if b < 0.60f then blackUpsets += 1
+
+    EgtbResult(
+      iterations = iteration,
+      maxDelta = maxDelta,
+      elapsedMs = elapsed,
+      vWhite = vWhiteCurrent,
+      vBlack = vBlackCurrent,
+      avgWhiteValue = if count > 0 then sumW / count else 0.0,
+      avgBlackValue = if count > 0 then sumB / count else 0.0,
+      whiteWinCount = whiteWins,
+      blackUpsetCount = blackUpsets
+    )
