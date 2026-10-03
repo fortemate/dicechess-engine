@@ -29,3 +29,7 @@ class BudgetedRulesBenchmark:
   @Benchmark
   def captureRolls(): BudgetedRules.Outcome[Int] =
     BudgetedRules.kingCaptureRolls(state, Color.Black, new BudgetedRules.Budget(workLimit))
+
+  @Benchmark
+  def capturePath(): BudgetedRules.Outcome[Option[List[Move]]] =
+    BudgetedRules.kingCapturePath(state, new BudgetedRules.Budget(workLimit))

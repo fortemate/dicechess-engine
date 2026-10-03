@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dicechess.engine.bench.egtb
 
+import scala.util.boundary
 import dicechess.engine.domain.{Bitboard, Square}
 import dicechess.engine.movegen.MagicBitboards
 import java.io.File
@@ -112,7 +113,7 @@ object KREgtbSolver:
       maxMoves: Int,
       vBlack: Array[Float],
       gamma: Float
-  ): Float =
+  ): Float = boundary:
     val occ  = (1L << kw) | (1L << kb) | (1L << r)
     var best = 0.0f
     var b    = rookAttacks(r, kw, occ)
@@ -120,55 +121,55 @@ object KREgtbSolver:
       val nextR = java.lang.Long.numberOfTrailingZeros(b)
       b &= b - 1
       val stepVal = evaluateRookStep(nextR, kw, kb, maxMoves, vBlack, gamma)
-      if stepVal == 1.0f then return 1.0f
+      if stepVal == 1.0f then boundary.break(1.0f)
       if stepVal > best then best = stepVal
     best
 
-  private def searchRookMoves(kw1: Int, kb: Int, r: Int, vBlack: Array[Float], gamma: Float): Float =
+  private def searchRookMoves(kw1: Int, kb: Int, r: Int, vBlack: Array[Float], gamma: Float): Float = boundary:
     val occ  = (1L << kw1) | (1L << kb) | (1L << r)
     var best = 0.0f
     var bR   = rookAttacks(r, kw1, occ)
     while bR != 0L do
       val r1 = java.lang.Long.numberOfTrailingZeros(bR)
       bR &= bR - 1
-      if r1 == kb then return 1.0f
+      if r1 == kb then boundary.break(1.0f)
       val v = gamma * vBlack(stateIndex(kw1, kb, r1))
       if v > best then best = v
     best
 
-  private def bestKingThenRookMoves(kw: Int, kb: Int, r: Int, vBlack: Array[Float], gamma: Float): Float =
+  private def bestKingThenRookMoves(kw: Int, kb: Int, r: Int, vBlack: Array[Float], gamma: Float): Float = boundary:
     var best = 0.0f
     var bK   = KingAttacks(kw) & ~(1L << r)
     while bK != 0L do
       val kw1 = java.lang.Long.numberOfTrailingZeros(bK)
       bK &= bK - 1
-      if kw1 == kb then return 1.0f
+      if kw1 == kb then boundary.break(1.0f)
       val v = searchRookMoves(kw1, kb, r, vBlack, gamma)
-      if v == 1.0f then return 1.0f
+      if v == 1.0f then boundary.break(1.0f)
       if v > best then best = v
     best
 
-  private def searchKingMoves(kw: Int, kb: Int, r1: Int, vBlack: Array[Float], gamma: Float): Float =
+  private def searchKingMoves(kw: Int, kb: Int, r1: Int, vBlack: Array[Float], gamma: Float): Float = boundary:
     var best = 0.0f
     var bK   = KingAttacks(kw) & ~(1L << r1)
     while bK != 0L do
       val kw1 = java.lang.Long.numberOfTrailingZeros(bK)
       bK &= bK - 1
-      if kw1 == kb then return 1.0f
+      if kw1 == kb then boundary.break(1.0f)
       val v = gamma * vBlack(stateIndex(kw1, kb, r1))
       if v > best then best = v
     best
 
-  private def bestRookThenKingMoves(kw: Int, kb: Int, r: Int, vBlack: Array[Float], gamma: Float): Float =
+  private def bestRookThenKingMoves(kw: Int, kb: Int, r: Int, vBlack: Array[Float], gamma: Float): Float = boundary:
     val occ  = (1L << kw) | (1L << kb) | (1L << r)
     var best = 0.0f
     var bR   = rookAttacks(r, kw, occ)
     while bR != 0L do
       val r1 = java.lang.Long.numberOfTrailingZeros(bR)
       bR &= bR - 1
-      if r1 == kb then return 1.0f
+      if r1 == kb then boundary.break(1.0f)
       val v = searchKingMoves(kw, kb, r1, vBlack, gamma)
-      if v == 1.0f then return 1.0f
+      if v == 1.0f then boundary.break(1.0f)
       if v > best then best = v
     best
 
