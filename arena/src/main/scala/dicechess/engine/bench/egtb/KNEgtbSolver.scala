@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dicechess.engine.bench.egtb
 
+import scala.util.boundary
 import dicechess.engine.movegen.LeaperAttacks
 import java.io.File
 
@@ -109,60 +110,60 @@ object KNEgtbSolver:
       maxMoves: Int,
       vBlack: Array[Float],
       gamma: Float
-  ): Float =
+  ): Float = boundary:
     var best = 0.0f
     var b    = KnightAttacks(n) & ~(1L << kw)
     while b != 0L do
       val nextN = java.lang.Long.numberOfTrailingZeros(b)
       b &= b - 1
       val stepVal = evaluateKnightStep(nextN, kw, kb, maxMoves, vBlack, gamma)
-      if stepVal == 1.0f then return 1.0f
+      if stepVal == 1.0f then boundary.break(1.0f)
       if stepVal > best then best = stepVal
     best
 
-  private def searchKnightMoves(kw1: Int, kb: Int, n: Int, vBlack: Array[Float], gamma: Float): Float =
+  private def searchKnightMoves(kw1: Int, kb: Int, n: Int, vBlack: Array[Float], gamma: Float): Float = boundary:
     var best = 0.0f
     var bN   = KnightAttacks(n) & ~(1L << kw1)
     while bN != 0L do
       val n1Sq = java.lang.Long.numberOfTrailingZeros(bN)
       bN &= bN - 1
-      if n1Sq == kb then return 1.0f
+      if n1Sq == kb then boundary.break(1.0f)
       val v = gamma * vBlack(stateIndex(kw1, kb, n1Sq))
       if v > best then best = v
     best
 
-  private def bestKingThenKnightMoves(kw: Int, kb: Int, n: Int, vBlack: Array[Float], gamma: Float): Float =
+  private def bestKingThenKnightMoves(kw: Int, kb: Int, n: Int, vBlack: Array[Float], gamma: Float): Float = boundary:
     var best = 0.0f
     var bK   = KingAttacks(kw) & ~(1L << n)
     while bK != 0L do
       val kw1 = java.lang.Long.numberOfTrailingZeros(bK)
       bK &= bK - 1
-      if kw1 == kb then return 1.0f
+      if kw1 == kb then boundary.break(1.0f)
       val v = searchKnightMoves(kw1, kb, n, vBlack, gamma)
-      if v == 1.0f then return 1.0f
+      if v == 1.0f then boundary.break(1.0f)
       if v > best then best = v
     best
 
-  private def searchKingMoves(kw: Int, kb: Int, n1Sq: Int, vBlack: Array[Float], gamma: Float): Float =
+  private def searchKingMoves(kw: Int, kb: Int, n1Sq: Int, vBlack: Array[Float], gamma: Float): Float = boundary:
     var best = 0.0f
     var bK   = KingAttacks(kw) & ~(1L << n1Sq)
     while bK != 0L do
       val kw1 = java.lang.Long.numberOfTrailingZeros(bK)
       bK &= bK - 1
-      if kw1 == kb then return 1.0f
+      if kw1 == kb then boundary.break(1.0f)
       val v = gamma * vBlack(stateIndex(kw1, kb, n1Sq))
       if v > best then best = v
     best
 
-  private def bestKnightThenKingMoves(kw: Int, kb: Int, n: Int, vBlack: Array[Float], gamma: Float): Float =
+  private def bestKnightThenKingMoves(kw: Int, kb: Int, n: Int, vBlack: Array[Float], gamma: Float): Float = boundary:
     var best = 0.0f
     var bN   = KnightAttacks(n) & ~(1L << kw)
     while bN != 0L do
       val n1Sq = java.lang.Long.numberOfTrailingZeros(bN)
       bN &= bN - 1
-      if n1Sq == kb then return 1.0f
+      if n1Sq == kb then boundary.break(1.0f)
       val v = searchKingMoves(kw, kb, n1Sq, vBlack, gamma)
-      if v == 1.0f then return 1.0f
+      if v == 1.0f then boundary.break(1.0f)
       if v > best then best = v
     best
 

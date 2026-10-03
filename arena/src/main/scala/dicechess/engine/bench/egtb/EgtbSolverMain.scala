@@ -13,24 +13,28 @@ object EgtbSolverMain:
       .map(p => Paths.get(p).toAbsolutePath.normalize())
       .getOrElse(Paths.get("").toAbsolutePath.normalize())
 
+  private def reject(condition: Boolean, message: String): Unit =
+    if !condition then scala.util.Failure(new IllegalArgumentException(message)).get
+
   def validateOutputPath(outputPath: String, baseDir: Path = AuthorizedBaseDir): Path =
     val candidate = Paths.get(outputPath)
     val resolved  = baseDir.resolve(candidate).normalize()
     val realBase  = if Files.exists(baseDir) then baseDir.toRealPath() else baseDir
 
-    if !resolved.startsWith(baseDir) && !resolved.startsWith(realBase) then
-      throw new IllegalArgumentException(
-        s"Refusing to write EGTB to unauthorized path '$outputPath'. Output path resolves to '$resolved', outside authorized directory '$baseDir'."
-      )
+    reject(
+      resolved.startsWith(baseDir) || resolved.startsWith(realBase),
+      s"Refusing to write EGTB to unauthorized path '$outputPath'. Output path resolves to '$resolved', outside authorized directory '$baseDir'."
+    )
 
-    var checkDir = resolved.getParent
-    while checkDir != null && !Files.exists(checkDir) do checkDir = checkDir.getParent
-    if checkDir != null then
-      val realExistingParent = checkDir.toRealPath()
-      if !realExistingParent.startsWith(realBase) then
-        throw new IllegalArgumentException(
-          s"Refusing to write EGTB to unauthorized path '$outputPath'. Directory resolves via symlink to '$realExistingParent', outside authorized directory '$realBase'."
-        )
+    var checkDir = Option(resolved.getParent)
+    while checkDir.exists(dir => !Files.exists(dir)) do checkDir = checkDir.flatMap(dir => Option(dir.getParent))
+    checkDir.foreach { dir =>
+      val realExistingParent = dir.toRealPath()
+      reject(
+        realExistingParent.startsWith(realBase),
+        s"Refusing to write EGTB to unauthorized path '$outputPath'. Directory resolves via symlink to '$realExistingParent', outside authorized directory '$realBase'."
+      )
+    }
 
     resolved
 
@@ -126,9 +130,9 @@ object EgtbSolverMain:
         val kqTable =
           if kqFile.exists() then EgtbTable.load(kqFile)
           else
-            val res = getClass.getResourceAsStream(s"/egtb/$DefaultKqEgtbFileName")
-            require(res != null, s"$DefaultKqEgtbFileName tablebase required for KPvK solver but not found")
-            EgtbTable.load(res)
+            val res = Option(getClass.getResourceAsStream(s"/egtb/$DefaultKqEgtbFileName"))
+            require(res.isDefined, s"$DefaultKqEgtbFileName tablebase required for KPvK solver but not found")
+            EgtbTable.load(res.get)
         val result = KPEgtbSolver.solve(kqTable, config)
         printSummaryAndSave(result, outputPath, "kp_vs_k.egtb", PieceType.Pawn, epsilon, force)
 
