@@ -4,7 +4,7 @@ package dicechess.engine.search
 import dicechess.engine.domain.*
 import BudgetedRules.*
 
-/** Ordered parity and internal cutoff regressions for #316. */
+/** Ordered parity and internal cutoff regressions for #316 and #323. */
 class BudgetedRulesSuite extends munit.FunSuite:
   private def parse(fen: String): GameState = FenParser.parse(fen).toOption.get
   private val positions                     = List(
@@ -95,4 +95,65 @@ class BudgetedRulesSuite extends munit.FunSuite:
     assertEquals(kingCaptureRolls(s, Color.Black, shared), Outcome.Incomplete(2L))
     assertEquals(turnPaths(s, shared), Outcome.Incomplete(2L))
     assertEquals(kingCaptureRolls(s, Color.Black, shared), Outcome.Incomplete(2L))
+  }
+
+  test("current-dice witnesses match canonical full paths including order, special moves and color mirrors") {
+    val extra = List("4k3/8/8/8/8/8/4Q3/4K3 w - - 0 1", "1k6/P7/8/8/8/8/8/4K3 w - - 0 1")
+    for
+      fen  <- positions ++ extra;
+      dice <- List(
+        Nil,
+        List(1),
+        List(4),
+        List(5),
+        List(6),
+        List(1, 6),
+        List(6, 4),
+        List(4, 6),
+        List(6, 4, 6),
+        List(1, 4, 6),
+        List(6, 4, 1)
+      )
+    do
+      val base = parse(fen).withDicePool(dice)
+      for state <- List(base, Symmetry.colorFlip(base)) do
+        val paths    = TurnGenerator.generateAllLegalTurnPaths(state)
+        val expected = paths.find(p => !p.isEmpty && state.isKingCapture(p.last))
+        kingCapturePath(state, new Budget(Long.MaxValue)) match
+          case Outcome.Complete(path, _) => assertEquals(path, expected)
+          case _                         => fail("ample witness budget exhausted")
+  }
+
+  test("witness discovery at the last admitted move is exact and smaller budgets expose no partial path") {
+    val state                        = parse("8/8/8/8/8/8/Q7/k6K w - - 0 1").withDicePool(List(5))
+    val Outcome.Complete(path, used) = kingCapturePath(state, new Budget(Long.MaxValue)): @unchecked
+    assert(path.nonEmpty)
+    assertEquals(kingCapturePath(state, new Budget(used)), Outcome.Complete(path, used))
+    for limit <- 0L until used do assertEquals(kingCapturePath(state, new Budget(limit)), Outcome.Incomplete(limit))
+    val Outcome.Complete(_, allWork) = turnPaths(state, new Budget(Long.MaxValue)): @unchecked
+    assert(used < allWork)
+  }
+
+  test("complete absence has a sufficient boundary and missing targets do not consume new work") {
+    val state                        = parse(positions.head).withDicePool(List(6))
+    val Outcome.Complete(path, used) = kingCapturePath(state, new Budget(Long.MaxValue)): @unchecked
+    assertEquals(path, None)
+    assertEquals(kingCapturePath(state, new Budget(used)), Outcome.Complete(None, used))
+    assertEquals(kingCapturePath(state, new Budget(used - 1)), Outcome.Incomplete(used - 1))
+    assertEquals(kingCapturePath(state.withDicePool(List(4)), new Budget(1)), Outcome.Complete(None, 1L))
+    assertEquals(kingCapturePath(parse("8/8/8/8/8/8/8/K7 w - - 0 1"), new Budget(0)), Outcome.Complete(None, 0L))
+  }
+
+  test("witness queries preserve incoming dice, side and cumulative sticky exhaustion") {
+    val state = parse("4k3/8/8/8/8/8/4Q3/4K3 w - - 0 1")
+    assertEquals(kingCapturePath(state.withDicePool(List(1)), new Budget(Long.MaxValue)), Outcome.Complete(None, 1L))
+    val Outcome.Complete(path, used) =
+      kingCapturePath(state.withDicePool(List(5)), new Budget(Long.MaxValue)): @unchecked
+    assert(path.nonEmpty)
+    val budget = new Budget(used + 1)
+    assertEquals(turnPaths(parse(positions.head).withDicePool(List(4)), budget), Outcome.Complete(Nil, 1L))
+    assertEquals(kingCapturePath(state.withDicePool(List(5)), budget), Outcome.Complete(path, used + 1))
+    assertEquals(kingCapturePath(state.withDicePool(List(5)), budget), Outcome.Incomplete(used + 1))
+    assertEquals(kingCapturePath(parse("8/8/8/8/8/8/8/K7 w - - 0 1"), budget), Outcome.Incomplete(used + 1))
+    assertEquals(turnPaths(state, budget), Outcome.Incomplete(used + 1))
   }
