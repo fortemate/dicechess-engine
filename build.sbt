@@ -469,6 +469,7 @@ lazy val arena = project
     publish / skip := true,
     Test / unmanagedResourceDirectories += (ThisBuild / baseDirectory).value / "jvm" / "src" / "test" / "resources",
     Test / exportJars        := false,
+    coverageExcludedPackages := "dicechess\\.engine\\.bench\\.egtb\\..*",
     coverageMinimumStmtTotal := 70,
     coverageFailOnMinimum    := true,
     coverageDataCheck        := Def.uncached {
