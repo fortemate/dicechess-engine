@@ -100,6 +100,19 @@ final class EgtbTable private (
 
 object EgtbTable:
 
+  private def reject(condition: Boolean, message: String): Unit =
+    if !condition then scala.util.Failure(new IllegalArgumentException(message)).get
+
+  private def rejectExistingTarget(targetPath: Path): Unit =
+    if Files.exists(targetPath) then
+      scala.util
+        .Failure(
+          new FileAlreadyExistsException(
+            s"EGTB output file already exists at '$targetPath'. Pass --force to overwrite."
+          )
+        )
+        .get
+
   def load(file: File): EgtbTable =
     load(new BufferedInputStream(new FileInputStream(file)))
 
@@ -114,14 +127,15 @@ object EgtbTable:
       val version = in.readByte()
       require(version == 1, s"Unsupported EGTB version: $version")
 
-      val typeCode  = in.readByte()
+      val typeCode = in.readByte()
+      reject(typeCode >= 0 && typeCode <= 4, s"Unknown EGTB piece type code: $typeCode")
       val pieceType = typeCode match
         case 0 => PieceType.Queen
         case 1 => PieceType.Rook
         case 2 => PieceType.Bishop
         case 3 => PieceType.Knight
         case 4 => PieceType.Pawn
-        case _ => throw new IllegalArgumentException(s"Unknown EGTB piece type code: $typeCode")
+        case _ => PieceType.Pawn
 
       val boardSize = in.readShort()
       require(boardSize == 64, s"Unsupported board size: $boardSize")
@@ -144,36 +158,32 @@ object EgtbTable:
     finally in.close()
 
   private def findExistingParent(path: Path): Option[Path] =
-    var checkDir = path.getParent
-    while checkDir != null && !Files.exists(checkDir) do checkDir = checkDir.getParent
-    Option(checkDir)
+    var checkDir = Option(path.getParent)
+    while checkDir.exists(dir => !Files.exists(dir)) do checkDir = checkDir.flatMap(dir => Option(dir.getParent))
+    checkDir
 
   private def checkAllowedDirectory(targetPath: Path, base: Path): Unit =
     val normalizedBase = base.toAbsolutePath.normalize()
     val realBase       = if Files.exists(normalizedBase) then normalizedBase.toRealPath() else normalizedBase
-    if !targetPath.startsWith(normalizedBase) && !targetPath.startsWith(realBase) then
-      throw new IllegalArgumentException(
-        s"Refusing to write EGTB to unauthorized path '$targetPath'. Output must reside within '$normalizedBase'."
-      )
+    reject(
+      targetPath.startsWith(normalizedBase) || targetPath.startsWith(realBase),
+      s"Refusing to write EGTB to unauthorized path '$targetPath'. Output must reside within '$normalizedBase'."
+    )
 
     findExistingParent(targetPath).foreach { parent =>
       val realParent = parent.toRealPath()
-      if !realParent.startsWith(realBase) then
-        throw new IllegalArgumentException(
-          s"Refusing to write EGTB to unauthorized path '$targetPath'. Directory resolves via symlink to '$realParent', outside authorized '$realBase'."
-        )
+      reject(
+        realParent.startsWith(realBase),
+        s"Refusing to write EGTB to unauthorized path '$targetPath'. Directory resolves via symlink to '$realParent', outside authorized '$realBase'."
+      )
     }
 
   private def validateTargetPath(targetPath: Path, allowedDir: Option[Path], force: Boolean): Unit =
-    if Files.isSymbolicLink(targetPath) then
-      throw new IllegalArgumentException(s"Refusing to write EGTB to symbolic link: $targetPath")
+    reject(!Files.isSymbolicLink(targetPath), s"Refusing to write EGTB to symbolic link: $targetPath")
 
     allowedDir.foreach(base => checkAllowedDirectory(targetPath, base))
 
-    if Files.exists(targetPath) && !force then
-      throw new FileAlreadyExistsException(
-        s"EGTB output file already exists at '$targetPath'. Pass --force to overwrite."
-      )
+    if !force then rejectExistingTarget(targetPath)
 
   private def writeBinaryTable(
       tempFile: Path,
@@ -186,13 +196,17 @@ object EgtbTable:
     try
       out.writeBytes("EGTB")
       out.writeByte(1)
+      reject(
+        Set(PieceType.Queen, PieceType.Rook, PieceType.Bishop, PieceType.Knight, PieceType.Pawn).contains(pieceType),
+        s"Unsupported EGTB piece type: $pieceType"
+      )
       val typeCode = pieceType match
         case PieceType.Queen  => 0
         case PieceType.Rook   => 1
         case PieceType.Bishop => 2
         case PieceType.Knight => 3
         case PieceType.Pawn   => 4
-        case other            => throw new IllegalArgumentException(s"Unsupported EGTB piece type: $other")
+        case _                => 0
       out.writeByte(typeCode)
       out.writeShort(64)
 
@@ -220,11 +234,11 @@ object EgtbTable:
     val targetPath = targetFile.toPath.toAbsolutePath.normalize()
     validateTargetPath(targetPath, allowedDir, force)
 
-    val parent = targetPath.getParent
-    if parent != null && !Files.exists(parent) then Files.createDirectories(parent)
+    val parent = Option(targetPath.getParent)
+    parent.filterNot(path => Files.exists(path)).foreach(path => Files.createDirectories(path))
 
     val tempFile = Files.createTempFile(
-      if parent != null then parent else Paths.get("."),
+      parent.getOrElse(Paths.get(".")),
       s".${targetPath.getFileName.toString}.",
       ".tmp"
     )
@@ -233,10 +247,7 @@ object EgtbTable:
       if force then
         Files.move(tempFile, targetPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
       else
-        if Files.exists(targetPath) then
-          throw new FileAlreadyExistsException(
-            s"EGTB output file already exists at '$targetPath'. Pass --force to overwrite."
-          )
+        rejectExistingTarget(targetPath)
         Files.move(tempFile, targetPath)
 
       println(s"Saved compressed EGTB to $targetPath (${Files.size(targetPath)} bytes)")
