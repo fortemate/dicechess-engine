@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dicechess.engine.bench.egtb
 
+import scala.util.boundary
 import dicechess.engine.domain.{Bitboard, Square}
 import dicechess.engine.movegen.MagicBitboards
 import java.io.File
@@ -112,7 +113,7 @@ object KBEgtbSolver:
       maxMoves: Int,
       vBlack: Array[Float],
       gamma: Float
-  ): Float =
+  ): Float = boundary:
     val occ  = (1L << kw) | (1L << kb) | (1L << b)
     var best = 0.0f
     var b1   = bishopAttacks(b, kw, occ)
@@ -120,55 +121,55 @@ object KBEgtbSolver:
       val nextB = java.lang.Long.numberOfTrailingZeros(b1)
       b1 &= b1 - 1
       val stepVal = evaluateBishopStep(nextB, kw, kb, maxMoves, vBlack, gamma)
-      if stepVal == 1.0f then return 1.0f
+      if stepVal == 1.0f then boundary.break(1.0f)
       if stepVal > best then best = stepVal
     best
 
-  private def searchBishopMoves(kw1: Int, kb: Int, b: Int, vBlack: Array[Float], gamma: Float): Float =
+  private def searchBishopMoves(kw1: Int, kb: Int, b: Int, vBlack: Array[Float], gamma: Float): Float = boundary:
     val occ  = (1L << kw1) | (1L << kb) | (1L << b)
     var best = 0.0f
     var bB   = bishopAttacks(b, kw1, occ)
     while bB != 0L do
       val b1Sq = java.lang.Long.numberOfTrailingZeros(bB)
       bB &= bB - 1
-      if b1Sq == kb then return 1.0f
+      if b1Sq == kb then boundary.break(1.0f)
       val v = gamma * vBlack(stateIndex(kw1, kb, b1Sq))
       if v > best then best = v
     best
 
-  private def bestKingThenBishopMoves(kw: Int, kb: Int, b: Int, vBlack: Array[Float], gamma: Float): Float =
+  private def bestKingThenBishopMoves(kw: Int, kb: Int, b: Int, vBlack: Array[Float], gamma: Float): Float = boundary:
     var best = 0.0f
     var bK   = KingAttacks(kw) & ~(1L << b)
     while bK != 0L do
       val kw1 = java.lang.Long.numberOfTrailingZeros(bK)
       bK &= bK - 1
-      if kw1 == kb then return 1.0f
+      if kw1 == kb then boundary.break(1.0f)
       val v = searchBishopMoves(kw1, kb, b, vBlack, gamma)
-      if v == 1.0f then return 1.0f
+      if v == 1.0f then boundary.break(1.0f)
       if v > best then best = v
     best
 
-  private def searchKingMoves(kw: Int, kb: Int, b1Sq: Int, vBlack: Array[Float], gamma: Float): Float =
+  private def searchKingMoves(kw: Int, kb: Int, b1Sq: Int, vBlack: Array[Float], gamma: Float): Float = boundary:
     var best = 0.0f
     var bK   = KingAttacks(kw) & ~(1L << b1Sq)
     while bK != 0L do
       val kw1 = java.lang.Long.numberOfTrailingZeros(bK)
       bK &= bK - 1
-      if kw1 == kb then return 1.0f
+      if kw1 == kb then boundary.break(1.0f)
       val v = gamma * vBlack(stateIndex(kw1, kb, b1Sq))
       if v > best then best = v
     best
 
-  private def bestBishopThenKingMoves(kw: Int, kb: Int, b: Int, vBlack: Array[Float], gamma: Float): Float =
+  private def bestBishopThenKingMoves(kw: Int, kb: Int, b: Int, vBlack: Array[Float], gamma: Float): Float = boundary:
     val occ  = (1L << kw) | (1L << kb) | (1L << b)
     var best = 0.0f
     var bB   = bishopAttacks(b, kw, occ)
     while bB != 0L do
       val b1Sq = java.lang.Long.numberOfTrailingZeros(bB)
       bB &= bB - 1
-      if b1Sq == kb then return 1.0f
+      if b1Sq == kb then boundary.break(1.0f)
       val v = searchKingMoves(kw, kb, b1Sq, vBlack, gamma)
-      if v == 1.0f then return 1.0f
+      if v == 1.0f then boundary.break(1.0f)
       if v > best then best = v
     best
 

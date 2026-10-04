@@ -11,14 +11,14 @@ class EgtbTableSpec extends FunSuite:
   override val munitTimeout = scala.concurrent.duration.Duration(120, "s")
 
   private def loadFixture(name: String): Option[EgtbTable] =
-    val stream = getClass.getResourceAsStream(s"/egtb/$name.egtb")
-    if stream != null then
-      try Some(EgtbTable.load(stream))
-      finally stream.close()
-    else
-      val file = new File(s"arena/src/main/resources/egtb/$name.egtb")
-      if file.exists() then Some(EgtbTable.load(file))
-      else None
+    Option(getClass.getResourceAsStream(s"/egtb/$name.egtb")) match
+      case Some(stream) =>
+        try Some(EgtbTable.load(stream))
+        finally stream.close()
+      case None =>
+        val file = new File(s"arena/src/main/resources/egtb/$name.egtb")
+        if file.exists() then Some(EgtbTable.load(file))
+        else None
 
   lazy val kqTableOpt: Option[EgtbTable] = loadFixture("kq_vs_k")
   lazy val krTableOpt: Option[EgtbTable] = loadFixture("kr_vs_k")

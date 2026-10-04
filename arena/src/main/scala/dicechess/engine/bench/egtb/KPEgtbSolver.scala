@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dicechess.engine.bench.egtb
 
+import scala.util.boundary
 import java.io.File
 
 /** Stochastic Endgame Tablebase (EGTB) solver for King + Pawn vs King (KPvK) in Dice Chess.
@@ -140,11 +141,11 @@ object KPEgtbSolver:
       maxMoves: Int,
       vBlack: Array[Float],
       gamma: Float
-  ): Float =
+  ): Float = boundary:
     val step2 = p + 16
     var v     = gamma * vBlack(stateIndex(kw, kb, step2))
     if maxMoves >= 2 then
-      if canPawnCaptureKing(step2, kb) then return 1.0f
+      if canPawnCaptureKing(step2, kb) then boundary.break(1.0f)
       val p3 = step2 + 8
       if p3 != kw && p3 != kb then
         val v3 = gamma * vBlack(stateIndex(kw, kb, p3))
@@ -159,8 +160,8 @@ object KPEgtbSolver:
       vBlack: Array[Float],
       gamma: Float,
       kqTable: EgtbTable
-  ): Float =
-    if canPawnCaptureKing(p, kb) then return 1.0f
+  ): Float = boundary:
+    if canPawnCaptureKing(p, kb) then boundary.break(1.0f)
 
     var best  = 0.0f
     var moved = false
@@ -169,13 +170,13 @@ object KPEgtbSolver:
     if p1 != kw && p1 != kb then
       moved = true
       val vSingle = searchPawnSinglePushes(kw, kb, p, maxMoves, vBlack, gamma, kqTable)
-      if vSingle == 1.0f then return 1.0f
+      if vSingle == 1.0f then boundary.break(1.0f)
       if vSingle > best then best = vSingle
 
     if canDoublePush(kw, kb, p) then
       moved = true
       val vDouble = evalDoublePush(kw, kb, p, maxMoves, vBlack, gamma)
-      if vDouble == 1.0f then return 1.0f
+      if vDouble == 1.0f then boundary.break(1.0f)
       if vDouble > best then best = vDouble
 
     if moved then best else gamma * vBlack(stateIndex(kw, kb, p))
@@ -187,8 +188,8 @@ object KPEgtbSolver:
       vBlack: Array[Float],
       gamma: Float,
       kqTable: EgtbTable
-  ): Float =
-    if canPawnCaptureKing(p, kb) then return 1.0f
+  ): Float = boundary:
+    if canPawnCaptureKing(p, kb) then boundary.break(1.0f)
 
     var best      = 0.0f
     var pawnMoved = false
@@ -213,15 +214,15 @@ object KPEgtbSolver:
       vBlack: Array[Float],
       gamma: Float,
       kqTable: EgtbTable
-  ): Float =
+  ): Float = boundary:
     var best = 0.0f
     var bK   = KingAttacks(kw) & ~(1L << p)
     while bK != 0L do
       val kw1 = java.lang.Long.numberOfTrailingZeros(bK)
       bK &= bK - 1
-      if kw1 == kb then return 1.0f
+      if kw1 == kb then boundary.break(1.0f)
       val v = evalPawnAfterKing(kw1, kb, p, vBlack, gamma, kqTable)
-      if v == 1.0f then return 1.0f
+      if v == 1.0f then boundary.break(1.0f)
       if v > best then best = v
     best
 
@@ -232,13 +233,13 @@ object KPEgtbSolver:
       vBlack: Array[Float],
       gamma: Float,
       kqTable: EgtbTable
-  ): Float =
+  ): Float = boundary:
     var best = 0.0f
     var bK2  = KingAttacks(kw) & ~(1L << pNext)
     while bK2 != 0L do
       val kw1 = java.lang.Long.numberOfTrailingZeros(bK2)
       bK2 &= bK2 - 1
-      if kw1 == kb then return 1.0f
+      if kw1 == kb then boundary.break(1.0f)
       val v = evalPawnSquare(kw1, kb, pNext, vBlack, gamma, kqTable)
       if v > best then best = v
     best
@@ -250,19 +251,19 @@ object KPEgtbSolver:
       vBlack: Array[Float],
       gamma: Float,
       kqTable: EgtbTable
-  ): Float =
-    if canPawnCaptureKing(p, kb) then return 1.0f
+  ): Float = boundary:
+    if canPawnCaptureKing(p, kb) then boundary.break(1.0f)
 
     var best = 0.0f
     val p1   = p + 8
     if p1 != kw && p1 != kb then
       val v1 = searchKingAfterPawn(kw, kb, p1, vBlack, gamma, kqTable)
-      if v1 == 1.0f then return 1.0f
+      if v1 == 1.0f then boundary.break(1.0f)
       if v1 > best then best = v1
 
     if canDoublePush(kw, kb, p) then
       val v2 = searchKingAfterPawn(kw, kb, p + 16, vBlack, gamma, kqTable)
-      if v2 == 1.0f then return 1.0f
+      if v2 == 1.0f then boundary.break(1.0f)
       if v2 > best then best = v2
 
     best

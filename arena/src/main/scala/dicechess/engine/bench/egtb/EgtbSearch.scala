@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dicechess.engine.bench.egtb
 
+import scala.util.boundary
 import dicechess.engine.movegen.LeaperAttacks
 
 /** Shared search utilities for 3-piece stochastic endgame tablebase solvers. */
@@ -48,14 +49,14 @@ object EgtbSearch:
       movesLeft: Int,
       vBlack: Array[Float],
       gamma: Float
-  ): Float =
+  ): Float = boundary:
     var best    = 0.0f
     var attacks = KingAttacks(curKw) & ~(1L << aux)
     while attacks != 0L do
       val nextKw = java.lang.Long.numberOfTrailingZeros(attacks)
       attacks &= attacks - 1
       val stepVal = evaluateWhiteKingStep(nextKw, kb, aux, movesLeft, vBlack, gamma)
-      if stepVal == 1.0f then return 1.0f
+      if stepVal == 1.0f then boundary.break(1.0f)
       if stepVal > best then best = stepVal
     best
 
@@ -95,13 +96,13 @@ object EgtbSearch:
       movesLeft: Int,
       vWhite: Array[Float],
       gamma: Float
-  ): Float =
+  ): Float = boundary:
     var best    = 1.0f
     var attacks = KingAttacks(curKb)
     while attacks != 0L do
       val nextKb = java.lang.Long.numberOfTrailingZeros(attacks)
       attacks &= attacks - 1
       val stepVal = evaluateBlackKingStep(nextKb, kw, aux, movesLeft, vWhite, gamma)
-      if stepVal == 0.0f then return 0.0f
+      if stepVal == 0.0f then boundary.break(0.0f)
       if stepVal < best then best = stepVal
     best
