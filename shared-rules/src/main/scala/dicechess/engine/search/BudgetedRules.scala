@@ -43,6 +43,39 @@ object BudgetedRules:
     if budget.exhausted then Outcome.Incomplete(budget.used)
     else Outcome.Complete(paths.result(), budget.used)
 
+  /** First canonical king-capture path for the incoming active color and remaining dice, without replacing either. A
+    * found capture is a complete existence proof and may stop before other legal paths are generated. Complete None
+    * proves absence; exhaustion returns no path or absence claim. King captures are legal regardless of turn
+    * maximality. Counts use the shared cumulative budget; atomic generator calls still require an external wall/memory
+    * guard.
+    */
+  def kingCapturePath(state: GameState, budget: Budget): Outcome[Option[List[Move]]] =
+    val pieces  = if state.activeColor.isWhite then state.blackPieces else state.whitePieces
+    val targets = state.kings & pieces
+    val search  = new CaptureWitness(budget)
+    if !budget.exhausted && !targets.isEmpty then search.visit(state, Nil, GameFlags.DiceSlots)
+    if budget.exhausted then Outcome.Incomplete(budget.used)
+    else Outcome.Complete(search.result, budget.used)
+
+  private class CaptureWitness(budget: Budget):
+    private var found: Option[List[Move]]                                       = None
+    def result: Option[List[Move]]                                              = found
+    def visit(state: GameState, reversed: List[Move], remainingDice: Int): Unit =
+      if remainingDice > 0 && budget.admit() then
+        var moves = MoveGenerator.generateMoves(state)
+        while moves.nonEmpty && found.isEmpty && !budget.exhausted do
+          examine(state, reversed, remainingDice, moves.head)
+          moves = moves.tail
+
+    private def examine(state: GameState, reversed: List[Move], remainingDice: Int, move: Move): Unit =
+      if budget.admit() then
+        if state.isKingCapture(move) then found = Some((move :: reversed).reverse)
+        else
+          val surviving = state.diceAfter(move)
+          val spent     = if move.isCastling then 2 else 1
+          if surviving.isValid then
+            visit(state.makeMove(move).withDiceSlotsOf(surviving), move :: reversed, remainingDice - spent)
+
   private class PathCollector(budget: Budget):
     private val normal                                           = ListBuffer.empty[(List[Move], Int)]
     private val kings                                            = ListBuffer.empty[List[Move]]
