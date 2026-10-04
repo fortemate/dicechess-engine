@@ -64,15 +64,17 @@ object BudgetedRules:
       if remainingDice > 0 && budget.admit() then
         var moves = MoveGenerator.generateMoves(state)
         while moves.nonEmpty && found.isEmpty && !budget.exhausted do
-          val move = moves.head
-          if budget.admit() then
-            if state.isKingCapture(move) then found = Some((move :: reversed).reverse)
-            else
-              val surviving = state.diceAfter(move)
-              val spent     = if move.isCastling then 2 else 1
-              if surviving.isValid then
-                visit(state.makeMove(move).withDiceSlotsOf(surviving), move :: reversed, remainingDice - spent)
+          examine(state, reversed, remainingDice, moves.head)
           moves = moves.tail
+
+    private def examine(state: GameState, reversed: List[Move], remainingDice: Int, move: Move): Unit =
+      if budget.admit() then
+        if state.isKingCapture(move) then found = Some((move :: reversed).reverse)
+        else
+          val surviving = state.diceAfter(move)
+          val spent     = if move.isCastling then 2 else 1
+          if surviving.isValid then
+            visit(state.makeMove(move).withDiceSlotsOf(surviving), move :: reversed, remainingDice - spent)
 
   private class PathCollector(budget: Budget):
     private val normal                                           = ListBuffer.empty[(List[Move], Int)]
