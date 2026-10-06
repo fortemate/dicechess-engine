@@ -68,9 +68,14 @@ run = "sbt benchmark/Jmh/run"
 description = "⚡ Run a quick JMH benchmark (3 warmup, 5 measurement, 1 fork)"
 run = "sbt 'benchmark/Jmh/run -wi 3 -i 5 -f 1'"
 
+# Task arguments use mise's `usage` spec, here and in the arena tasks (#332): Tera `arg()`
+# templates are deprecated (removed in mise 2027.5.0). Each value arrives as `usage_<name>`, so the
+# sbt command is double-quoted for the shell to expand it (single quotes would pass it literally);
+# `:?` rejects an empty value, since an empty JMH filter would run every benchmark.
 [tasks."bench:filter"]
 description = "⚡ Run JMH benchmarks matching a regex pattern"
-run = "sbt \"benchmark/Jmh/run {{arg(name=\\\"pattern\\\")}}\""
+usage = 'arg "<pattern>" help="Regex selecting the benchmarks to run, e.g. MagicBitboards"'
+run = 'sbt "benchmark/Jmh/run ${usage_pattern:?}"'
 
 [tasks."bench:js"]
 description = "⚡ Run JavaScript (Scala.js / ES2022) performance benchmarks on Node.js"
@@ -90,19 +95,41 @@ run = "node benchmark/node/runner.mjs --target all"
 
 [tasks.arena]
 description = "⚔️  Run the Bot Battle Arena match runner (JVM)"
-run = "sbt 'arena/runMain dicechess.engine.bench.BotMatchRunner --base-bot {{arg(name=\"base\", default=\"greedy\")}} --games {{arg(name=\"games\", default=\"50\")}} --seed {{arg(name=\"seed\", default=\"42\")}}'"
+usage = '''
+arg "[base]" help="Baseline bot ID" default="greedy"
+arg "[games]" help="Number of games per color" default="50"
+arg "[seed]" help="Random seed" default="42"
+'''
+run = 'sbt "arena/runMain dicechess.engine.bench.BotMatchRunner --base-bot ${usage_base:?} --games ${usage_games:?} --seed ${usage_seed:?}"'
 
 [tasks."arena:timed"]
 description = "⏱️  Run the time-controlled arena (bot vs baseline across time controls)"
-run = "sbt 'arena/runMain dicechess.engine.bench.TimedArenaRunner --base-bot {{arg(name=\"bot\", default=\"monte-carlo\")}} --opponent {{arg(name=\"baseline\", default=\"aggressive\")}} --games {{arg(name=\"games\", default=\"10\")}} --presets {{arg(name=\"presets\", default=\"1+0,3+2,10+10\")}} --seed {{arg(name=\"seed\", default=\"42\")}}'"
+usage = '''
+arg "[bot]" help="Bot under test ID" default="monte-carlo"
+arg "[baseline]" help="Baseline bot ID" default="aggressive"
+arg "[games]" help="Number of games per color" default="10"
+arg "[presets]" help="Comma-separated time controls" default="1+0,3+2,10+10"
+arg "[seed]" help="Random seed" default="42"
+'''
+run = 'sbt "arena/runMain dicechess.engine.bench.TimedArenaRunner --base-bot ${usage_bot:?} --opponent ${usage_baseline:?} --games ${usage_games:?} --presets ${usage_presets:?} --seed ${usage_seed:?}"'
 
 [tasks."arena:book"]
 description = "📖⚔️  Arena: <base> bot vs the same bot + a local opening book"
-run = "sbt 'arena/runMain dicechess.engine.bench.OpeningBookArenaRunner --base-bot {{arg(name=\"base\", default=\"aggressive\")}} --book {{arg(name=\"book\", default=\"opening_book.tsv\")}} --games {{arg(name=\"games\", default=\"50\")}}'"
+usage = '''
+arg "[base]" help="Base bot ID, matched against itself plus the book" default="aggressive"
+arg "[book]" help="Path to the opening book TSV file" default="opening_book.tsv"
+arg "[games]" help="Number of games per color" default="50"
+'''
+run = 'sbt "arena/runMain dicechess.engine.bench.OpeningBookArenaRunner --base-bot ${usage_base:?} --book ${usage_book:?} --games ${usage_games:?}"'
 
 [tasks."arena:evaluate"]
 description = "🔬 Compare two bots on the deterministic search scenario catalog"
-run = "sbt 'arena/runMain dicechess.engine.bench.SearchEvaluationRunner --bot {{arg(name=\"bot\", default=\"aggressive\")}} --baseline {{arg(name=\"baseline\", default=\"greedy\")}} --fixtures {{arg(name=\"fixtures\", default=\"arena/src/main/resources/search-evaluation/core-v1.json\")}}'"
+usage = '''
+arg "[bot]" help="Bot under test ID" default="aggressive"
+arg "[baseline]" help="Baseline bot ID" default="greedy"
+arg "[fixtures]" help="Search-evaluation fixture JSON file" default="arena/src/main/resources/search-evaluation/core-v1.json"
+'''
+run = 'sbt "arena/runMain dicechess.engine.bench.SearchEvaluationRunner --bot ${usage_bot:?} --baseline ${usage_baseline:?} --fixtures ${usage_fixtures:?}"'
 
 [tasks.clean]
 description = "🧹 Remove build artifacts"
