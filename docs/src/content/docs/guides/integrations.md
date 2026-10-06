@@ -70,7 +70,7 @@ Its source illustrates an integration; it is not a finished product.
 
 ### Dice Chess TV
 
-[Dice Chess TV](https://fortemate.github.io/dicechess-tv/) uses **React Native for Vega** for
+[Dice Chess TV](https://dicechess-tv.fortemate.com/) uses **React Native for Vega** for
 its native screens and remote input, with a pure TypeScript game controller calling
 `@fortemate/dicechess-engine`. It follows the engine's legal turn tree and reads the dice
 left from `applyMove`, rather than implementing a second set of rules.
@@ -79,7 +79,7 @@ Hotseat play, on-device opponents and mid-turn save/resume show how the library 
 offline application. The TV app owns D-pad navigation, board rendering, sound and saved-game
 storage. The engine owns legal turns and bot decisions.
 
-The project's [demo](https://www.youtube.com/watch?v=Q7wWAmUp2Sc) was recorded on the
+The project's [demo](https://youtu.be/LG_vw53uvQU) was recorded on the
 **Vega Virtual Device**. Consult the TV project's current testing information for physical
 Fire TV coverage; this integration is not a claim of compatibility with every TV platform
 or every React Native runtime.
