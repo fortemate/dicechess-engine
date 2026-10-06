@@ -13,8 +13,9 @@ import dicechess.engine.domain.{Bitboard, Square}
   * attack = table[offset + index]
   * ```
   *
-  * At JVM / Scala.js startup, [[BishopTable]] (5248 entries) and [[RookTable]] (102400 entries) are populated for all
-  * 64 squares using the slow [[bishopAttacksClassic]] / [[rookAttacksClassic]] functions. All subsequent attack lookups
+  * When the object is first used, [[BishopTable]] (5248 entries) and [[RookTable]] (102400 entries) are populated for
+  * all 64 squares from the slow [[bishopAttacksClassic]] / [[rookAttacksClassic]] functions, run once per blocker
+  * subset of each line through a square rather than once per entry (see [[fillSlice]]). All subsequent attack lookups
   * use the fast O(1) hash path.
   *
   * The magic constants are a well-known standard set compatible with most chess engine implementations.
@@ -195,7 +196,7 @@ object MagicBitboards:
   private val BishopMasks = Array.tabulate(64)(i => bishopMask(Square.fromIndex(i)))
   private val RookMasks   = Array.tabulate(64)(i => rookMask(Square.fromIndex(i)))
 
-  // Initialization
+  // Initialization: one slice per square, each built from the square's two lines (see fillSlice).
   locally {
     var bishopOffset = 0
     var rookOffset   = 0
@@ -204,46 +205,80 @@ object MagicBitboards:
       BishopOffsets(i) = bishopOffset
       RookOffsets(i) = rookOffset
 
-      val bMask = BishopMasks(i)
       val bBits = BishopRelevantBits(i)
-      for j <- 0 until (1 << bBits) do
-        val occ   = setOccupancy(j, bBits, bMask)
-        val index = ((occ.value * BishopMagics(i)) >>> (64 - bBits)).toInt
-        BishopTable(bishopOffset + index) = bishopAttacksClassic(sq, occ)
+      fillSlice(
+        BishopTable,
+        bishopOffset,
+        BishopMagics(i),
+        bBits,
+        BishopMasks(i),
+        line(sq, 1, 1),
+        bishopAttacksClassic(sq, _)
+      )
       bishopOffset += (1 << bBits)
 
-      val rMask = RookMasks(i)
       val rBits = RookRelevantBits(i)
-      for j <- 0 until (1 << rBits) do
-        val occ   = setOccupancy(j, rBits, rMask)
-        val index = ((occ.value * RookMagics(i)) >>> (64 - rBits)).toInt
-        RookTable(rookOffset + index) = rookAttacksClassic(sq, occ)
+      fillSlice(RookTable, rookOffset, RookMagics(i), rBits, RookMasks(i), line(sq, 0, 1), rookAttacksClassic(sq, _))
       rookOffset += (1 << rBits)
   }
 
-  /** Maps an integer `index` (a subset enumerator) to an occupancy bitboard for the given `mask`.
+  /** Fills the table slice of one square: an entry for every subset of its relevant `mask`.
     *
-    * Iterates over bits set in `mask` and uses corresponding bits of `index` to decide whether each blocker is
-    * "present" in the generated occupancy. This is used during table initialization to exhaustively enumerate all
-    * possible blocker configurations for a given square.
+    * A slider's attacks along one line depend only on the blockers on that line, and the mask splits into two disjoint
+    * lines through the square: the two diagonals for a Bishop, the rank and the file for a Rook. So `classic` runs once
+    * per subset of each line, at most 64 times per line, and every entry is the union of its two line attacks. Running
+    * `classic` for each of the 107 648 entries instead took seconds on a JavaScript engine without a JIT (#330).
     *
-    * @param index
-    *   a value in `[0, 2^bitsInMask)` selecting a subset of the mask bits
-    * @param bitsInMask
-    *   the number of set bits in `mask`
-    * @param mask
-    *   the occupancy mask (relevant squares only, edges excluded)
-    * @return
-    *   a bitboard representing one possible blocker configuration
+    * @param firstLine
+    *   every square of one of the two lines, from [[line]]; the rest of the mask lies on the other
+    * @param classic
+    *   the classic attack function of the slider on this square
     */
-  private def setOccupancy(index: Int, bitsInMask: Int, mask: Bitboard): Bitboard =
-    var occupancy = 0L
-    var m         = mask.value
-    for i <- 0 until bitsInMask do
-      val square = java.lang.Long.numberOfTrailingZeros(m)
-      m &= m - 1
-      if (index & (1 << i)) != 0 then occupancy |= (1L << square)
-    Bitboard(occupancy)
+  // Not inlined: the Scala.js optimizer would copy the body into both call sites, which made the bundle 5 KB larger and
+  // the initialization slower to interpret (#330).
+  @noinline
+  private def fillSlice(
+      table: Array[Bitboard],
+      offset: Int,
+      magic: Long,
+      bits: Int,
+      mask: Bitboard,
+      firstLine: Bitboard,
+      classic: Bitboard => Bitboard
+  ): Unit =
+    val firstMask  = (mask & firstLine).value
+    val secondMask = (mask & ~firstLine).value
+
+    // Every subset of the second line's blockers, with the attacks along that line alone. Blockers on the second line
+    // leave the first line open, so masking the first line off leaves the second line's attacks.
+    val secondCount    = 1 << java.lang.Long.bitCount(secondMask)
+    val secondBlockers = new Array[Long](secondCount)
+    val secondAttacks  = new Array[Long](secondCount)
+    var second         = 0L
+    for k <- 0 until secondCount do
+      secondBlockers(k) = second
+      secondAttacks(k) = (classic(Bitboard(second)) & ~firstLine).value
+      second = (second - secondMask) & secondMask // the next subset (carry-rippler)
+
+    var first = 0L
+    for _ <- 0 until (1 << java.lang.Long.bitCount(firstMask)) do
+      val firstAttacks = (classic(Bitboard(first)) & firstLine).value
+      for k <- 0 until secondCount do
+        val index = (((first | secondBlockers(k)) * magic) >>> (64 - bits)).toInt
+        table(offset + index) = Bitboard(firstAttacks | secondAttacks(k))
+      first = (first - firstMask) & firstMask
+
+  /** Every square on the line through `sq` along direction (`dr`, `df`), both ways, `sq` itself excluded.
+    *
+    * A square lies on the line when its rank and file offsets from `sq` are proportional to (`dr`, `df`).
+    */
+  private def line(sq: Square, dr: Int, df: Int): Bitboard =
+    var squares = 0L
+    for i <- 0 until 64 do
+      val r = i / 8 - sq.index / 8
+      val f = i % 8 - sq.index % 8
+      if i != sq.index && r * df == f * dr then squares |= 1L << i
+    Bitboard(squares)
 
   /** Performs an O(1) Magic lookup for all squares attacked or reachable by a Bishop.
     *
