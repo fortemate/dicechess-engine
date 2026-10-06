@@ -102,3 +102,35 @@ class MagicBitboardsSpec extends FunSuite:
     assertEquals(MagicBitboards.bishopAttacks(sq, occupancy), MagicBitboards.bishopAttacksClassic(sq, occupancy))
     assertEquals(MagicBitboards.rookAttacks(sq, occupancy), MagicBitboards.rookAttacksClassic(sq, occupancy))
   }
+
+  // #330: the tables are built from line subsets, so check every entry, not a sample, against the classic functions.
+  test("Every table entry agrees with the classic functions, for each subset of each square's relevant mask") {
+    // Each subset of a relevant mask is the key of one table entry; the carry-rippler step visits them all once.
+    def mismatches(mask: Bitboard, lookup: Bitboard => Bitboard, classic: Bitboard => Bitboard): Int =
+      var count  = 0
+      var subset = 0L
+      for _ <- 0 until (1 << mask.count) do
+        if lookup(Bitboard(subset)) != classic(Bitboard(subset)) then count += 1
+        subset = (subset - mask.value) & mask.value
+      count
+
+    var entries = 0
+    for i <- 0 until 64 do
+      val sq         = Square.fromIndex(i)
+      val bishopMask = MagicBitboards.bishopMask(sq)
+      val rookMask   = MagicBitboards.rookMask(sq)
+      assertEquals(bishopMask.count, MagicBitboards.BishopRelevantBits(i), s"bishop mask of square $i")
+      assertEquals(rookMask.count, MagicBitboards.RookRelevantBits(i), s"rook mask of square $i")
+      assertEquals(
+        mismatches(bishopMask, MagicBitboards.bishopAttacks(sq, _), MagicBitboards.bishopAttacksClassic(sq, _)),
+        0,
+        s"bishop entries of square $i"
+      )
+      assertEquals(
+        mismatches(rookMask, MagicBitboards.rookAttacks(sq, _), MagicBitboards.rookAttacksClassic(sq, _)),
+        0,
+        s"rook entries of square $i"
+      )
+      entries += (1 << bishopMask.count) + (1 << rookMask.count)
+    assertEquals(entries, 5248 + 102400, "subsets visited, one per table entry")
+  }
