@@ -11,7 +11,7 @@ ThisBuild / organizationHomepage := Some(uri("https://fortemate.com"))
 ThisBuild / homepage             := Some(uri("https://fortemate.com"))
 ThisBuild / startYear            := Some(2026)
 ThisBuild / version              := "0.14.5-SNAPSHOT"
-ThisBuild / scalaVersion         := "3.9.0"
+ThisBuild / scalaVersion         := "3.10.0"
 
 ThisBuild / description   := "Cross-platform high-performance Dice Chess engine, move generator, and AI search."
 ThisBuild / licenses      := List(License("AGPL-3.0-only", uri("https://www.gnu.org/licenses/agpl-3.0.txt")))
