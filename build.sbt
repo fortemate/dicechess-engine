@@ -187,7 +187,7 @@ def licenceMapping = Def.task {
 lazy val commonSettings = Seq(
   name := "dicechess-engine",
   libraryDependencies ++= Seq(
-    "io.circe"      %% "circe-core"       % "0.14.16" % Test,
+    "io.circe"      %% "circe-core"       % "0.14.17" % Test,
     "io.circe"      %% "circe-generic"    % "0.14.16" % Test,
     "io.circe"      %% "circe-parser"     % "0.14.16" % Test,
     "org.scalameta" %% "munit"            % "1.3.0"   % Test,
