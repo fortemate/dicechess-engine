@@ -155,15 +155,14 @@ object KingThreat:
             val m1 = curr1.head
             curr1 = curr1.tail
             if m1.toSquare != target then
-              val moverType = state.mailbox(m1.fromSquare).pieceType
-              val isCastle  = m1.isCastling
-              val cost      = if isCastle then 2 else 1
-              if cost <= 3 then
-                val spent1      = if isCastle then addCastle(0) else addDie(0, moverType.diceValue)
-                val branchMask1 = rollCoverage(spent1)
-                if (branchMask1 & ~ctx.coveredRolls) != 0L then
-                  val s1 = state.makeMove(m1)
-                  searchDepth2(s1, target, actions, cost, spent1, ctx)
+              val moverType   = state.mailbox(m1.fromSquare).pieceType
+              val isCastle    = m1.isCastling
+              val cost        = if isCastle then 2 else 1
+              val spent1      = if isCastle then addCastle(0) else addDie(0, moverType.diceValue)
+              val branchMask1 = rollCoverage(spent1)
+              if (branchMask1 & ~ctx.coveredRolls) != 0L then
+                val s1 = state.makeMove(m1)
+                searchDepth2(s1, target, actions, cost, spent1, ctx)
 
           maskToWeight(ctx.coveredRolls)
 

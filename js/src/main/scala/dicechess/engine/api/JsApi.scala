@@ -142,7 +142,7 @@ object JsApi:
     */
   @JSExport
   @JSExportTopLevel("threatWeight")
-  def threatWeight(dfen: String, targetSquare: String, maxActions: js.UndefOr[Int] = js.undefined): Int =
+  def threatWeight(dfen: String, targetSquare: String, maxActions: js.UndefOr[js.Any] = js.undefined): Int =
     KingThreatOps.threatWeight(dfen, targetSquare, maxActions)
 
   /** Counts the number of leaf nodes at a given depth for a DFEN position.

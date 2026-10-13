@@ -169,9 +169,9 @@ function threatWeight(dfen: string, targetSquare: string, maxActions?: number): 
 - **`maxActions`**: Search depth bound in actions (1, 2, or 3; defaults to 3). Non-positive values return `0`, and values above 3 are clamped to 3.
 - **Returns:** An integer `0` to `216` measuring the threat weight out of all 216 equally probable ordered outcomes of three standard dice (`6 * 6 * 6`).
 
-**How it works.** Unlike tree enumeration, `threatWeight` runs an exact, zero-allocation multi-action search (`KingThreat`) directly on the engine's bitboards. It traverses depth 1 and depth 2 using a 56-bit coverage bitmask for roll multisets, prunes branches whose roll combinations are already covered, caches transpositions via an in-place hash set, and verifies terminal king captures using magic bitboards and leaper attack masks without generating full move objects.
+**How it works.** Unlike tree enumeration, `threatWeight` runs an exact, low-allocation multi-action search (`KingThreat`) directly on the engine's bitboards. It traverses depth 1 and depth 2 using a 56-bit coverage bitmask for roll multisets, prunes branches whose roll combinations are already covered, caches transpositions via an in-place hash set, and verifies terminal king captures using magic bitboards and leaper attack masks without generating full move objects.
 
-On resource-constrained hardware (e.g. low-power smart TV sticks), a full 3-action search via `threatWeight` completes in under 20 ms, making it suitable for calculating turn-by-turn danger levels and driving dynamic audio cues without freezing the UI thread.
+On resource-constrained hardware (e.g. low-power smart TV sticks), a full 3-action search via `threatWeight` has a measured median latency of ~11 ms (p90: 20.2 ms, max: 30.7 ms under `node --jitless` across 300 positions), making it suitable for calculating turn-by-turn danger levels and driving dynamic audio cues without freezing the UI thread.
 
 ```typescript
 // Evaluate whether White threatens Black's king on d7 within 3 actions

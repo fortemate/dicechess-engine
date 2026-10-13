@@ -572,5 +572,17 @@ class JsApiSpec extends FunSuite:
     assertEquals(JsApi.threatWeight("invalid-dfen", "e8", 3), 0)
     assertEquals(JsApi.threatWeight(initialDfen, "invalid-square", 3), 0)
     assertEquals(JsApi.threatWeight(initialDfen, "e8", 0), 0)
-    assertEquals(JsApi.threatWeight(null.asInstanceOf[String], "e8", 3), 0) // scalafix:ok(DisableSyntax.null)
+    assertEquals(JsApi.threatWeight(crit, "f3", (-1).asInstanceOf[scala.scalajs.js.Any]), 0)
+    assertEquals(JsApi.threatWeight(crit, "f3", 2.5.asInstanceOf[scala.scalajs.js.Any]), 0)
+    assertEquals(JsApi.threatWeight(crit, "f3", Double.NaN.asInstanceOf[scala.scalajs.js.Any]), 0)
+    assertEquals(JsApi.threatWeight(crit, "f3", Double.PositiveInfinity.asInstanceOf[scala.scalajs.js.Any]), 0)
+    assertEquals(JsApi.threatWeight(crit, "f3", "3".asInstanceOf[scala.scalajs.js.Any]), 0)
+    assertEquals(
+      JsApi.threatWeight(crit, "f3", null.asInstanceOf[scala.scalajs.js.Any]), // scalafix:ok(DisableSyntax.null)
+      0
+    )
+    assertEquals(
+      JsApi.threatWeight(null.asInstanceOf[String], "e8", 3), // scalafix:ok(DisableSyntax.null)
+      0
+    )
   }

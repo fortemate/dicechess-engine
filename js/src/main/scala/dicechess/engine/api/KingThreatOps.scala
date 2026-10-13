@@ -14,13 +14,25 @@ import scala.scalajs.js
 private[engine] object KingThreatOps:
 
   @noinline
-  def threatWeight(dfen: String, targetSquare: String, maxActions: js.UndefOr[Int]): Int =
-    val actions = maxActions.getOrElse(3)
-    if Option(dfen).isEmpty || Option(targetSquare).isEmpty || actions <= 0 then 0
-    else
-      val weight =
-        for
-          state  <- FenParser.parse(dfen).toOption
-          target <- Square.fromNotation(targetSquare)
-        yield KingThreat.threatWeight(state, target, actions)
-      weight.getOrElse(0)
+  def threatWeight(dfen: String, targetSquare: String, maxActions: js.UndefOr[js.Any]): Int =
+    val parsedActions: Option[Int] =
+      if js.isUndefined(maxActions) then Some(3)
+      else
+        val raw = maxActions.asInstanceOf[js.Any]
+        if raw == null || js.typeOf(raw) != "number" then None
+        else
+          val d = raw.asInstanceOf[Double]
+          if d.isNaN || d.isInfinite || d != math.floor(d) || d <= 0.0 then None
+          else Some(d.toInt)
+
+    parsedActions match
+      case None          => 0
+      case Some(actions) =>
+        if Option(dfen).isEmpty || Option(targetSquare).isEmpty then 0
+        else
+          val weight =
+            for
+              state  <- FenParser.parse(dfen).toOption
+              target <- Square.fromNotation(targetSquare)
+            yield KingThreat.threatWeight(state, target, actions)
+          weight.getOrElse(0)
