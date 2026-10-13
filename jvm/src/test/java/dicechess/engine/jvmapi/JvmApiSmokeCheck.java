@@ -37,6 +37,11 @@ public final class JvmApiSmokeCheck {
 
 		require(!turns.get(0).uci().get(0).isBlank(), "first UCI token must not be blank");
 
+		int threat = JvmApi.threatWeight(state, "e8", 3);
+		require(threat == 0, "expected 0 threat on starting position against e8, got " + threat);
+		int threatDfen = JvmApi.threatWeight(dfen, "e8");
+		require(threatDfen == 0, "expected 0 threat via DFEN on starting position, got " + threatDfen);
+
 		try {
 			JvmApi.parseDfen("not a dfen");
 			throw new AssertionError("expected parseDfen to reject an invalid DFEN");

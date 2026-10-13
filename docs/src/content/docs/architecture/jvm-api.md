@@ -216,6 +216,31 @@ ranking candidate turns, not as an absolute verdict, and are not comparable acro
 
 ---
 
+### `threatWeight`
+
+Evaluates tactical danger against a target king square. Returns the total weight of ordered rolls out of 216 that allow the side to move to capture the opponent's king on `targetSquare` within up to `maxActions` actions (1, 2, or 3, default 3).
+
+```java
+static int threatWeight(GameState state, String targetSquare)
+static int threatWeight(GameState state, String targetSquare, int maxActions)
+static int threatWeight(String dfen, String targetSquare)
+static int threatWeight(String dfen, String targetSquare, int maxActions)
+```
+
+- **`targetSquare`**: algebraic notation of the target king square (e.g. `"e8"`, `"f3"`).
+- **`maxActions`**: depth bound in micro-moves (1, 2, or 3; default 3). Non-positive values return `0`, and values above 3 are clamped to 3.
+- **Returns:** integer `0` to `216`. Returns `0` if `targetSquare` does not contain the opponent's king or no roll reaches it.
+- **Throws:** `IllegalArgumentException` if `targetSquare` is null or not a valid algebraic coordinate (or if `dfen` fails parsing).
+
+```java
+int threat = JvmApi.threatWeight(state, "e8", 3);
+if (threat >= 22) {
+    // Serious danger: side to move has high-probability 3-action king threat
+}
+```
+
+---
+
 ### `bestTurn` and `algorithms`
 
 ```java
