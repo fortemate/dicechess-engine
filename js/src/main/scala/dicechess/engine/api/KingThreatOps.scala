@@ -19,7 +19,7 @@ private[engine] object KingThreatOps:
       if js.isUndefined(maxActions) then Some(3)
       else
         val raw = maxActions.asInstanceOf[js.Any]
-        if raw == null || js.typeOf(raw) != "number" then None
+        if Option(raw.asInstanceOf[AnyRef]).isEmpty || js.typeOf(raw) != "number" then None
         else
           val d = raw.asInstanceOf[Double]
           if d.isNaN || d.isInfinite || d != math.floor(d) || d <= 0.0 then None
