@@ -169,24 +169,14 @@ object Evaluator:
     bonus
 
   private def kingRingPressure(state: GameState, enemyKing: Square, color: Color): Int =
-    val ekRank = enemyKing.rank
-    val ekFile = enemyKing.file.toInt
-    // `allAttackers`, not `isSquareAttacked` (#513): the latter returns the attackers of the FIRST
-    // matching piece type and stops — an early exit that is its documented contract and what keeps
-    // it cheap for legality checks, but which makes `.count` something other than the number of
-    // attackers. Probing order being pawns → knights → diagonal → orthogonal → king, a square
-    // attacked by one pawn and three pieces scored 1 × RingWeight while one attacked by two knights
-    // scored 2 × RingWeight, ranking a broad multi-piece attack BELOW a narrow same-type one — the
-    // opposite of what "ring pressure" is meant to reward.
+    val ring     = dicechess.engine.movegen.LeaperAttacks.kingAttacksFor(enemyKing)
     var pressure = 0
-    for {
-      r <- (ekRank - 1) to (ekRank + 1)
-      f <- (ekFile - 1) to (ekFile + 1)
-      if r >= 1 && r <= 8 && f >= 'a'.toInt && f <= 'h'.toInt
-      if !(r == ekRank && f == ekFile)
-    } {
-      val targetSq          = Square(f.toChar, r)
+    var p        = ring.value
+    while p != 0L do {
+      val sqIdx             = java.lang.Long.numberOfTrailingZeros(p)
+      val targetSq          = Square.fromIndex(sqIdx)
       val friendlyAttackers = MoveGenerator.allAttackers(state, targetSq, color)
       pressure += friendlyAttackers.count * RingWeight
+      p &= (p - 1L)
     }
     pressure

@@ -35,15 +35,16 @@ object AggressiveSearch extends SearchAlgorithm:
     val paths = TurnGenerator.generateAllLegalTurnPaths(state)
     if paths.isEmpty then None
     else
-      val scoredPaths  = paths.map(path => SearchScoring.scorePath(state, path, Evaluator.evaluateAggressive))
-      val maxCriterion = scoredPaths.map(scored => (scored.score, terminalWinPreference(scored))).max
-      val optimalPaths = scoredPaths.filter(scored => (scored.score, terminalWinPreference(scored)) == maxCriterion)
-      Some(optimalPaths(rand.nextInt(optimalPaths.length)))
-
-  /** Secondary sort key that prefers *shorter* King-capture paths over longer ones.
-    */
-  private def terminalWinPreference(scored: ScoredSequence): Int =
-    if scored.score == SearchScoring.TerminalWinScore then -scored.moves.size else 0
+      val winningPaths = paths.takeWhile(path => SearchScoring.isTerminalWin(state, path))
+      if winningPaths.nonEmpty then
+        val minLen       = winningPaths.map(_.length).min
+        val shortestWins = winningPaths.filter(_.length == minLen)
+        Some(ScoredSequence(shortestWins(rand.nextInt(shortestWins.length)), SearchScoring.TerminalWinScore))
+      else
+        val scoredPaths  = paths.map(path => SearchScoring.scorePath(state, path, Evaluator.evaluateAggressive))
+        val maxScore     = scoredPaths.map(_.score).max
+        val optimalPaths = scoredPaths.filter(_.score == maxScore)
+        Some(optimalPaths(rand.nextInt(optimalPaths.length)))
 
   override def shouldOfferDouble(state: GameState, currentStake: Int): Boolean =
     val _ = currentStake
