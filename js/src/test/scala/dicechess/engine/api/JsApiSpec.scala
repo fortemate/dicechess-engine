@@ -556,3 +556,21 @@ class JsApiSpec extends FunSuite:
     for dfen <- List(kingCaptureDfen, choice, castling, s"$initialDfen QRN", budgetDfen) do
       agreesWithTree(dfen, dfen, JsApi.getLegalTurnTree(dfen), Nil)
   }
+
+  test("threatWeight: returns expected threat weight and handles edge cases") {
+    // Known critical position: direct queen/bishop attack
+    val crit = "8/8/7p/p1p5/k5p1/5K2/n7/5b2 b - - 0 18"
+    assertEquals(JsApi.threatWeight(crit, "f3", 1), 91)
+    assertEquals(JsApi.threatWeight(crit, "f3", 2), 104)
+    assertEquals(JsApi.threatWeight(crit, "f3", 3), 104)
+    assertEquals(JsApi.threatWeight(crit, "f3"), 104) // default maxActions = 3
+
+    // Initial position: 0
+    assertEquals(JsApi.threatWeight(initialDfen, "e8", 3), 0)
+
+    // Invalid arguments return 0
+    assertEquals(JsApi.threatWeight("invalid-dfen", "e8", 3), 0)
+    assertEquals(JsApi.threatWeight(initialDfen, "invalid-square", 3), 0)
+    assertEquals(JsApi.threatWeight(initialDfen, "e8", 0), 0)
+    assertEquals(JsApi.threatWeight(null.asInstanceOf[String], "e8", 3), 0) // scalafix:ok(DisableSyntax.null)
+  }
