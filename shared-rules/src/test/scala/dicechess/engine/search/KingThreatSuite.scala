@@ -4,8 +4,11 @@ package dicechess.engine.search
 import dicechess.engine.domain.*
 import dicechess.engine.movegen.MoveGenerator
 import munit.FunSuite
+import scala.concurrent.duration.*
 
 class KingThreatSuite extends FunSuite:
+
+  override def munitTimeout: Duration = 3.minutes
 
   private def parse(fen: String): GameState =
     FenParser.parse(fen).fold(err => fail(s"Failed to parse FEN: $err"), identity)

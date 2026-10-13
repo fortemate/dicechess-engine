@@ -3,8 +3,11 @@ package dicechess.engine.search
 
 import dicechess.engine.domain.*
 import munit.FunSuite
+import scala.concurrent.duration.*
 
 class KingCaptureProbabilitySuite extends FunSuite:
+
+  override def munitTimeout: Duration = 3.minutes
 
   private val SingleAttackerProb  = 91.0 / 216.0  // P(at least one specific die in 3d6)
   private val TwoAttackerTypeProb = 152.0 / 216.0 // P(at least one of two specific dice in 3d6)

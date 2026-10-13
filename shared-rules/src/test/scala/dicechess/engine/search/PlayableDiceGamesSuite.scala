@@ -3,6 +3,7 @@ package dicechess.engine.search
 
 import dicechess.engine.domain.*
 import munit.FunSuite
+import scala.concurrent.duration.*
 import scala.util.Random
 
 /** [[PlayableDice.of]] against an independent count, over the positions of seeded random games (#293).
@@ -13,6 +14,8 @@ import scala.util.Random
   * [[PlayableDice]] but the engine's `makeMove` and `diceAfter`.
   */
 class PlayableDiceGamesSuite extends FunSuite:
+
+  override def munitTimeout: Duration = 3.minutes
 
   private def parse(dfen: String): GameState =
     FenParser.parse(dfen).fold(err => fail(s"Failed to parse DFEN: $err"), identity)

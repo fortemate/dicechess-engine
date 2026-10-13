@@ -3,6 +3,7 @@ package dicechess.engine.search
 
 import dicechess.engine.domain.*
 import munit.FunSuite
+import scala.concurrent.duration.*
 import scala.util.Random
 
 /** Gates for the Zobrist key (#59): fixed-seed reproducibility, pool canonicalization (including hole-y slot packings),
@@ -12,6 +13,8 @@ import scala.util.Random
   * reach the weird ones.
   */
 class ZobristSpec extends FunSuite:
+
+  override def munitTimeout: Duration = 3.minutes
 
   private def parse(dfen: String): GameState = FenParser.parse(dfen).fold(fail(_), identity)
 

@@ -162,6 +162,14 @@ object SearchScoring:
     * @return
     *   a [[ScoredSequence]] bundling `path` and its computed score
     */
+  /** Returns true if the path ends with an immediate King capture (terminal win).
+    */
+  def isTerminalWin(state: GameState, path: List[Move]): Boolean =
+    if path.isEmpty then false
+    else
+      val intermediateState = path.init.foldLeft(state)((s, m) => s.makeMove(m))
+      intermediateState.isKingCapture(path.last)
+
   def scorePath(
       state: GameState,
       path: List[Move],
