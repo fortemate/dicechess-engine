@@ -16,10 +16,10 @@ import { DiceChess } from '@fortemate/dicechess-engine/rules'; // rules only, ~4
 
 The `./rules` subpath carries `getLegalUciMoves`, `generateMoves`, `applyMove`, `endTurn`, `perft`,
 `getPieceFromDice` and `canonicalKey` — identical in name and behaviour — and nothing that reaches
-the search package. Everything else below (`getLegalTurnTree`, `getPlayableDice`, `getBestMove`,
+the search package. Everything else below (`getLegalTurnTree`, `getPlayableDice`, `threatWeight`, `getBestMove`,
 bot discovery, time policies, the doubling and draw decisions, `estimateEquity`) lives on the full
 entry only; `getLegalTurnTree` and `getPlayableDice` are there because they are built from
-`TurnGenerator`, which `./rules` does not carry. See [Published Artifacts](/dicechess-engine/architecture/artifacts/#the-rules-only-entry)
+`TurnGenerator`, and `threatWeight` from `KingThreat`, which `./rules` does not carry. See [Published Artifacts](/dicechess-engine/architecture/artifacts/#the-rules-only-entry)
 for the sizes and the reason the WebAssembly package has no such subpath.
 
 ## `DiceChess`
@@ -153,6 +153,31 @@ call simply answers that every die is playable.
 than `getLegalTurnTree`, which builds the tree. Following the rule above keeps that cost off the large
 trees: they almost always have a path that spends every die, while a call after every action would
 enumerate them again each time.
+
+---
+
+### `threatWeight`
+
+Returns the total weight (0 to 216) of ordered dice rolls that allow the active color to capture the king on `targetSquare` within up to `maxActions` actions (1, 2, or 3). Full entry only.
+
+```typescript
+function threatWeight(dfen: string, targetSquare: string, maxActions?: number): number
+```
+
+- **`dfen`**: The starting board state in DiceChess FEN notation before the roll.
+- **`targetSquare`**: The algebraic coordinate of the target king square (e.g., `"e8"`, `"f3"`). Returns `0` if the square does not hold the opponent's king or is invalid.
+- **`maxActions`**: Search depth bound in actions (1, 2, or 3; defaults to 3). Non-positive values return `0`, and values above 3 are clamped to 3.
+- **Returns:** An integer `0` to `216` measuring the threat weight out of all 216 equally probable ordered outcomes of three standard dice (`6 * 6 * 6`).
+
+**How it works.** Unlike tree enumeration, `threatWeight` runs an exact, zero-allocation multi-action search (`KingThreat`) directly on the engine's bitboards. It traverses depth 1 and depth 2 using a 56-bit coverage bitmask for roll multisets, prunes branches whose roll combinations are already covered, caches transpositions via an in-place hash set, and verifies terminal king captures using magic bitboards and leaper attack masks without generating full move objects.
+
+On resource-constrained hardware (e.g. low-power smart TV sticks), a full 3-action search via `threatWeight` completes in under 20 ms, making it suitable for calculating turn-by-turn danger levels and driving dynamic audio cues without freezing the UI thread.
+
+```typescript
+// Evaluate whether White threatens Black's king on d7 within 3 actions
+const weight = DiceChess.threatWeight('r5r1/2pk2R1/p1nb4/1p4P1/NPP5/3PK3/P2BP3/R5N1 w - - 3 13', 'd7', 3);
+// weight is 105 (out of 216)
+```
 
 ---
 

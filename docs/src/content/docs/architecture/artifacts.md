@@ -102,7 +102,7 @@ target (JavaScript versus WasmGC). They export the same API, typed by the hand-w
 `dicechess-engine.d.ts`:
 
 - `DiceChess` — the primary facade: DFEN helpers, `getLegalUciMoves`, the legal turn tree
-  `getLegalTurnTree`, the playable dice `getPlayableDice`, `applyMove`, `endTurn`, bot discovery
+  `getLegalTurnTree`, the playable dice `getPlayableDice`, `threatWeight`, `applyMove`, `endTurn`, bot discovery
   and `getBestMove` with clock-aware budgets, doubling-cube and draw-offer decisions,
   `estimateEquity`, `perft`; see the
   [JavaScript API Reference](/dicechess-engine/architecture/javascript-api/).
@@ -138,11 +138,11 @@ practice bot — loads the rules half once instead of twice, which is exactly wh
 package could not do.
 
 What `./rules` cannot reach is the point of it: `BotRegistry`, the bots, `Evaluator`, the opening
-book, time management, `MonteCarloEquity`, `TurnGenerator` and `KingCaptureProbability` (with its
+book, time management, `MonteCarloEquity`, `TurnGenerator`, `KingThreat` and `KingCaptureProbability` (with its
 scratch board) are in the `.` module only. `.mise/lib/check-npm-package-entries.mjs` proves it over
 the linked modules every time `dist/` is assembled, and fails the build otherwise. The legal turn
-tree, `getLegalTurnTree`, and the playable dice, `getPlayableDice`, are built from `TurnGenerator`
-and are therefore on the `.` entry only.
+tree, `getLegalTurnTree`, the playable dice, `getPlayableDice`, and `threatWeight` are built from
+`TurnGenerator` and `KingThreat` and are therefore on the `.` entry only.
 
 The linker assigns whole classes to modules, so the boundary is kept by *class*, not by export: the
 rules-level implementation both roots call (`RulesOps`) lives in the shared chunk, and a single
