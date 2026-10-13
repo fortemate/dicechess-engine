@@ -119,6 +119,15 @@ export interface DiceChessApi {
     getPlayableDice(dfen: string, moves?: string[]): string | undefined;
 
     /**
+     * Returns the weight (0–216) of the ordered rolls that allow the active color to capture
+     * the king on `targetSquare` within up to `maxActions` (1, 2, or 3, default 3).
+     * @param dfen The starting board state in DiceChess FEN notation before the roll.
+     * @param targetSquare The algebraic notation of the target king square (e.g. "d2").
+     * @param maxActions Search depth bound in actions (1, 2, or 3, default 3).
+     */
+    threatWeight(dfen: string, targetSquare: string, maxActions?: number): number;
+
+    /**
      * Executes perft (performance test) counting leaf nodes at given depth.
      * @param dfen The position in DFEN notation.
      * @param depth Search depth (0 or greater).

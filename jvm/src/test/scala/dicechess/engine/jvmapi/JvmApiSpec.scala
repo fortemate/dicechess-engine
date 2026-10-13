@@ -120,3 +120,25 @@ class JvmApiSpec extends FunSuite:
     assertEquals(JvmApi.halfMoveClock(state), 17)
     assertEquals(JvmApi.toDfen(state), "4k3/8/8/8/8/8/8/4K3 w - - 17 42")
   }
+
+  test("threatWeight calculates exact threat weight and validates square notation") {
+    val crit  = "8/8/7p/p1p5/k5p1/5K2/n7/5b2 b - - 0 18"
+    val state = JvmApi.parseDfen(crit)
+
+    assertEquals(JvmApi.threatWeight(state, "f3", 1), 91)
+    assertEquals(JvmApi.threatWeight(state, "f3", 2), 104)
+    assertEquals(JvmApi.threatWeight(state, "f3", 3), 104)
+    assertEquals(JvmApi.threatWeight(state, "f3"), 104)
+    assertEquals(JvmApi.threatWeight(crit, "f3", 3), 104)
+    assertEquals(JvmApi.threatWeight(crit, "f3"), 104)
+
+    assertEquals(JvmApi.threatWeight(state, "e1", 3), 0)
+    assertEquals(JvmApi.threatWeight(state, "a4", 3), 0)
+    assertEquals(JvmApi.threatWeight(state, "f3", 0), 0)
+    assertEquals(JvmApi.threatWeight(state, "f3", -2), 0)
+
+    intercept[IllegalArgumentException](JvmApi.threatWeight(state, "invalid"))
+    intercept[IllegalArgumentException](
+      JvmApi.threatWeight(state, null.asInstanceOf[String])
+    ) // scalafix:ok(DisableSyntax.null)
+  }

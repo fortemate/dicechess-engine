@@ -2,7 +2,7 @@
 package dicechess.engine.jvmapi
 
 import dicechess.engine.domain.*
-import dicechess.engine.search.{BotRegistry, Evaluator, TimeBudgetedSearch, TurnGenerator}
+import dicechess.engine.search.{BotRegistry, Evaluator, KingThreat, TimeBudgetedSearch, TurnGenerator}
 
 import java.util as ju
 import scala.jdk.CollectionConverters.*
@@ -210,6 +210,45 @@ object JvmApi:
     */
   def evaluate(state: GameState, color: Int): Int =
     Evaluator.evaluate(state, Color(color))
+
+  /** Total weight of ordered rolls out of 216 that allow the side to move in `state` to capture the opponent's king on
+    * `targetSquare` within up to `maxActions` actions (1, 2, or 3).
+    *
+    * Returns 0 if `targetSquare` does not contain the opponent's king, `maxActions` is non-positive, or no roll reaches
+    * the king within the action bound.
+    *
+    * @param state
+    *   the game position before the roll
+    * @param targetSquare
+    *   algebraic notation of the target king square (e.g. `"e8"`, `"f3"`)
+    * @param maxActions
+    *   depth bound in micro-moves (1, 2, or 3; values above 3 are clamped to 3)
+    * @throws IllegalArgumentException
+    *   if `targetSquare` is null or not a valid algebraic square notation
+    */
+  def threatWeight(state: GameState, targetSquare: String, maxActions: Int): Int =
+    require(targetSquare != null, "targetSquare must not be null") // scalafix:ok(DisableSyntax.null)
+    val sq = Square.fromNotation(targetSquare).getOrElse {
+      throw IllegalArgumentException(s"Invalid square notation: $targetSquare") // scalafix:ok(DisableSyntax.throw)
+    }
+    if maxActions <= 0 then 0
+    else KingThreat.threatWeight(state, sq, maxActions)
+
+  /** Overload of [[threatWeight]] with default `maxActions = 3`. */
+  def threatWeight(state: GameState, targetSquare: String): Int =
+    threatWeight(state, targetSquare, 3)
+
+  /** Overload of [[threatWeight]] taking a DFEN string.
+    *
+    * @throws IllegalArgumentException
+    *   if `dfen` is not a valid DFEN, or `targetSquare` is invalid
+    */
+  def threatWeight(dfen: String, targetSquare: String, maxActions: Int): Int =
+    threatWeight(parseDfen(dfen), targetSquare, maxActions)
+
+  /** Overload of [[threatWeight]] taking a DFEN string with default `maxActions = 3`. */
+  def threatWeight(dfen: String, targetSquare: String): Int =
+    threatWeight(parseDfen(dfen), targetSquare, 3)
 
   /** The ids of every bot currently registered, ordered from weakest to strongest — the valid arguments for
     * [[bestTurn]].

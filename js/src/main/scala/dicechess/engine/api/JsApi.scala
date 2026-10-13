@@ -128,6 +128,23 @@ object JsApi:
   def getPlayableDice(dfen: String, moves: js.UndefOr[js.Array[String]] = js.undefined): js.UndefOr[String] =
     TurnTreeOps.getPlayableDice(dfen, moves)
 
+  /** Returns the weight (0–216) of the ordered rolls that allow the active color to capture the king on `targetSquare`
+    * within up to `maxActions` (1, 2, or 3, default 3).
+    *
+    * @param dfen
+    *   The starting board state in DiceChess Forsyth-Edwards Notation before the roll.
+    * @param targetSquare
+    *   The algebraic notation of the target king square (e.g. "d2").
+    * @param maxActions
+    *   Search depth bound in actions (1, 2, or 3, default 3).
+    * @return
+    *   Total weight of ordered rolls out of 216.
+    */
+  @JSExport
+  @JSExportTopLevel("threatWeight")
+  def threatWeight(dfen: String, targetSquare: String, maxActions: js.UndefOr[js.Any] = js.undefined): Int =
+    KingThreatOps.threatWeight(dfen, targetSquare, maxActions)
+
   /** Counts the number of leaf nodes at a given depth for a DFEN position.
     *
     * If the DFEN does not contain a dice pool, standard chess move generation is used.
