@@ -5,7 +5,7 @@ import dicechess.engine.domain.*
 import scala.util.Random
 import scala.util.boundary, boundary.break
 
-/** Monte-Carlo search bot (difficulty 6).
+/** Monte-Carlo search bot (difficulty 7).
   *
   * Ranks every legal full-turn path by the Rao-Blackwellized Monte-Carlo win probability of the *resulting* position
   * ([[MonteCarloEquity]]) and plays the highest-scoring one; an immediate king capture is always preferred. Where the

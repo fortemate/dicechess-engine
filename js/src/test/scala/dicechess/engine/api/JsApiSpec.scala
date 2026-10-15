@@ -18,7 +18,7 @@ class JsApiSpec extends FunSuite:
 
     val greedyBot = bots.find(_.id.asInstanceOf[String] == "greedy").get
     assertEquals(greedyBot.name.asInstanceOf[String], "Greedy")
-    assertEquals(greedyBot.difficulty.asInstanceOf[Int], 3)
+    assertEquals(greedyBot.difficulty.asInstanceOf[Int], 4)
   }
 
   test("getAvailableTimePolicies: returns stable built-in policy ids") {

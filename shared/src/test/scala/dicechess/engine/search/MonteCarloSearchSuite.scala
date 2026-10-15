@@ -74,10 +74,10 @@ class MonteCarloSearchSuite extends FunSuite:
       Color.White
     )
 
-  test("is registered in BotRegistry as difficulty 6") {
+  test("is registered in BotRegistry as difficulty 7") {
     assertEquals(BotRegistry.getAlgorithm("monte-carlo"), Some(MonteCarloSearch))
     val info = BotRegistry.availableBots.find(_.id == "monte-carlo").getOrElse(fail("monte-carlo not listed"))
-    assertEquals(info.difficulty, 6)
+    assertEquals(info.difficulty, 7)
     assertEquals(info.name, "Monte-Carlo")
   }
 

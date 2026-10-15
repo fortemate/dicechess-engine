@@ -293,7 +293,7 @@ function getBestMove(dfen: string, options?: BestMoveOptions): {
 }
 ```
 
-- `options.algorithm`: The bot ID to use. Built-in algorithms are `"random"`, `"checkmate-aware"`, `"greedy"`, `"greedy-v2"`, `"aggressive"`, and `"monte-carlo"`. Defaults to `"greedy"`.
+- `options.algorithm`: The bot ID to use. Built-in algorithms are `"random"`, `"random-king-capture"`, `"checkmate-aware"`, `"greedy"`, `"greedy-v2"`, `"aggressive"`, and `"monte-carlo"`. Defaults to `"greedy"`.
 - `options.clock`: The live game clock. The engine converts it into a per-turn budget for algorithms that support deadlines.
 - `options.timePolicy`: The allocation policy to use with `clock`. Defaults to `"empirical-v1"`; an unknown ID also falls back to the default.
 - `options.timeBudgetMs`: An advanced precomputed per-turn budget. It bypasses time management and is ignored when a valid `clock` is present; malformed or non-finite clocks fall back to this value.

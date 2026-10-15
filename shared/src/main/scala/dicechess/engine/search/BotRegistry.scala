@@ -44,12 +44,23 @@ object BotRegistry:
       RandomSearch,
       new Object
     ),
+    "random-king-capture" -> Entry(
+      BotInfo(
+        id = "random-king-capture",
+        name = "Random King Capture",
+        description = "Makes a random valid move, but captures the King whenever its first micro-move can.",
+        difficulty = 2,
+        isExperimental = false
+      ),
+      RandomKingCaptureSearch,
+      new Object
+    ),
     "checkmate-aware" -> Entry(
       BotInfo(
         id = "checkmate-aware",
         name = "Checkmate Aware",
         description = "Prioritizes immediate checkmate and king safety, but remains material-blind.",
-        difficulty = 2,
+        difficulty = 3,
         isExperimental = false
       ),
       CheckmateAwareSearch,
@@ -60,7 +71,7 @@ object BotRegistry:
         id = "greedy",
         name = "Greedy",
         description = "Always tries to capture the highest value piece without considering consequences.",
-        difficulty = 3,
+        difficulty = 4,
         isExperimental = false
       ),
       GreedySearch,
@@ -72,7 +83,7 @@ object BotRegistry:
         name = "Cautious Greedy",
         description =
           "Tries to capture the highest value piece, but avoids leaving the King exposed to immediate capture.",
-        difficulty = 4,
+        difficulty = 5,
         isExperimental = false
       ),
       GreedySearchV2,
@@ -83,7 +94,7 @@ object BotRegistry:
         id = "aggressive",
         name = "Aggressive",
         description = "Actively hunts your pieces and targets your king, pushing pawns forward aggressively.",
-        difficulty = 5,
+        difficulty = 6,
         isExperimental = false
       ),
       AggressiveSearch,
@@ -95,7 +106,7 @@ object BotRegistry:
         name = "Monte-Carlo",
         description =
           "Estimates the full-game win probability of each candidate turn with Rao-Blackwellized Monte-Carlo rollouts and plays the highest.",
-        difficulty = 6,
+        difficulty = 7,
         isExperimental = true
       ),
       MonteCarloSearch,

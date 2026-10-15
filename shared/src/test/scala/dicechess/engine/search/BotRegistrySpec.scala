@@ -11,29 +11,35 @@ class BotRegistrySpec extends FunSuite:
   test("availableBots returns a list of configured bots sorted by difficulty") {
     val bots = BotRegistry.availableBots
 
-    assertEquals(bots.size, 6)
-    assertEquals(bots.head.id, "random")
-    assertEquals(bots.head.difficulty, 1)
+    assertEquals(bots.size, 7)
+    assertEquals(bots(0).id, "random")
+    assertEquals(bots(0).difficulty, 1)
 
-    assertEquals(bots(1).id, "checkmate-aware")
+    assertEquals(bots(1).id, "random-king-capture")
     assertEquals(bots(1).difficulty, 2)
 
-    assertEquals(bots(2).id, "greedy")
+    assertEquals(bots(2).id, "checkmate-aware")
     assertEquals(bots(2).difficulty, 3)
 
-    assertEquals(bots(3).id, "greedy-v2")
+    assertEquals(bots(3).id, "greedy")
     assertEquals(bots(3).difficulty, 4)
 
-    assertEquals(bots(4).id, "aggressive")
+    assertEquals(bots(4).id, "greedy-v2")
     assertEquals(bots(4).difficulty, 5)
 
-    assertEquals(bots(5).id, "monte-carlo")
+    assertEquals(bots(5).id, "aggressive")
     assertEquals(bots(5).difficulty, 6)
+
+    assertEquals(bots(6).id, "monte-carlo")
+    assertEquals(bots(6).difficulty, 7)
   }
 
   test("getAlgorithm returns the correct algorithm for a given id (case-insensitive)") {
     assertEquals(BotRegistry.getAlgorithm("random"), Some(RandomSearch))
     assertEquals(BotRegistry.getAlgorithm("RANDOM"), Some(RandomSearch))
+
+    assertEquals(BotRegistry.getAlgorithm("random-king-capture"), Some(RandomKingCaptureSearch))
+    assertEquals(BotRegistry.getAlgorithm("RANDOM-KING-CAPTURE"), Some(RandomKingCaptureSearch))
 
     assertEquals(BotRegistry.getAlgorithm("checkmate-aware"), Some(CheckmateAwareSearch))
     assertEquals(BotRegistry.getAlgorithm("CHECKMATE-AWARE"), Some(CheckmateAwareSearch))
@@ -66,7 +72,7 @@ class BotRegistrySpec extends FunSuite:
 
     assertEquals(BotRegistry.getAlgorithm("test-removable"), None)
     assertEquals(BotRegistry.getAlgorithm("greedy"), Some(GreedySearch))
-    assertEquals(BotRegistry.availableBots.size, 6)
+    assertEquals(BotRegistry.availableBots.size, 7)
   }
 
   test("Registration.close() closes an AutoCloseable algorithm") {
