@@ -190,5 +190,21 @@ object BotRegistry:
     }
     Registration(id, token, algorithm)
 
+  /** Registers a host-configured [[TacticianSearch]] under an unused, case-insensitive id. Returns a removable
+    * registration on success, or `None` for a missing profile, blank identity or occupied id. Checking and installing
+    * the id happen under the same lock, so concurrent setup cannot replace an existing opponent.
+    *
+    * There is no built-in profile: hosts supply the work limit and evaluation weights explicitly.
+    */
+  def registerTacticianBot(config: TacticianConfig, newBotId: String, newBotName: String): Option[Registration] =
+    synchronized {
+      val valid = Option(config).isDefined && Option(newBotId).exists(_.trim.nonEmpty) &&
+        Option(newBotName).exists(_.trim.nonEmpty)
+      if !valid || getAlgorithm(newBotId).isDefined then None
+      else
+        val info = BotInfo(newBotId, newBotName, "Experimental roll-aware tactical search.", 7, true)
+        Some(registerCustomBot(info, new TacticianSearch(config)))
+    }
+
   /** Returns the default algorithm (Greedy). */
   def defaultAlgorithm: SearchAlgorithm = GreedySearch

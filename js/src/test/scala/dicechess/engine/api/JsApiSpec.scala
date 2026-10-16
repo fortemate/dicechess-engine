@@ -300,6 +300,48 @@ class JsApiSpec extends FunSuite:
     finally dicechess.engine.search.BotRegistry.reset()
   }
 
+  test("registerTacticianBot: a configured experimental bot plays while existing opponents remain intact") {
+    val registry   = dicechess.engine.search.BotRegistry
+    val aggressive = registry.getAlgorithm("aggressive").get
+    try
+      val config = js.Dynamic.literal(candidateLimit = 2, kingThreatCp = 3, kingDangerCp = 7, hangingWeight = 0)
+      assert(JsApi.registerTacticianBot(config, "tactician-test", "Tactician test"))
+      assert(!JsApi.registerTacticianBot(config, "aggressive", "Replacement"))
+      assert(!JsApi.registerTacticianBot(config, "tactician-test", "Duplicate"))
+      assert(!JsApi.registerTacticianBot(config, "TACTICIAN-TEST", "Case-insensitive duplicate"))
+      assert(registry.getAlgorithm("aggressive").get eq aggressive)
+      val result = JsApi.getBestMove("7k/8/8/8/8/8/8/K6R w - - 0 1 R", js.Dynamic.literal(algorithm = "tactician-test"))
+      val moves  = result.moves.asInstanceOf[js.Array[js.Dynamic]]
+      assertEquals(moves.length, 1)
+      assertEquals(moves.head.to.asInstanceOf[String], "h8")
+      assert(
+        JsApi
+          .getAvailableBots()
+          .exists(b => b.id.asInstanceOf[String] == "tactician-test" && b.isExperimental.asInstanceOf[Boolean])
+      )
+    finally registry.reset()
+  }
+
+  test("registerTacticianBot: invalid profiles and empty identities do not register a bot") {
+    val good = js.Dynamic.literal(candidateLimit = 2, kingThreatCp = 3, kingDangerCp = 7, hangingWeight = 0)
+    val bad  = List(
+      js.undefined.asInstanceOf[js.Dynamic],
+      js.JSON.parse("null").asInstanceOf[js.Dynamic],
+      js.Array(2, 3, 7, 0).asInstanceOf[js.Dynamic],
+      js.Dynamic.literal(),
+      js.Dynamic.literal(candidateLimit = 0, kingThreatCp = 3, kingDangerCp = 7, hangingWeight = 0),
+      js.Dynamic.literal(candidateLimit = 2.5, kingThreatCp = 3, kingDangerCp = 7, hangingWeight = 0),
+      js.Dynamic.literal(candidateLimit = 2, kingThreatCp = -1, kingDangerCp = 7, hangingWeight = 0),
+      js.Dynamic
+        .literal(candidateLimit = 2, kingThreatCp = 3, kingDangerCp = Double.PositiveInfinity, hangingWeight = 0),
+      js.Dynamic.literal(candidateLimit = 2, kingThreatCp = 3, kingDangerCp = 7, hangingWeight = "0")
+    )
+    for config <- bad do assert(!JsApi.registerTacticianBot(config, "bad-tactician", "Invalid"))
+    assert(!JsApi.registerTacticianBot(good, " ", "Empty id"))
+    assert(!JsApi.registerTacticianBot(good, "empty-name", " "))
+    assert(dicechess.engine.search.BotRegistry.getAlgorithm("bad-tactician").isEmpty)
+  }
+
   test("perft: computes leaf node count correctly and handles edge cases") {
     assertEquals(JsApi.perft(initialDfen, 0), 1.0)
     assertEquals(JsApi.perft(initialDfen, 1), 20.0)

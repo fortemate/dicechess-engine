@@ -62,6 +62,50 @@ class BotRegistrySpec extends FunSuite:
     assertEquals(BotRegistry.defaultAlgorithm, GreedySearch)
   }
 
+  test("Tactician registration preserves its explicit profile and can be removed") {
+    val profile      = TacticianConfig(2, 3, 7, 0.0)
+    val registration = BotRegistry.registerTacticianBot(profile, "configured-tactician", "Configured Tactician").get
+    try
+      val search = BotRegistry.getAlgorithm("CONFIGURED-TACTICIAN").get
+      assert(search.isInstanceOf[TacticianSearch])
+      assertEquals(search.asInstanceOf[TacticianSearch].config, profile)
+      val info = BotRegistry.availableBots.find(_.id == "configured-tactician").get
+      assertEquals(info.name, "Configured Tactician")
+      assert(info.isExperimental)
+      assertEquals(BotRegistry.defaultAlgorithm, GreedySearch)
+    finally registration.close()
+    assertEquals(BotRegistry.getAlgorithm("configured-tactician"), None)
+  }
+
+  test("Tactician registration refuses existing case-insensitive ids without replacing their algorithms") {
+    val profile      = TacticianConfig(2, 3, 7, 0.0)
+    val registration = BotRegistry.registerTacticianBot(profile, "configured-tactician", "First").get
+    try
+      val original = BotRegistry.getAlgorithm("configured-tactician").get
+      assertEquals(BotRegistry.registerTacticianBot(profile, "CONFIGURED-TACTICIAN", "Second"), None)
+      assertEquals(BotRegistry.registerTacticianBot(profile, "AGGRESSIVE", "Replacement"), None)
+      assert(BotRegistry.getAlgorithm("configured-tactician").get eq original)
+      assertEquals(BotRegistry.getAlgorithm("aggressive"), Some(AggressiveSearch))
+    finally registration.close()
+  }
+
+  test("Tactician registration rejects missing profiles and blank identities") {
+    val profile = TacticianConfig(2, 3, 7, 0.0)
+    val absent  = null.asInstanceOf[String] // scalafix:ok(DisableSyntax.null)
+    for id <- List("", " ", absent) do assertEquals(BotRegistry.registerTacticianBot(profile, id, "Name"), None)
+    for name <- List("", " ", absent) do
+      assertEquals(BotRegistry.registerTacticianBot(profile, "invalid-tactician", name), None)
+    assertEquals(
+      BotRegistry.registerTacticianBot(
+        null.asInstanceOf[TacticianConfig],
+        "invalid-tactician",
+        "Name"
+      ), // scalafix:ok(DisableSyntax.null)
+      None
+    )
+    assertEquals(BotRegistry.availableBots.size, 7)
+  }
+
   // #589: a caller that owns a closeable algorithm must be able to make a registered id stop resolving again.
   test("registerCustomBot's Registration.close() removes the id and does not disturb built-in bots") {
     val info         = BotInfo("test-removable", "Test Removable", "regression fixture for #589", 5, true)

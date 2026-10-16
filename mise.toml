@@ -61,12 +61,22 @@ description = "💻 Launch an interactive Scala REPL"
 run = "sbt cli/console"
 
 [tasks.bench]
-description = "⚡ Run all JMH benchmarks"
-run = "sbt benchmark/Jmh/run"
+description = "⚡ Run standard JMH benchmarks (explicit-profile searches use bench:tactician)"
+run = "sbt 'benchmark/Jmh/run -e .*TacticianSearchBenchmark.*'"
 
 [tasks."bench:quick"]
 description = "⚡ Run a quick JMH benchmark (3 warmup, 5 measurement, 1 fork)"
-run = "sbt 'benchmark/Jmh/run -wi 3 -i 5 -f 1'"
+run = "sbt 'benchmark/Jmh/run -wi 3 -i 5 -f 1 -e .*TacticianSearchBenchmark.*'"
+
+[tasks."bench:tactician"]
+description = "⚡ Compare Tactician and aggressive with an explicit host profile"
+usage = '''
+arg "<candidates>" help="Maximum distinct states to rescore"
+arg "<attack>" help="Attacking coverage reward in centipawns"
+arg "<danger>" help="Opponent capture coverage penalty in centipawns"
+arg "<hanging>" help="Hanging-material balance multiplier"
+'''
+run = 'sbt "benchmark/Jmh/run -p candidateLimit=${usage_candidates:?} -p kingThreatCp=${usage_attack:?} -p kingDangerCp=${usage_danger:?} -p hangingWeight=${usage_hanging:?} .*TacticianSearchBenchmark.*"'
 
 # Task arguments use mise's `usage` spec, here and in the arena tasks (#332): Tera `arg()`
 # templates are deprecated (removed in mise 2027.5.0). Each value arrives as `usage_<name>`, so the

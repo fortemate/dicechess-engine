@@ -16,3 +16,8 @@ class JvmApiSmokeSpec extends FunSuite:
   test("a Java autonomous bot can play a full game through JvmApi alone") {
     JvmApiSelfPlayCheck.run()
   }
+
+  test("a Java consumer can register and play a configured Tactician") {
+    try JvmApiTacticianCheck.run()
+    finally dicechess.engine.search.BotRegistry.reset()
+  }

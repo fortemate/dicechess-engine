@@ -2,7 +2,7 @@
 package dicechess.engine.jvmapi
 
 import dicechess.engine.domain.*
-import dicechess.engine.search.{BotRegistry, Evaluator, KingThreat, TimeBudgetedSearch, TurnGenerator}
+import dicechess.engine.search.{BotRegistry, Evaluator, KingThreat, TacticianConfig, TimeBudgetedSearch, TurnGenerator}
 
 import java.util as ju
 import scala.jdk.CollectionConverters.*
@@ -258,6 +258,28 @@ object JvmApi:
     */
   def algorithms(): ju.List[String] =
     BotRegistry.availableBots.map(_.id).asJava
+
+  /** Registers a Tactician search for later [[bestTurn]] calls, using an explicit host-supplied profile. All arguments
+    * are ordinary Java primitives or strings. There is no default profile.
+    *
+    * Returns `false` for invalid settings, blank identities or an occupied case-insensitive id. A successful
+    * registration lasts for the process lifetime and appears in [[algorithms]]. Existing bots are never replaced. The
+    * candidate limit bounds tactical rescoring, not legal-turn generation or total elapsed time; the search is
+    * synchronous and ignores [[bestTurn]]'s time budget.
+    */
+  def registerTacticianBot(
+      candidateLimit: Int,
+      kingThreatCp: Int,
+      kingDangerCp: Int,
+      hangingWeight: Double,
+      newBotId: String,
+      newBotName: String
+  ): Boolean =
+    if candidateLimit <= 0 || kingThreatCp < 0 || kingDangerCp < 0 then false
+    else if !hangingWeight.isFinite || hangingWeight < 0 then false
+    else
+      val profile = TacticianConfig(candidateLimit, kingThreatCp, kingDangerCp, hangingWeight)
+      BotRegistry.registerTacticianBot(profile, newBotId, newBotName).isDefined
 
   /** Asks the built-in bot registered under `algorithmId` for its choice of turn in `state`, giving a search that
     * spends time rather than a fixed amount of work [[DefaultTimeBudgetMs]] to think — this is what lets a Java

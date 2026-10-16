@@ -251,6 +251,35 @@ function getAvailableBots(): {
 
 ---
 
+### `registerTacticianBot`
+
+Registers an experimental tactical search under an unused bot id. The host must
+supply every profile field; the engine provides no default profile.
+
+```typescript
+interface TacticianConfig {
+    candidateLimit: number;
+    kingThreatCp: number;
+    kingDangerCp: number;
+    hangingWeight: number;
+}
+
+function registerTacticianBot(config: TacticianConfig, newBotId: string, newBotName: string): boolean
+```
+
+`candidateLimit` must be a positive integer; both centipawn fields must be
+nonnegative integers. These integer fields must fit a signed integer.
+`hangingWeight` must be finite and nonnegative. The id and name must be nonblank.
+Malformed profiles and occupied ids return `false`, leaving existing bots intact.
+Successful registration returns `true` and exposes the bot through
+`getAvailableBots()` with `isExperimental: true`; pass its id to `getBestMove`.
+
+The candidate limit bounds tactical rescoring after cheap move ranking. Legal
+turn generation and the overall call remain synchronous, with no wall-clock
+deadline or UI responsiveness guarantee.
+
+---
+
 ### `getAvailableTimePolicies`
 
 Returns the stable IDs of the built-in time-management policies.
