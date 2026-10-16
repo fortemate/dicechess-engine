@@ -18,11 +18,11 @@ class TacticianSearchBenchmark:
   // Zero is a sentinel: setup rejects an omitted candidate-limit argument instead of embedding a search profile.
   @Param(Array("0"))
   var candidateLimit: Int = uninitialized
-  @Param(Array("0"))
+  @Param(Array("-1"))
   var kingThreatCp: Int = uninitialized
-  @Param(Array("0"))
+  @Param(Array("-1"))
   var kingDangerCp: Int = uninitialized
-  @Param(Array("0"))
+  @Param(Array("-1"))
   var hangingWeight: Double   = uninitialized
   var state: GameState        = uninitialized
   var search: TacticianSearch = uninitialized
@@ -30,6 +30,10 @@ class TacticianSearchBenchmark:
 
   @Setup(Level.Trial)
   def setup(): Unit =
+    require(
+      candidateLimit > 0 && kingThreatCp >= 0 && kingDangerCp >= 0 && hangingWeight >= 0,
+      "supply candidateLimit, kingThreatCp, kingDangerCp and hangingWeight explicitly with -p"
+    )
     state = BenchmarkPositions.parse(BenchmarkPositions.AllPositions(position)).withDicePool(List(1, 2, 3))
     search = new TacticianSearch(TacticianConfig(candidateLimit, kingThreatCp, kingDangerCp, hangingWeight))
     random = new Random(0)

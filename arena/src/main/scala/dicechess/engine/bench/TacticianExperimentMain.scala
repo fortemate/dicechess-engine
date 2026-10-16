@@ -21,7 +21,6 @@ object TacticianExperimentMain:
     val output  = Path.of(args(8))
     require(count > 0 && repeats > 0, "count and repeats must be positive")
     require(mode == "games" || mode == "latency", "mode must be games or latency")
-    require(mode != "games" || count > 1, "a paired confidence interval requires at least two pairs")
     Files.createDirectories(output)
     val search = new TacticianSearch(config)
     mode match
@@ -84,11 +83,10 @@ object TacticianExperimentMain:
           println(
             s"pairs=${pair + 1}/$count W=$wins D=$draws L=$losses score=${(wins + draws * 0.5) / ((pair + 1) * 2)}"
           )
-      val mean = pairScores.sum / count
-      val se   = if count <= 1 then Double.NaN
-      else math.sqrt(pairScores.map(s => math.pow(s - mean, 2)).sum / (count - 1) / count)
-      val summary =
-        s"{\"pairs\":$count,\"wins\":$wins,\"draws\":$draws,\"losses\":$losses,\"score\":$mean,\"ci95HalfWidth\":${1.959964 * se},\"candidate\":${timings(candidateTimes.toList)},\"aggressive\":${timings(baselineTimes.toList)}}"
+      val mean           = pairScores.sum / count
+      val (lower, upper) = scoreInterval(mean, count)
+      val summary        =
+        s"{\"pairs\":$count,\"wins\":$wins,\"draws\":$draws,\"losses\":$losses,\"score\":$mean,\"ci95Method\":\"hoeffding-pairs\",\"ci95Lower\":$lower,\"ci95Upper\":$upper,\"candidate\":${timings(candidateTimes.toList)},\"aggressive\":${timings(baselineTimes.toList)}}"
       write(output.resolve("games-summary.json"), summary)
       println(summary)
     finally writer.close()
@@ -105,7 +103,7 @@ object TacticianExperimentMain:
       val _ = BotMatchRunner.simulateGame(collector, collector, new Random(seed + game), new Random(seed + game + 1))
       game += 1
     val corpus = roots.toList
-    write(output.resolve("positions.dfen"), corpus.map(FenParser.serialize).mkString("\n") + "\n")
+    write(output.resolve("positions.dfen"), corpus.map(FenParser.serialize).mkString("\n"))
     for state <- corpus do
       val _ = search.findBestMove(state, new Random(0))
       val _ = AggressiveSearch.findBestMove(state, new Random(0))
@@ -128,6 +126,14 @@ object TacticianExperimentMain:
       write(output.resolve("latency-summary.json"), summary)
       println(summary)
     finally writer.close()
+
+  /** Conservative two-sided 95% Hoeffding interval for independent pair scores in [0, 1]. Pairing makes a pair, not
+    * each of its correlated games, one observation. The bound retains uncertainty for identical outcomes.
+    */
+  private[bench] def scoreInterval(mean: Double, pairs: Int): (Double, Double) =
+    require(pairs > 0 && mean >= 0.0 && mean <= 1.0, "a bounded mean and a positive pair count are required")
+    val radius = math.sqrt(math.log(2.0 / 0.05) / (2.0 * pairs))
+    (math.max(0.0, mean - radius), math.min(1.0, mean + radius))
 
   private def timings(values: List[Long]): String =
     val sorted                        = values.sorted

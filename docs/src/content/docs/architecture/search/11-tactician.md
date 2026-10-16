@@ -72,3 +72,18 @@ their statistics sink.
 reports outside the repository. `TacticianSearchBenchmark` measures whole-move
 latency alongside aggressive search. Supply every profile value explicitly for
 experiments; measured profiles and experiment verdicts stay private.
+
+Game summaries use a conservative two-sided 95% interval from the
+[Hoeffding bound](https://www.stat.cmu.edu/~cshalizi/sml/21/lectures/06/lecture-06.html).
+Each independent mirrored pair is one observation in `[0, 1]`. Bounds are clipped
+to that range and retain uncertainty even when every pair has the same outcome.
+
+Run the configured JMH comparison with the dedicated task:
+
+```text
+mise run bench:tactician <candidate-limit> <king-threat-cp> <king-danger-cp> <hanging-weight>
+```
+
+The standard `bench` and `bench:quick` tasks exclude this explicit-profile
+benchmark. For custom JMH iteration or filter options, invoke `benchmark/Jmh/run`
+directly and supply all four profile fields with `-p` arguments.
