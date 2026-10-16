@@ -241,6 +241,29 @@ if (threat >= 22) {
 
 ---
 
+### `registerTacticianBot`
+
+Registers a host-configured [Tactician search](/dicechess-engine/architecture/search/11-tactician/)
+using ordinary Java primitives and strings:
+
+```java
+static boolean registerTacticianBot(
+    int candidateLimit, int kingThreatCp, int kingDangerCp, double hangingWeight,
+    String newBotId, String newBotName)
+```
+
+Every profile field is explicit. `candidateLimit` must be positive, the centipawn
+weights nonnegative, and `hangingWeight` finite and nonnegative. The id and name
+must be nonblank. Invalid arguments or an occupied case-insensitive id return
+`false` without replacing an existing bot. Success returns `true`, adds the id
+to `algorithms()` and lets `bestTurn` select it for the process lifetime.
+
+The search is synchronous. Its candidate limit bounds tactical rescoring, while
+legal-turn generation still visits all paths; `bestTurn`'s `timeBudgetMs` does
+not impose a deadline on Tactician.
+
+---
+
 ### `bestTurn` and `algorithms`
 
 ```java
@@ -347,12 +370,14 @@ rather than forfeiting.
 
 ## What "Java and Kotlin" is based on
 
-Only the Java half is verified mechanically, by two real Java source files that CI compiles and runs on
+Only the Java half is verified mechanically, by real Java source files that CI compiles and runs on
 every build — so a signature that stops being reachable from Java fails the build rather than the next
 consumer. `JvmApiSmokeCheck.java` covers the webhook-shaped surface, and `JvmApiSelfPlayCheck.java`
 plays a complete game to a captured king using only `dicechess.engine.jvmapi` imports, which is what
 keeps the autonomous loop above honest: a gap in the facade shows up there as code that cannot be
-written. That game is reproducible — both sides choose through `legalTurns` from one seeded `Random`,
+written. `JvmApiTacticianCheck.java` covers configured Tactician registration, collision rejection,
+invalid inputs and turn selection through Java calls. The self-play game is reproducible — both sides
+choose through `legalTurns` from one seeded `Random`,
 and `bestTurn` is checked against the same enumeration rather than played, because the built-in bots
 break ties with an unseeded `Random` of their own.
 

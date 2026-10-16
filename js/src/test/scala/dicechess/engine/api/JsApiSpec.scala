@@ -308,6 +308,7 @@ class JsApiSpec extends FunSuite:
       assert(JsApi.registerTacticianBot(config, "tactician-test", "Tactician test"))
       assert(!JsApi.registerTacticianBot(config, "aggressive", "Replacement"))
       assert(!JsApi.registerTacticianBot(config, "tactician-test", "Duplicate"))
+      assert(!JsApi.registerTacticianBot(config, "TACTICIAN-TEST", "Case-insensitive duplicate"))
       assert(registry.getAlgorithm("aggressive").get eq aggressive)
       val result = JsApi.getBestMove("7k/8/8/8/8/8/8/K6R w - - 0 1 R", js.Dynamic.literal(algorithm = "tactician-test"))
       val moves  = result.moves.asInstanceOf[js.Array[js.Dynamic]]
@@ -325,6 +326,8 @@ class JsApiSpec extends FunSuite:
     val good = js.Dynamic.literal(candidateLimit = 2, kingThreatCp = 3, kingDangerCp = 7, hangingWeight = 0)
     val bad  = List(
       js.undefined.asInstanceOf[js.Dynamic],
+      js.JSON.parse("null").asInstanceOf[js.Dynamic],
+      js.Array(2, 3, 7, 0).asInstanceOf[js.Dynamic],
       js.Dynamic.literal(),
       js.Dynamic.literal(candidateLimit = 0, kingThreatCp = 3, kingDangerCp = 7, hangingWeight = 0),
       js.Dynamic.literal(candidateLimit = 2.5, kingThreatCp = 3, kingDangerCp = 7, hangingWeight = 0),

@@ -24,8 +24,8 @@ final case class TacticianStats(legalPaths: Int, distinctStates: Int, rescoredSt
   * danger, adds hypothetical attacking potential, and prices hanging material using the public PieceSafety primitive.
   * Attacking potential assumes the board is unchanged before our next roll; it does not model an intervening reply.
   *
-  * The work limit bounds expensive candidate queries, not total generation or wall time. This synchronous prototype
-  * makes no UI responsiveness guarantee and is not registered as a default opponent.
+  * The work limit bounds expensive candidate queries, not total generation or wall time. This synchronous search makes
+  * no UI responsiveness guarantee and is not registered as a default opponent.
   */
 final class TacticianSearch(
     val config: TacticianConfig,
@@ -43,7 +43,8 @@ final class TacticianSearch(
     else
       val wins = paths.takeWhile(path => SearchScoring.isTerminalWin(state, path))
       if wins.nonEmpty then
-        val shortest = wins.filter(_.size == wins.map(_.size).min)
+        val shortestLength = wins.iterator.map(_.size).min
+        val shortest       = wins.filter(_.size == shortestLength)
         statsSink(TacticianStats(paths.size, 0, 0, 0))
         Some(ScoredSequence(shortest(random.nextInt(shortest.size)), SearchScoring.TerminalWinScore))
       else select(state, paths, random)

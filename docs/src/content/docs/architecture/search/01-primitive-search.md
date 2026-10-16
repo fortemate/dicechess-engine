@@ -11,7 +11,11 @@ The engine's bot layer consists of five **single-turn (primitive) search algorit
 2. Score each resulting position from the active player's perspective.
 3. Select either a random legal path or the optimal path according to a specialized heuristic.
 
-This page documents the exact behavior and equations for all bots implemented in `shared/src/main/scala/dicechess/engine/search/`.
+The strategies described on this page are implemented in `shared/src/main/scala/dicechess/engine/search/`.
+
+The opt-in [Tactician search](/dicechess-engine/architecture/search/11-tactician/)
+adds host-configured tactical rescoring after aggressive ordering. Its explicit
+profile, state deduplication and timing contract are documented separately.
 
 ---
 

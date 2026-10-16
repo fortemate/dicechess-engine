@@ -22,6 +22,24 @@ class JvmApiSpec extends FunSuite:
   private def pool(state: dicechess.engine.domain.GameState): List[Int] =
     JvmApi.dicePool(state).asScala.toList.map(_.intValue)
 
+  test("concurrent Tactician registrations cannot replace the same case-insensitive id") {
+    val executor = ju.concurrent.Executors.newFixedThreadPool(2)
+    val barrier  = new ju.concurrent.CyclicBarrier(2)
+    try
+      val attempts = List("racing-tactician", "RACING-TACTICIAN").map { id =>
+        executor.submit(new ju.concurrent.Callable[Boolean]:
+          def call(): Boolean =
+            val _ = barrier.await(10, ju.concurrent.TimeUnit.SECONDS)
+            JvmApi.registerTacticianBot(2, 3, 7, 0.0, id, id))
+      }
+      val results = attempts.map(_.get(10, ju.concurrent.TimeUnit.SECONDS))
+      assertEquals(results.count(identity), 1)
+      assertEquals(JvmApi.algorithms().asScala.count(_.equalsIgnoreCase("racing-tactician")), 1)
+    finally
+      val _ = executor.shutdownNow()
+      dicechess.engine.search.BotRegistry.reset()
+  }
+
   test("a roll that moves nothing yields no turn rather than an error") {
     // A lone king cannot use pawn dice, so the side to move must pass — which is not a loss in Dice Chess.
     val state = JvmApi.withDice(JvmApi.parseDfen("4k3/8/8/8/8/8/8/4K3 w - - 0 1 -"), dice(1, 1, 1))

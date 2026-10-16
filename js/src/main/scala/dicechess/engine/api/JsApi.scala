@@ -12,7 +12,6 @@ import dicechess.engine.search.{
   OpeningBookBot,
   OpeningBookParser,
   TacticianConfig,
-  TacticianSearch,
   TimeBudgetedSearch,
   TimeManager,
   TimePolicies
@@ -287,8 +286,7 @@ object JsApi:
   @JSExport
   @JSExportTopLevel("registerTacticianBot")
   def registerTacticianBot(config: js.Dynamic, newBotId: String, newBotName: String): Boolean =
-    val validName = Option(newBotId).exists(_.trim.nonEmpty) && Option(newBotName).exists(_.trim.nonEmpty)
-    val parsed    = Option(config.asInstanceOf[AnyRef])
+    val parsed = Option(config.asInstanceOf[AnyRef])
       .filter(_ => js.typeOf(config) == "object" && !js.Array.isArray(config))
       .flatMap { _ =>
         def integer(key: String): Option[Int] =
@@ -300,11 +298,7 @@ object JsApi:
           hanging <- numField(config, "hangingWeight").filter(_ >= 0)
         yield TacticianConfig(limit, attack, danger, hanging)
       }
-    validName && BotRegistry.getAlgorithm(newBotId).isEmpty && parsed.exists { profile =>
-      val info = BotInfo(newBotId, newBotName, "Experimental roll-aware tactical search.", 7, true)
-      val _    = BotRegistry.registerCustomBot(info, new TacticianSearch(profile))
-      true
-    }
+    parsed.exists(profile => BotRegistry.registerTacticianBot(profile, newBotId, newBotName).isDefined)
 
   /** Web Worker transport + rollout-granularity slack subtracted from the time-managed budget (see
     * [[dicechess.engine.search.TimeManager.budgetMs]]). The engine runs inside a worker, so a `postMessage` round-trip

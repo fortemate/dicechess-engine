@@ -164,6 +164,10 @@ public class BotExample {
 }
 ```
 
+Java and Kotlin hosts can register Tactician through
+`JvmApi.registerTacticianBot(candidateLimit, kingThreatCp, kingDangerCp, hangingWeight, id, name)`
+with their own explicit profile, then pass the registered id to `bestTurn`.
+
 The facade's contract — `legalTurns`, `evaluate`, thinking-time budgets, game-over queries — is documented in the [JVM API Reference](https://fortemate.github.io/dicechess-engine/architecture/jvm-api/).
 
 ---
