@@ -11,6 +11,8 @@ import dicechess.engine.search.{
   MonteCarloEquity,
   OpeningBookBot,
   OpeningBookParser,
+  TacticianConfig,
+  TacticianSearch,
   TimeBudgetedSearch,
   TimeManager,
   TimePolicies
@@ -278,6 +280,31 @@ object JsApi:
             true
           case _ => false
       }
+
+  /** Registers an experimental Tactician under an unused id, with an explicit host-supplied profile. Returns false for
+    * malformed settings or an existing id; built-in opponents are never replaced.
+    */
+  @JSExport
+  @JSExportTopLevel("registerTacticianBot")
+  def registerTacticianBot(config: js.Dynamic, newBotId: String, newBotName: String): Boolean =
+    val validName = Option(newBotId).exists(_.trim.nonEmpty) && Option(newBotName).exists(_.trim.nonEmpty)
+    val parsed    = Option(config.asInstanceOf[AnyRef])
+      .filter(_ => js.typeOf(config) == "object" && !js.Array.isArray(config))
+      .flatMap { _ =>
+        def integer(key: String): Option[Int] =
+          numField(config, key).filter(n => n >= 0 && n <= Int.MaxValue && n == math.floor(n)).map(_.toInt)
+        for
+          limit   <- integer("candidateLimit").filter(_ > 0)
+          attack  <- integer("kingThreatCp")
+          danger  <- integer("kingDangerCp")
+          hanging <- numField(config, "hangingWeight").filter(_ >= 0)
+        yield TacticianConfig(limit, attack, danger, hanging)
+      }
+    validName && BotRegistry.getAlgorithm(newBotId).isEmpty && parsed.exists { profile =>
+      val info = BotInfo(newBotId, newBotName, "Experimental roll-aware tactical search.", 7, true)
+      val _    = BotRegistry.registerCustomBot(info, new TacticianSearch(profile))
+      true
+    }
 
   /** Web Worker transport + rollout-granularity slack subtracted from the time-managed budget (see
     * [[dicechess.engine.search.TimeManager.budgetMs]]). The engine runs inside a worker, so a `postMessage` round-trip

@@ -60,6 +60,13 @@ export interface BestMoveOptions {
     timeBudgetMs?: number;
 }
 
+export interface TacticianConfig {
+    candidateLimit: number;
+    kingThreatCp: number;
+    kingDangerCp: number;
+    hangingWeight: number;
+}
+
 export interface BestMoveResult {
     moves: { from: string, to: string, promotion?: string }[];
     score: number;
@@ -170,6 +177,9 @@ export interface DiceChessApi {
      * Returns `true` when registered, `false` when the base bot is unknown or the TSV is malformed.
      */
     registerOpeningBookBot(tsvString: string, baseBotId: string, newBotId: string, newBotName: string): boolean;
+
+    /** Registers an experimental Tactician with explicit settings. Existing bot ids cannot be replaced. */
+    registerTacticianBot(config: TacticianConfig, newBotId: string, newBotName: string): boolean;
 
     /**
      * Computes the best sequence of micro-moves for the given position.

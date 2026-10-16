@@ -124,6 +124,25 @@ console.log('Bot plays:', bot.moves, 'score', bot.score);
 
 The full surface (`getLegalTurnTree`, `getPlayableDice`, `getAvailableBots`, clock-aware `getBestMove`, doubling and draw decisions, `estimateEquity`) is documented in the [JavaScript API Reference](https://fortemate.github.io/dicechess-engine/architecture/javascript-api/).
 
+An application can register the experimental Tactician search with an explicit,
+externally supplied profile before selecting it by id:
+
+```typescript
+import type { TacticianConfig } from '@fortemate/dicechess-engine';
+
+function installTactician(profile: TacticianConfig): void {
+  if (!DiceChess.registerTacticianBot(profile, 'tactician', 'Tactician')) {
+    throw new Error('Invalid profile or bot id already registered');
+  }
+}
+```
+
+The profile contains `candidateLimit`, `kingThreatCp`, `kingDangerCp` and
+`hangingWeight`; there is no default profile. Existing bot ids cannot be replaced.
+Registration adds the bot to `getAvailableBots()`, and `getBestMove` accepts its id
+as `algorithm`. The search is synchronous; the candidate limit bounds tactical
+rescoring, not legal-turn generation or total elapsed time.
+
 ### Java / Kotlin (JVM Facade)
 
 `JvmApi` ships in `com.fortemate:dicechess-engine_3` (Maven Central); rules-only JVM projects use `dicechess-rules_3` and call the Scala API directly.
