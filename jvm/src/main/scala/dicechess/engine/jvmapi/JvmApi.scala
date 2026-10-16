@@ -275,8 +275,8 @@ object JvmApi:
       newBotId: String,
       newBotName: String
   ): Boolean =
-    if candidateLimit <= 0 || kingThreatCp < 0 || kingDangerCp < 0 || !hangingWeight.isFinite || hangingWeight < 0 then
-      false
+    if candidateLimit <= 0 || kingThreatCp < 0 || kingDangerCp < 0 then false
+    else if !hangingWeight.isFinite || hangingWeight < 0 then false
     else
       val profile = TacticianConfig(candidateLimit, kingThreatCp, kingDangerCp, hangingWeight)
       BotRegistry.registerTacticianBot(profile, newBotId, newBotName).isDefined

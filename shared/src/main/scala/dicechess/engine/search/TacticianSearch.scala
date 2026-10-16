@@ -49,13 +49,26 @@ final class TacticianSearch(
         Some(ScoredSequence(shortest(random.nextInt(shortest.size)), SearchScoring.TerminalWinScore))
       else select(state, paths, random)
 
-  private def select(state: GameState, paths: List[List[Move]], random: Random): Option[ScoredSequence] =
+  private def distinctCandidates(
+      state: GameState,
+      paths: List[List[Move]]
+  ): mutable.LinkedHashMap[GameState, Candidate] =
     val distinct = mutable.LinkedHashMap.empty[GameState, Candidate]
     paths.foreach { path =>
       val after = path.foldLeft(state)((s, move) => s.makeMove(move)).endTurn()
       if !distinct.contains(after) then
         distinct(after) = Candidate(path, after, Evaluator.evaluateAggressive(after, state.activeColor))
     }
+    distinct
+
+  private def hangingBalance(after: GameState, perspective: Color): Double =
+    if config.hangingWeight == 0.0 then 0.0
+    else
+      config.hangingWeight *
+        (PieceSafety.hangingMaterial(after, perspective.opponent) - PieceSafety.hangingMaterial(after, perspective))
+
+  private def select(state: GameState, paths: List[List[Move]], random: Random): Option[ScoredSequence] =
+    val distinct    = distinctCandidates(state, paths)
     val shortlisted = distinct.values.toList.sortBy(c => (-c.cheap, c.moves.size)).take(config.candidateLimit)
     var queries     = 0
     val rescored    = shortlisted.map { candidate =>
@@ -71,12 +84,8 @@ final class TacticianSearch(
           KingThreat.threatWeight(after.withActiveColor(attacker), target, 3).toDouble / DiceRolls.totalOrderedRolls
       val danger = if config.kingDangerCp == 0 then 0.0 else threat(perspective.opponent)
       val attack = if config.kingThreatCp == 0 then 0.0 else threat(perspective)
-      val hangs  =
-        if config.hangingWeight == 0.0 then 0.0
-        else
-          config.hangingWeight *
-            (PieceSafety.hangingMaterial(after, perspective.opponent) - PieceSafety.hangingMaterial(after, perspective))
-      val value = candidate.cheap.toDouble - Evaluator.evaluateKingSafety(after, perspective) + hangs +
+      val hangs  = hangingBalance(after, perspective)
+      val value  = candidate.cheap.toDouble - Evaluator.evaluateKingSafety(after, perspective) + hangs +
         config.kingThreatCp.toDouble * attack - config.kingDangerCp.toDouble * danger
       // A heuristic, even under extreme caller settings, must never impersonate a terminal win.
       val score = math.max(Int.MinValue.toDouble + 1, math.min(Int.MaxValue.toDouble - 1, math.rint(value))).toInt

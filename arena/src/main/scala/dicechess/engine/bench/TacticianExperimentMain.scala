@@ -40,6 +40,14 @@ object TacticianExperimentMain:
       val _ = random
       findBestMove(state)
 
+  private def playGame(candidate: SearchAlgorithm, baseline: SearchAlgorithm, white: Boolean, seed: Long): GameOutcome =
+    BotMatchRunner.simulateGame(
+      if white then candidate else baseline,
+      if white then baseline else candidate,
+      new Random(seed),
+      new Random(0)
+    )
+
   private def games(search: TacticianSearch, count: Int, seed: Long, output: Path): Unit =
     val writer         = Files.newBufferedWriter(output.resolve("games.csv"), StandardOpenOption.CREATE_NEW)
     val candidateTimes = ListBuffer.empty[Long]
@@ -55,13 +63,8 @@ object TacticianExperimentMain:
         for white <- List(true, false) do
           val candidate = new Measured(search, seed + pair + 1000000L)
           val baseline  = new Measured(AggressiveSearch, seed + pair + 2000000L)
-          val outcome   = BotMatchRunner.simulateGame(
-            if white then candidate else baseline,
-            if white then baseline else candidate,
-            new Random(seed + pair),
-            new Random(0)
-          )
-          val score = outcome match
+          val outcome   = playGame(candidate, baseline, white, seed + pair)
+          val score     = outcome match
             case GameOutcome.Draw =>
               draws += 1
               0.5
