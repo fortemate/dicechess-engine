@@ -79,7 +79,7 @@ Hotseat play, on-device opponents and mid-turn save/resume show how the library 
 offline application. The TV app owns D-pad navigation, board rendering, sound and saved-game
 storage. The engine owns legal turns and bot decisions.
 
-The project's [demo](https://youtu.be/LG_vw53uvQU) was recorded on the
+The project's [demo](https://youtu.be/Pp3JgSyoN18) was recorded on the
 **Vega Virtual Device**. Consult the TV project's current testing information for physical
 Fire TV coverage; this integration is not a claim of compatibility with every TV platform
 or every React Native runtime.
