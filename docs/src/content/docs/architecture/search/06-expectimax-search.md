@@ -47,6 +47,11 @@ $$E = \sum_{i=1}^{56} \frac{\text{weight}_i}{216} \times V(\text{roll}_i)$$
 
 where $\sum_{i=1}^{56} \text{weight}_i = 216$.
 
+For consumers that want to group rolls with identical legal turns, the rules artifact also provides
+[Active Dice Equivalence Partitioning](/dicechess-engine/architecture/search/13-equivalent-dice-rolls/).
+It accounts for pieces created by promotion within a turn. `ExpectimaxSearch` continues to enumerate
+the 56 weighted rolls; adopting the grouping is a separate consumer change.
+
 ---
 
 ## Implementation & Optimizations
