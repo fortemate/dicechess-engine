@@ -69,7 +69,8 @@ classes.foreach { entry =>
   val successors =
     if paths.isEmpty then List(rolled.endTurn())
     else paths.map(path => path.foldLeft(rolled)((s, move) => s.makeMove(move)).endTurn())
-  // The consumer chooses its best legal successor and weights its value by entry.weight / 216.
+  // The consumer chooses its best legal successor and weights its value by
+  // entry.weight.toDouble / DiceRolls.totalOrderedRolls.
   assert(successors.nonEmpty)
 }
 ```

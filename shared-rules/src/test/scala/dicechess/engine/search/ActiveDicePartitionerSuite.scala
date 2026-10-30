@@ -128,20 +128,21 @@ class ActiveDicePartitionerSuite extends FunSuite:
     for i <- 0 until 6 if (mask & (1 << i)) != 0 do board(squares(i)) = chars(i)
     // Opponent king is disjoint from every material square.
     board(58) = if color.isWhite then 'k' else 'K'
-    val rows = (7 to 0 by -1).map { rank =>
-      val out   = new StringBuilder
-      var empty = 0
-      for file <- 0 until 8 do
-        val piece = board(rank * 8 + file)
-        if piece == ' ' then empty += 1
-        else
-          if empty > 0 then out.append(empty)
-          empty = 0
-          out.append(piece)
-      if empty > 0 then out.append(empty)
-      out.toString
-    }
+    val rows = (7 to 0 by -1).map(rank => fenRank(board, rank))
     parse(s"${rows.mkString("/")} ${if color.isWhite then "w" else "b"} - - 0 1")
+
+  private def fenRank(board: Array[Char], rank: Int): String =
+    val out   = new StringBuilder
+    var empty = 0
+    for file <- 0 until 8 do
+      val piece = board(rank * 8 + file)
+      if piece == ' ' then empty += 1
+      else
+        if empty > 0 then out.append(empty)
+        empty = 0
+        out.append(piece)
+    if empty > 0 then out.append(empty)
+    out.toString
 
   private def assertParity(state: GameState): Unit =
     val index           = ActiveDicePartitioner.partitionIndex(state)
