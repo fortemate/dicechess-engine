@@ -187,25 +187,21 @@ object TurnGenerator:
       kingCaptures(kingCaptureCount) = p
       kingCaptureCount += 1
 
-  private[search] inline def replayTurnStates(
-      state: GameState,
-      ctx: TurnGenContext
-  )(f: (Array[Move], Int, GameState, Boolean) => Boolean): (Int, Boolean) =
-    val outPath = new Array[Move](3)
-    var hasS1   = false
-    var prevM0  = -1
-    var s1      = state
-    var hasS2   = false
-    var prevM1  = -1
-    var s2      = state
-    var emitted = 0
-    var stopped = false
+  private[search] class TurnStateReplayer(state: GameState):
+    private var hasS1  = false
+    private var prevM0 = -1
+    private var s1     = state
+    private var hasS2  = false
+    private var prevM1 = -1
+    private var s2     = state
 
-    // 1. King captures in MoveGenerator discovery order (endTurn is NOT called)
-    var i = 0
-    while i < ctx.kingCaptureCount && !stopped do
-      val p     = ctx.kingCaptures(i)
-      val len   = unpackPath(p, outPath)
+    def reset(): Unit =
+      hasS1 = false
+      prevM0 = -1
+      hasS2 = false
+      prevM1 = -1
+
+    def replay(outPath: Array[Move], len: Int, isKingCapture: Boolean): GameState =
       val m0    = outPath(0)
       val m0Int = m0.toInt
       if !hasS1 || m0Int != prevM0 then
@@ -215,60 +211,49 @@ object TurnGenerator:
         hasS2 = false
         prevM1 = -1
 
-      val resState =
-        if len == 1 then s1
+      if len == 1 then if isKingCapture then s1 else s1.endTurn()
+      else
+        val m1    = outPath(1)
+        val m1Int = m1.toInt
+        if !hasS2 || m1Int != prevM1 then
+          s2 = s1.makeMove(m1)
+          prevM1 = m1Int
+          hasS2 = true
+        if len == 2 then if isKingCapture then s2 else s2.endTurn()
         else
-          val m1    = outPath(1)
-          val m1Int = m1.toInt
-          if !hasS2 || m1Int != prevM1 then
-            s2 = s1.makeMove(m1)
-            prevM1 = m1Int
-            hasS2 = true
-          if len == 2 then s2
-          else
-            val m2 = outPath(2)
-            s2.makeMove(m2)
+          val s3 = s2.makeMove(outPath(2))
+          if isKingCapture then s3 else s3.endTurn()
 
+  private[search] inline def replayTurnStates(
+      state: GameState,
+      ctx: TurnGenContext
+  )(f: (Array[Move], Int, GameState, Boolean) => Boolean): (Int, Boolean) =
+    val outPath  = new Array[Move](3)
+    val replayer = new TurnStateReplayer(state)
+    var emitted  = 0
+    var stopped  = false
+
+    // 1. King captures in MoveGenerator discovery order (endTurn is NOT called)
+    var i = 0
+    while i < ctx.kingCaptureCount && !stopped do
+      val p        = ctx.kingCaptures(i)
+      val len      = unpackPath(p, outPath)
+      val resState = replayer.replay(outPath, len, isKingCapture = true)
       emitted += 1
       if !f(outPath, len, resState, true) then stopped = true
       i += 1
 
     // 2. Normal maximal-dice paths in MoveGenerator discovery order (endTurn IS called)
     if !stopped then
-      i = 0
+      replayer.reset()
       val maxDice = ctx.maxDice
-      hasS1 = false
-      prevM0 = -1
-      hasS2 = false
-      prevM1 = -1
+      i = 0
       while i < ctx.normalCount && !stopped do
         val p    = ctx.normalPaths(i)
         val dice = ((p >>> 56) & 0xffL).toInt
         if dice == maxDice then
-          val len   = unpackPath(p, outPath)
-          val m0    = outPath(0)
-          val m0Int = m0.toInt
-          if !hasS1 || m0Int != prevM0 then
-            s1 = state.makeMove(m0)
-            prevM0 = m0Int
-            hasS1 = true
-            hasS2 = false
-            prevM1 = -1
-
-          val resState =
-            if len == 1 then s1.endTurn()
-            else
-              val m1    = outPath(1)
-              val m1Int = m1.toInt
-              if !hasS2 || m1Int != prevM1 then
-                s2 = s1.makeMove(m1)
-                prevM1 = m1Int
-                hasS2 = true
-              if len == 2 then s2.endTurn()
-              else
-                val m2 = outPath(2)
-                s2.makeMove(m2).endTurn()
-
+          val len      = unpackPath(p, outPath)
+          val resState = replayer.replay(outPath, len, isKingCapture = false)
           emitted += 1
           if !f(outPath, len, resState, false) then stopped = true
         i += 1
