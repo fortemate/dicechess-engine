@@ -74,6 +74,43 @@ object TurnGenerator:
           if dice == maxDice then f(outPath, unpackPath(p, outPath))
           i += 1
 
+  /** Traverses all legal turn paths and their resulting game states using a visitor/callback pattern with prefix reuse.
+    *
+    * The callback `f` receives:
+    *   - `moves`: a borrowed 3-slot array holding the turn path moves in slots `0 until len`
+    *   - `len`: the number of moves in the path (1 to 3)
+    *   - `resultingState`: the resulting game state after applying this turn. For King capture (`isKingCapture ==
+    *     true`), this state is `path.foldLeft(state)(_.makeMove(_))` without calling `endTurn()` (`activeColor` remains
+    *     `state.activeColor`, `dicePool == Nil`). For normal maximal-dice turns (`isKingCapture == false`), `endTurn()`
+    *     is called once on the final step (`activeColor` flipped to opponent, stale opponent EP cleared, `dicePool ==
+    *     Nil`, `fullMoveNumber` incremented if Black moved).
+    *   - `isKingCapture`: `true` if this path ends with capturing the opponent King
+    *
+    * The callback returns `true` to continue traversal, or `false` to stop early.
+    *
+    * @note
+    *   The `moves` array passed to the callback is mutable and reused across invocations. Callers must copy elements if
+    *   persistence is required.
+    *
+    * @param state
+    *   the current [[dicechess.engine.domain.GameState]]
+    * @param f
+    *   the callback function invoked for each legal path and its resulting state
+    * @return
+    *   the number of legal paths visited before completion or early stop
+    */
+  def forEachLegalTurnState(state: GameState)(
+      f: (Array[Move], Int, GameState, Boolean) => Boolean
+  ): Int =
+    val moves = MoveGenerator.generateMoves(state)
+    if moves.isEmpty then 0
+    else
+      val ctx         = new TurnGenContext()
+      val currentPath = new Array[Move](3)
+      generatePathsSinglePass(state, currentPath, 0, 0, ctx, moves)
+      val (emitted, _) = replayTurnStates(state, ctx)(f)
+      emitted
+
   /** Packs a path of up to 3 moves, its length, and the total dice consumed into a single 64-bit Long.
     *
     * The packing layout is:
@@ -86,7 +123,7 @@ object TurnGenerator:
     * This layout relies on [[Move]] being represented as a 16-bit encoded integer. The invariant is enforced
     * unconditionally via `require` so that corruption is caught in production, not only under `-ea`.
     */
-  private def packPath(path: Array[Move], len: Int, dice: Int): Long =
+  private[search] def packPath(path: Array[Move], len: Int, dice: Int): Long =
     val m0 = path(0).toInt
     val m1 = if len > 1 then path(1).toInt else Move.empty.toInt
     val m2 = if len > 2 then path(2).toInt else Move.empty.toInt
@@ -108,18 +145,27 @@ object TurnGenerator:
     * Extracts three 16-bit move slots and the 8-bit length field from the layout produced by [[packPath]]. The
     * `& 0xffffL` slicing is lossless because [[packPath]] guarantees each move fits within 16 bits.
     */
-  private inline def unpackPath(p: Long, out: Array[Move]): Int =
+  private[search] inline def unpackPath(p: Long, out: Array[Move]): Int =
     out(0) = (p & 0xffffL).toInt.asInstanceOf[Move]
     out(1) = ((p >>> 16) & 0xffffL).toInt.asInstanceOf[Move]
     out(2) = ((p >>> 32) & 0xffffL).toInt.asInstanceOf[Move]
     ((p >>> 48) & 0xffL).toInt
 
-  private class TurnGenContext:
+  private[search] class TurnGenContext:
     var normalPaths      = new Array[Long](128)
     var normalCount      = 0
     var kingCaptures     = new Array[Long](32)
     var kingCaptureCount = 0
     var maxDice          = 0
+
+    def totalLegalPaths: Int =
+      var count = kingCaptureCount
+      var i     = 0
+      while i < normalCount do
+        val dice = ((normalPaths(i) >>> 56) & 0xffL).toInt
+        if dice == maxDice then count += 1
+        i += 1
+      count
 
     def addNormal(p: Long): Unit =
       val dice = ((p >>> 56) & 0xffL).toInt
@@ -140,6 +186,94 @@ object TurnGenerator:
         kingCaptures = next
       kingCaptures(kingCaptureCount) = p
       kingCaptureCount += 1
+
+  private[search] inline def replayTurnStates(
+      state: GameState,
+      ctx: TurnGenContext
+  )(f: (Array[Move], Int, GameState, Boolean) => Boolean): (Int, Boolean) =
+    val outPath = new Array[Move](3)
+    var hasS1   = false
+    var prevM0  = -1
+    var s1      = state
+    var hasS2   = false
+    var prevM1  = -1
+    var s2      = state
+    var emitted = 0
+    var stopped = false
+
+    // 1. King captures in MoveGenerator discovery order (endTurn is NOT called)
+    var i = 0
+    while i < ctx.kingCaptureCount && !stopped do
+      val p     = ctx.kingCaptures(i)
+      val len   = unpackPath(p, outPath)
+      val m0    = outPath(0)
+      val m0Int = m0.toInt
+      if !hasS1 || m0Int != prevM0 then
+        s1 = state.makeMove(m0)
+        prevM0 = m0Int
+        hasS1 = true
+        hasS2 = false
+        prevM1 = -1
+
+      val resState =
+        if len == 1 then s1
+        else
+          val m1    = outPath(1)
+          val m1Int = m1.toInt
+          if !hasS2 || m1Int != prevM1 then
+            s2 = s1.makeMove(m1)
+            prevM1 = m1Int
+            hasS2 = true
+          if len == 2 then s2
+          else
+            val m2 = outPath(2)
+            s2.makeMove(m2)
+
+      emitted += 1
+      if !f(outPath, len, resState, true) then stopped = true
+      i += 1
+
+    // 2. Normal maximal-dice paths in MoveGenerator discovery order (endTurn IS called)
+    if !stopped then
+      i = 0
+      val maxDice = ctx.maxDice
+      hasS1 = false
+      prevM0 = -1
+      hasS2 = false
+      prevM1 = -1
+      while i < ctx.normalCount && !stopped do
+        val p    = ctx.normalPaths(i)
+        val dice = ((p >>> 56) & 0xffL).toInt
+        if dice == maxDice then
+          val len   = unpackPath(p, outPath)
+          val m0    = outPath(0)
+          val m0Int = m0.toInt
+          if !hasS1 || m0Int != prevM0 then
+            s1 = state.makeMove(m0)
+            prevM0 = m0Int
+            hasS1 = true
+            hasS2 = false
+            prevM1 = -1
+
+          val resState =
+            if len == 1 then s1.endTurn()
+            else
+              val m1    = outPath(1)
+              val m1Int = m1.toInt
+              if !hasS2 || m1Int != prevM1 then
+                s2 = s1.makeMove(m1)
+                prevM1 = m1Int
+                hasS2 = true
+              if len == 2 then s2.endTurn()
+              else
+                val m2 = outPath(2)
+                s2.makeMove(m2).endTurn()
+
+          emitted += 1
+          if !f(outPath, len, resState, false) then stopped = true
+        i += 1
+
+    (emitted, stopped)
 
   private def generatePathsSinglePass(
       state: GameState,
