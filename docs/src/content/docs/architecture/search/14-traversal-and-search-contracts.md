@@ -20,7 +20,7 @@ All symbols below live in `dicechess.engine.search` (split across `dicechess-rul
 | **Promotion-aware roll equivalence** | `dicechess-rules` (`shared-rules/.../search/ActiveDicePartitioner.scala`, `CompactRoll.scala`) | [#387](https://github.com/fortemate/dicechess-engine/issues/387) (`0.15.0`): 192 immutable `IArray[WeightedRoll]` tables (64 presence masks $\times$ 3 promotion modes); positive integer weights summing to `216`; `CompactRoll.Empty` preserved as forced pass; incremental `zobristKey` update in `applyToState`. | Direct roll distribution for fresh unknown rolls after `endTurn()`. | `ExpectimaxSearch` still iterates the 56 unconditional rolls in `DiceRolls.byWeightDescending` and exposes no callback-driven weighted chance-node accumulator ([#394](https://github.com/fortemate/dicechess-engine/issues/394)). |
 | **Exhaustive turn-path enumeration** | `dicechess-rules` (`shared-rules/.../search/TurnGenerator.scala`, `PlayableDice.scala`) | `generateAllLegalTurnPaths` and `forEachLegalTurnPath`: enforces immediate king-capture legality and maximal **dice consumed** (castling = 2 dice) via packed 64-bit path buffers. | Canonical turn-legality oracle and packed path layout. | `forEachLegalTurnPath` is unbudgeted, omits `isKingCapture` and the resulting `GameState`, cannot stop early on caller request, and forces callers to replay shared micro-move prefixes ([#392](https://github.com/fortemate/dicechess-engine/issues/392)). |
 | **Work-bounded rules queries** | `dicechess-rules` (`shared-rules/.../search/BudgetedRules.scala`) | [#316](https://github.com/fortemate/dicechess-engine/issues/316), [#323](https://github.com/fortemate/dicechess-engine/issues/323): invocation-local `Budget(limit)` with sticky exhaustion and `Outcome[+A]` (`Complete` \| `Incomplete`) over `turnPaths`, `kingCaptureRolls`, and early-exit `kingCapturePath` ([guide](/dicechess-engine/architecture/rules-budgets/)). | Canonical rules work-unit accounting and `kingCapturePath` witness traversal. | `turnPaths` materializes `List[List[Move]]` without resulting `GameState` values; no budgeted visitor/fold reuses shared micro-move prefixes ([#392](https://github.com/fortemate/dicechess-engine/issues/392)). |
-| **Stochastic expectimax & Star1/Star2** | `dicechess-engine` (`shared/.../search/ExpectimaxSearch.scala`, `TimeBudgetedSearch.scala`) | [#56](https://github.com/fortemate/dicechess-engine/issues/56): 2-ply and 3-ply expectimax with `LeafKey` per-chance-node deduplication, `evalBatch`, Star1 roll-by-roll cutoffs, Star2 single-reply probes, `RootRescore` bound inversion, and `deadlineNanos` checks between rolls. | Star1/Star2 bound math, `RootRescore` loss-taint handling, and `ExpectimaxConfig` / `TimeBudgetedSearch`. | Internal node result types are `private` and conflate `aborted: Boolean` with `TTBound`. 2-ply and 3-ply loops are duplicated, coupled to `evalBatch` and fixed `[-10^9, 10001]` bounds, and unavailable to callback-based consumers ([#393](https://github.com/fortemate/dicechess-engine/issues/393), [#394](https://github.com/fortemate/dicechess-engine/issues/394)). |
+| **Stochastic expectimax & Star1/Star2** | `dicechess-engine` (`shared/.../search/ExpectimaxSearch.scala`, `TimeBudgetedSearch.scala`) | [#56](https://github.com/fortemate/dicechess-engine/issues/56): 2-ply and 3-ply expectimax with `LeafKey` per-chance-node deduplication, `evalBatch`, Star1 roll-by-roll cutoffs, Star2 single-reply probes, `RootRescore` bound inversion, and `deadlineNanos` checks between rolls. | Star1/Star2 bound math, `RootRescore` loss-taint handling, and `ExpectimaxConfig` / `TimeBudgetedSearch`. | Internal node result types (`ChanceNodeResult`, `RecursiveNodeResult`) are `private` and carry dummy numeric values even when aborted. 2-ply and 3-ply loops are duplicated, coupled to `evalBatch` and fixed `[-10^9, 10001]` bounds, and unavailable to callback-based consumers ([#393](https://github.com/fortemate/dicechess-engine/issues/393), [#394](https://github.com/fortemate/dicechess-engine/issues/394)). |
 | **Zobrist hashing & search TT** | `dicechess-rules` (`Zobrist.scala`) & `dicechess-engine` (`TranspositionTable.scala`) | [#59](https://github.com/fortemate/dicechess-engine/issues/59): incremental 64-bit `Zobrist` hash (placement, side, castling, full `enPassant` bitboard, `dicePool`) and lockless XOR `TranspositionTable` (`TTBound`, depth, `lossTainted`, `MaxChanceKeySalt`). | Incremental `zobristHash` and subtree bound caching. | Ownership and invalidation boundaries relative to exact `(GameState, Color)` evaluation memoization need an explicit specification ([#397](https://github.com/fortemate/dicechess-engine/issues/397)). |
 | **Exact evaluation memoization** | `dicechess-engine` (`shared/.../search/`, planned [#295](https://github.com/fortemate/dicechess-engine/issues/295)) | Planned invocation-local `EvaluationCache` wrapping deterministic `(GameState, Color) => Int` by full `GameState.equals` + `Color`, preserving path multiplicity and RNG. | Exact post-`endTurn()` static-evaluation memoization without candidate deduplication. | Keep [#295](https://github.com/fortemate/dicechess-engine/issues/295) scope and owner unchanged; separate cleanly from `TranspositionTable` ([#397](https://github.com/fortemate/dicechess-engine/issues/397)). |
 | **Attack geometry, safety & material scale** | `dicechess-rules` (`MoveGenerator.scala`, `KingCaptureProbability.scala`) & `dicechess-engine` (`PieceSafety.scala`, `MaterialValues.scala`) | `MoveGenerator.isSquareAttacked` (boolean early-exit) and `MoveGenerator.allAttackers` (complete attacker square union; merges queens into slider masks). `PieceSafety` prices hanging non-king squares in `MaterialValues`. | `MoveGenerator.allAttackers` geometry and `DiceRolls.totalOrderedRolls` (`216`). | Missing public helpers for exact attacking piece-type masks/counts, single-roll dice-availability probability, and minimum supplied attacker value under arbitrary non-monotone price tables ([#395](https://github.com/fortemate/dicechess-engine/issues/395)). |
@@ -93,16 +93,19 @@ def forEachLegalTurnState(state: GameState)(
 final case class TurnVisitSummary(emittedPaths: Int, totalLegalPaths: Int, stoppedEarly: Boolean)
     derives CanEqual
 
+final case class TurnFoldResult[+A](value: A, stoppedEarly: Boolean)
+    derives CanEqual
+
 def visitTurnStates(state: GameState, budget: Budget)(
     f: (Array[Move], Int, GameState, Boolean) => Boolean
 ): Outcome[TurnVisitSummary]
 
 def foldTurnStates[A](state: GameState, initial: A, budget: Budget)(
     f: (A, List[Move], GameState, Boolean) => (A, Boolean)
-): Outcome[A]
+): Outcome[TurnFoldResult[A]]
 ```
 
-Returning `false` from `f` stops emission early at caller request (for example on the first king capture or a beta cutoff) and yields `Outcome.Complete(..., stoppedEarly = true)`, keeping caller-requested early termination distinct from `Outcome.Incomplete(used)`.
+Returning `false` from `f` stops emission early at caller request (for example on the first king capture or a beta cutoff) and yields `Outcome.Complete(..., stoppedEarly = true)` (for both `TurnVisitSummary` and `TurnFoldResult`), keeping caller-requested early termination distinct from `Outcome.Incomplete(used)`.
 
 ### 2.3 Probability Weights and Mandatory-Move Bound Invariant (`#394`)
 
@@ -162,7 +165,7 @@ enum SearchOutcome[+A] derives CanEqual:
 - **Scratch & concurrency**:
   - `ActiveDicePartitioner.partitionsFor` returns shared immutable `IArray[WeightedRoll]` instances; any consumer urgency reordering copies into invocation-local scratch arrays.
   - `Budget`, `SearchControl`, visitor `Array[Move]` buffers, and `EvaluationCache` are **single-invocation, single-thread** objects.
-  - `SearchAlgorithm` instances are safe for concurrent independent calls when scratch state is invocation-local. `TranspositionTable` supports lockless XOR concurrent reads/writes **only** for a single fixed evaluator configuration and utility scale.
+  - `SearchAlgorithm` instances are safe for concurrent independent calls when scratch state is invocation-local. `TranspositionTable` is racy-reader safe (Hyatt XOR checksum), with a single writer recommended until parallel search ([#61](https://github.com/fortemate/dicechess-engine/issues/61)) revisits publication fences; it must only be shared within a single fixed evaluator configuration and utility scale.
 
 ### 4.2 Cache Ownership Boundary: `EvaluationCache` (`#295`) vs `TranspositionTable` (`#59`, `#397`)
 
@@ -202,7 +205,7 @@ All implementation stages validate against public synthetic DFEN fixtures rather
 
 - **`dicechess-rules_3` binary compatibility**: Every addition in `shared-rules/` is strictly additive against `RulesMimaBaseline` (`rulesJVM/assertRulesBinaryCompatible`) with zero MiMa exclusions and zero third-party dependencies (`rules-smoke/`).
 - **Facade stability**: `JvmApi`, `DiceChess`, `EngineFacade`, `RulesApi` (`./rules`), `js/dicechess-engine.d.ts`, and `js/dicechess-rules.d.ts` remain unchanged.
-- **Serving & benchmark separation**: Fixed-work parity against exhaustive oracles (`Budget` with `deadlineNanos = Long.MaxValue`) validates correctness independently of wall-clock throughput or playing-strength claims.
+- **Serving & benchmark separation**: Fixed-work parity against exhaustive oracles (using a deterministic `Budget` and `SearchControl` with `deadlineNanos = Long.MaxValue`) validates correctness independently of wall-clock throughput or playing-strength claims.
 
 ### 5.2 Staged Adoption Sequence (`#392`–`#399`)
 
