@@ -23,6 +23,7 @@ broader delivery overview. The default npm bot roster does not include expectima
 | Clock-aware search budgets | Implemented | [Time management](/dicechess-engine/architecture/search/05-time-management/) |
 | Expectimax, Star1/Star2 and transposition tables | Implemented, configurable through the Scala API | [Expectimax](/dicechess-engine/architecture/search/06-expectimax-search/) |
 | ONNX evaluation and model serving contract | Implemented on JVM; models supplied by the host | [ONNX integration](/dicechess-engine/architecture/search/07-onnx-integration/), [model contract](/dicechess-engine/architecture/search/10-model-contract/) |
+| Shared traversal and stochastic-search contracts | Specified; staged extraction tracked in Epic #390 | [Traversal & search contracts](/dicechess-engine/architecture/search/14-traversal-and-search-contracts/) |
 | Parallel chance-node evaluation with Ox | Proposed, not implemented | [Issue #61](https://github.com/fortemate/dicechess-engine/issues/61) |
 
 Implementation and evaluation answer different questions. A configurable deeper search

@@ -102,7 +102,10 @@ optionally after a move prefix. `TurnGenerator` remains the authority for legal 
 en passant and early king captures.
 
 See [Expectimax Search Engine](/dicechess-engine/architecture/search/06-expectimax-search/) for the
-consumer-side chance-node calculation. ADEP does not alter that implementation in this release.
+consumer-side chance-node calculation and
+[Shared Traversal & Search Contracts](/dicechess-engine/architecture/search/14-traversal-and-search-contracts/)
+for the weighted chance-node accumulation, mandatory-move bound, and staged migration contracts. ADEP
+does not alter built-in bot behavior in this release.
 
 ## Verification and measurement
 

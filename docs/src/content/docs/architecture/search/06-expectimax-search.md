@@ -50,7 +50,10 @@ where $\sum_{i=1}^{56} \text{weight}_i = 216$.
 For consumers that want to group rolls with identical legal turns, the rules artifact also provides
 [Active Dice Equivalence Partitioning](/dicechess-engine/architecture/search/13-equivalent-dice-rolls/).
 It accounts for pieces created by promotion within a turn. `ExpectimaxSearch` continues to enumerate
-the 56 weighted rolls; adopting the grouping is a separate consumer change.
+the 56 weighted rolls; see
+[Shared Traversal & Search Contracts](/dicechess-engine/architecture/search/14-traversal-and-search-contracts/)
+for the reviewed design unifying weighted chance-node accumulation, bounded outcomes, cooperative
+cancellation, and cache ownership across stages.
 
 ---
 
