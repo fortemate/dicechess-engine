@@ -24,3 +24,5 @@ A work unit admits a move-generator invocation, an examined micro-move or an agg
 A capture found on the last admitted micro-move is complete. An exhausted shared budget stays incomplete, including a later query with a missing target; it cannot be resumed as a fresh complete proof. Budgets should be scoped to the caller's intended synchronous operation, not shared globally or concurrently.
 
 This query returns a witness for one turn, not an optimal move, full-game evaluation or search result. It is a Scala-shaped rules-core API cross-compiled for JVM, JavaScript and WebAssembly; it adds no Java/Kotlin or exported JavaScript facade method. Consumers must compile against an artifact version providing this method.
+
+See [Shared Traversal & Search Contracts](/dicechess-engine/architecture/search/14-traversal-and-search-contracts/) for how rules-level `Budget` accounting composes with shared-prefix resulting-state visitors and bounded stochastic-search cancellation.
