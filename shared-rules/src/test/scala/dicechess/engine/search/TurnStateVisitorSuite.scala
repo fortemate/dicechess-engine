@@ -83,6 +83,69 @@ class TurnStateVisitorSuite extends FunSuite:
         idx += 1
   }
 
+  test("Concurrent invocations of forEachLegalTurnState, visitTurnStates, and foldTurnStates do not interfere") {
+    import scala.concurrent.ExecutionContext.Implicits.global
+    import scala.concurrent.Future
+
+    val testStates = for
+      fen  <- referencePositions.take(3)
+      dice <- dicePermutations.take(6)
+    yield parse(fen).withDicePool(dice)
+
+    val expectedResults = testStates.map { state =>
+      (state, TurnGenerator.generateAllLegalTurnPaths(state))
+    }
+
+    val tasks = (1 to 4).flatMap { _ =>
+      expectedResults.map { case (state, expectedPaths) =>
+        Future {
+          // 1. forEachLegalTurnState
+          val collectedPaths = List.newBuilder[List[Move]]
+          val count          = TurnGenerator.forEachLegalTurnState(state) { (moves, len, resState, isKingCapture) =>
+            val p = moves.take(len).toList
+            collectedPaths += p
+            assertEquals(isKingCapture, state.isKingCapture(p.last))
+            val expectedState = replayPath(state, p, isKingCapture)
+            assertEquals(resState, expectedState)
+            true
+          }
+          assertEquals(count, expectedPaths.size)
+          assertEquals(collectedPaths.result(), expectedPaths)
+
+          // 2. visitTurnStates
+          val budget       = new Budget(Long.MaxValue)
+          val visitPaths   = List.newBuilder[List[Move]]
+          val visitOutcome = visitTurnStates(state, budget) { (moves, len, _, _) =>
+            visitPaths += moves.take(len).toList
+            true
+          }
+          visitOutcome match
+            case Outcome.Complete(summary, _) =>
+              assertEquals(summary.emittedPaths, expectedPaths.size)
+              assertEquals(summary.totalLegalPaths, expectedPaths.size)
+              assertEquals(summary.stoppedEarly, false)
+              assertEquals(visitPaths.result(), expectedPaths)
+            case Outcome.Incomplete(_) =>
+              fail("visitTurnStates exhausted on Long.MaxValue during concurrent execution")
+
+          // 3. foldTurnStates
+          val foldOutcome = foldTurnStates(state, List.empty[List[Move]], new Budget(Long.MaxValue)) {
+            (acc, path, _, _) =>
+              (acc :+ path, true)
+          }
+          foldOutcome match
+            case Outcome.Complete(foldResult, _) =>
+              assertEquals(foldResult.value, expectedPaths)
+              assertEquals(foldResult.stoppedEarly, false)
+            case Outcome.Incomplete(_) =>
+              fail("foldTurnStates exhausted on Long.MaxValue during concurrent execution")
+        }
+      }
+    }
+
+    Future.sequence(tasks).map(_ => ())
+  }
+
   test("BudgetedRules.visitTurnStates and foldTurnStates parity with turnPaths on ample budget") {
     for
       fen  <- referencePositions
