@@ -421,3 +421,114 @@ class TurnStateVisitorSuite extends FunSuite:
     assertEquals(foldResult.value, 1)
     assertEquals(foldResult.stoppedEarly, true)
   }
+
+  test("Budgeted visitors and folds return the sequentially replayed state and capture flag for every path") {
+    val positions = List(
+      ("8/8/8/8/8/8/Q7/k6K w - - 0 1", List(5, 5)),
+      ("7k/8/4P3/8/8/8/8/K7 w - - 0 1", List(1, 1, 5)),
+      ("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1", List(6, 1)),
+      ("r3k3/8/8/8/8/8/8/4K3 b q - 4 12", List(6, 4))
+    )
+
+    for (fen, dice) <- positions do
+      val state    = parse(fen).withDicePool(dice)
+      val expected = TurnGenerator.generateAllLegalTurnPaths(state).map { path =>
+        val prefix    = path.init.foldLeft(state)(_.makeMove(_))
+        val isCapture = prefix.isKingCapture(path.last)
+        val result    = replayPath(state, path, isCapture)
+        (path, result, isCapture, result.zobristHash)
+      }
+      assert(expected.nonEmpty, s"Fixture must have legal paths: $fen")
+
+      val visited      = List.newBuilder[(List[Move], GameState, Boolean, Long)]
+      val visitOutcome = visitTurnStates(state, new Budget(Long.MaxValue)) { (moves, len, result, isCapture) =>
+        visited += ((moves.take(len).toList, result, isCapture, result.zobristHash))
+        true
+      }
+      val folded = foldTurnStates(state, List.empty[(List[Move], GameState, Boolean, Long)], new Budget(Long.MaxValue)) {
+        (acc, path, result, isCapture) =>
+          ((path, result, isCapture, result.zobristHash) :: acc, true)
+      }
+      val Outcome.Complete(summary, visitWork)   = visitOutcome: @unchecked
+      val Outcome.Complete(foldResult, foldWork) = folded: @unchecked
+      assertEquals(summary, TurnVisitSummary(expected.size, expected.size, false))
+      assertEquals(visited.result(), expected, s"Visitor mismatch for $fen, dice=$dice")
+      assertEquals(foldResult.value.reverse, expected, s"Fold mismatch for $fen, dice=$dice")
+      assertEquals(foldResult.stoppedEarly, false)
+      assertEquals(foldWork, visitWork)
+  }
+
+  test("Every insufficient budget discards discovery without invoking the visitor or fold") {
+    val state                         = parse("4k3/8/8/8/8/8/8/4K3 w - - 0 1").withDicePool(List(6))
+    val Outcome.Complete(paths, work) = turnPaths(state, new Budget(Long.MaxValue)): @unchecked
+    assert(paths.nonEmpty)
+    for limit <- 0L until work do
+      var visitCalls = 0
+      val visit      = visitTurnStates(state, new Budget(limit)) { (_, _, _, _) =>
+        visitCalls += 1
+        true
+      }
+      var foldCalls = 0
+      val fold      = foldTurnStates(state, 17, new Budget(limit)) { (acc, _, _, _) =>
+        foldCalls += 1
+        (acc + 1, true)
+      }
+      assertEquals(visit, Outcome.Incomplete(limit))
+      assertEquals(fold, Outcome.Incomplete(limit))
+      assertEquals(visitCalls, 0)
+      assertEquals(foldCalls, 0)
+
+    val exactVisit = visitTurnStates(state, new Budget(work))((_, _, _, _) => true)
+    val exactFold  = foldTurnStates(state, 17, new Budget(work))((acc, _, _, _) => (acc + 1, true))
+    assertEquals(exactVisit, Outcome.Complete(TurnVisitSummary(paths.size, paths.size, false), work))
+    assertEquals(exactFold, Outcome.Complete(TurnFoldResult(17 + paths.size, false), work))
+  }
+
+  test("Shared budgets report cumulative work and keep exhaustion sticky across visitor and fold calls") {
+    val pass                          = parse("4k3/8/8/8/8/8/8/4K3 w - - 0 1").withDicePool(List(1))
+    val state                         = pass.withDicePool(List(6))
+    val Outcome.Complete(paths, work) = turnPaths(state, new Budget(Long.MaxValue)): @unchecked
+    val budget                        = new Budget(work + 1)
+
+    assertEquals(turnPaths(pass, budget), Outcome.Complete(Nil, 1L))
+    assertEquals(
+      visitTurnStates(state, budget)((_, _, _, _) => true),
+      Outcome.Complete(TurnVisitSummary(paths.size, paths.size, false), work + 1)
+    )
+    var calls         = 0
+    val exhaustedFold = foldTurnStates(state, 9, budget) { (acc, _, _, _) =>
+      calls += 1
+      (acc + 1, true)
+    }
+    assertEquals(exhaustedFold, Outcome.Incomplete(work + 1))
+    assertEquals(visitTurnStates(pass, budget) { (_, _, _, _) => calls += 1; true }, Outcome.Incomplete(work + 1))
+    assertEquals(calls, 0)
+  }
+
+  test("Stopping at the first normal path keeps the preceding captures and the stopping fold value") {
+    val state = parse("8/8/8/8/8/8/Q7/k6K w - - 0 1").withDicePool(List(5, 5))
+    val paths = TurnGenerator.generateAllLegalTurnPaths(state)
+    val flags = paths.map { path =>
+      path.init.foldLeft(state)(_.makeMove(_)).isKingCapture(path.last)
+    }
+    val firstNormal = flags.indexOf(false)
+    assert(firstNormal > 0, "Fixture must have captures followed by normal paths")
+    assert(flags.take(firstNormal).forall(identity))
+    assert(flags.drop(firstNormal).forall(flag => !flag))
+    val expected = paths.take(firstNormal + 1)
+
+    val visited                              = List.newBuilder[List[Move]]
+    val Outcome.Complete(summary, visitWork) = visitTurnStates(state, new Budget(Long.MaxValue)) {
+      (moves, len, _, isCapture) =>
+        visited += moves.take(len).toList
+        isCapture
+    }: @unchecked
+    val Outcome.Complete(result, foldWork) = foldTurnStates(state, List.empty[List[Move]], new Budget(Long.MaxValue)) {
+      (acc, path, _, isCapture) =>
+        (path :: acc, isCapture)
+    }: @unchecked
+    assertEquals(visited.result(), expected)
+    assertEquals(summary, TurnVisitSummary(expected.size, paths.size, true))
+    assertEquals(result, TurnFoldResult(expected.reverse, true))
+    assertEquals(visitWork, foldWork)
+  }
