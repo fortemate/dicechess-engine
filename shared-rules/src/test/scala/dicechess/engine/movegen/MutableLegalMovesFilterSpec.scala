@@ -298,6 +298,19 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
     assert(legal.exists(_.isEnPassant), "En Passant capture should be legal")
   }
 
+  test("B6b: En-passant eligibility is tracked strictly during micro-move filtering") {
+    // White king on a1, White pawns on e4, g4, f3. Target EP square: e3.
+    // Black king on h8, Black pawn on f5. Active color: Black. Dice: [Pawn, Pawn].
+    // Pawn on f5 was not adjacent at turn start, so f5-f4 cannot be followed by f4xe3.
+    // Length 2 sequences are f5xg4 (then g4-g3) and f5xe4 (then e4-e3).
+    // Therefore, f5-f4 only achieves length 1 and must be filtered out.
+    val state    = parse("7k/8/8/5p2/4P1P1/5P2/8/K7 b - e3 0 1 pp")
+    val legal    = LegalMovesFilter.filterMaximalMoves(state)
+    val legalUci = legal.map(_.toUci).toSet
+    assertEquals(legalUci, Set("f5g4", "f5e4"))
+    assert(!legalUci.contains("f5f4"), "f5f4 must be rejected because continuation f4e3 is illegal EP")
+  }
+
   test("B7: Double Pawn Push opening friendly paths") {
     /*
      * Input: Pawn e2, Bishop f1 blocked. Dice = [Pawn, Bishop, Bishop]

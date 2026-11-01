@@ -74,3 +74,23 @@ class EnPassantMicroMoveSuite extends FunSuite:
     assertEquals(result.mailbox(Square('a', 4)), Piece.Empty)
     assertEquals(result.mailbox(Square('c', 4)).pieceType, PieceType.Knight)
   }
+
+  test("en passant is legal only for pawns adjacent at double-push creation (strict chess rules)") {
+    // White played e2-e4, Black has pawns on d4 and f7, dice P/P/P.
+    // If Black plays [f7f5, f5f4], the pawn on f4 arrived after e2-e4 and cannot capture e3 en passant.
+    // Only the d4 pawn was adjacent when the double-push occurred and remains eligible.
+    val state = parse("rnbqkbnr/ppp1pppp/8/8/3pP3/3P4/PPPK1PPP/RNBQ1BNR b kq e3 0 1 ppp")
+    val m1    = Move(Square('f', 7), Square('f', 5), Move.DoublePawnPush)
+    val s1    = state.makeMove(m1)
+    val m2    = Move(Square('f', 5), Square('f', 4), Move.QuietMove)
+    val s2    = s1.makeMove(m2)
+
+    val eligible  = TurnGenerator.computeEligibleEpPawns(state)
+    val pawnMoves = MoveGenerator.generateMoves(s2.withDicePool(List(1)), eligible)
+    val epMoves   = pawnMoves.filter(_.isEnPassant)
+    assertEquals(epMoves.map(_.toUci), List("d4e3"))
+
+    val allPaths = TurnGenerator.generateAllLegalTurnPaths(state)
+    assert(!allPaths.exists(_.map(_.toUci).mkString(",").contains("f4e3")), "f4e3 must not be legal")
+    assert(allPaths.exists(_.map(_.toUci) == List("f7f5", "f5f4", "d4e3")), "d4e3 must be legal")
+  }
