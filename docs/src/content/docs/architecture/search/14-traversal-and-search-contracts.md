@@ -151,7 +151,7 @@ enum SearchOutcome[+A] derives CanEqual:
 
 `SearchControl` combines an optional deterministic `BudgetedRules.Budget` and an optional cooperative deadline (`deadlineNanos: Long` with an injectable `clockNanos: () => Long = () => System.nanoTime()`):
 
-1. **Latching Cancellation**: Once `Budget.exhausted` or `clockNanos() - deadlineNanos >= 0L` triggers, cancellation latches `true` for the rest of the invocation.
+1. **Latching Cancellation**: Once `Budget.exhausted` or `clockNanos() >= deadlineNanos` (a direct comparison; the subtractive idiom overflows for extreme deadlines) triggers, cancellation latches `true` for the rest of the invocation.
 2. **Zero-Syscall Untimed Fast Path**: When `deadlineNanos == Long.MaxValue`, `clockNanos()` is never called.
 3. **Check Points**: Checked before the first expensive operation at entry, between root candidates, between `WeightedRoll` entries at every chance node, inside nested `BudgetedRules` queries via the shared `Budget`, after indivisible batch calls, and **before cache-hit paths** (`EvaluationCache` and `TranspositionTable` lookups) so already-expired invocations deterministically return `Incomplete`.
 4. **Atomic Uninterruptible Operations**: A single `MoveGenerator.generateMoves` call, a single scalar `eval(state, color)` call, and a single batched `evalBatch(states, color)` call are atomic. Neither work units nor `deadlineNanos` preempts inside an atomic call or bounds callback heap usage; hosts retain external wall-clock and memory guards where required.
