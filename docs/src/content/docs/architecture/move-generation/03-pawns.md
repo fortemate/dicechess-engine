@@ -49,6 +49,15 @@ val eastCaptures = ((whitePawns & NotHFile) << 9) & enemyPieces
 val westCaptures = ((whitePawns & NotAFile) << 7) & enemyPieces
 ```
 
+## En-Passant Under Multi-Move Turns
+
+In standard chess, en-passant capture is strictly instantaneous: it is available only on the move immediately following the opponent's double pawn push.
+
+In Dice Chess, a turn consists of up to three micro-moves:
+1. **Adjacency Requirement (FIDE 3.7.4 & DiceChess.com)**: Only pawns that were already horizontally adjacent to the passed pawn at the start of the turn (when the double-push occurred) are eligible to capture en-passant. If a pawn advances to the adjacent rank during subsequent micro-moves of the same turn (e.g. `f7-f5`, `f5-f4` beside an enemy `e4` pawn pushed on the previous turn), it was never passed by the enemy pawn and **cannot** capture en-passant (`f4xe3` is illegal).
+2. **Persistence Throughout the Turn**: An eligible pawn may execute the en-passant capture on micro-move 1, 2, or 3, as long as the en-passant target square remains valid (#351).
+3. **DFEN Memorylessness**: Because DFEN is memoryless and does not record historical pawn positions prior to previous micro-moves, regenerating or evaluating an intermediate DFEN in isolation recomputes adjacency from the current board state and could falsely admit an originally ineligible pawn. Clients must therefore walk the prefix turn tree (`getLegalTurnTree`) or preserve the turn's initial eligibility mask across micro-moves.
+
 ## Pawn Promotion
 
 In Dice Chess, when a pawn reaches the back rank (Rank 8 for White, Rank 1 for Black), it must be promoted.

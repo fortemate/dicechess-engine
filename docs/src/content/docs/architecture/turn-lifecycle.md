@@ -61,6 +61,8 @@ Any path that does not consume the maximum possible number of dice (or capture t
 
 After `c2c4` a quiet knight move would end a two-dice turn, while `c2c3, c3c4, Nb3xc5` spends all three dice: `c2c4` is legal only as the start of `c2c4, Nb3xc5`. A client that follows a turn one action at a time must walk the tree rather than call `getLegalUciMoves` after each micro-move.
 
+* **En-Passant Eligibility and History**: In addition to dice consumption, en-passant captures follow strict chess rules (FIDE 3.7.4 / DiceChess.com): only pawns that were already horizontally adjacent to the passed square at the start of the turn are eligible to capture en-passant. Because intermediate DFENs are memoryless, evaluating an intermediate DFEN directly recomputes adjacency from the current board state and could falsely admit a pawn that arrived later in the turn. Clients must walk the prefix turn tree from the start of the turn rather than re-evaluating intermediate DFENs.
+
 ### Which dice the turn can still spend
 
 The same rule decides which dice are still of use. `getPlayableDice(dfen, moves)` takes the rolled DFEN and the micro-moves played since, and returns the dice that at least one legal turn beginning with those moves spends after them. A client can dim the other dice: no turn left can use them.

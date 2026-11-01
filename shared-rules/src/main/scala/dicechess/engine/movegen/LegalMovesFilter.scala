@@ -34,24 +34,27 @@ object LegalMovesFilter:
     * The lower 8 bits encode the achievable depth (in dice consumed). Bit 8 (`0x100`, [[KingCaptureMask]]) is set if
     * this move or any continuation from it captures the opponent's King (win condition).
     */
-  private inline def rootDepth(state: GameState, move: Move): Int =
+  private inline def rootDepth(state: GameState, move: Move, eligibleEpPawns: Bitboard): Int =
     if state.isKingCapture(move) then 1 | KingCaptureMask
-    else continuationLength(state, move)
+    else continuationLength(state, move, eligibleEpPawns)
 
   /** Computes the sequence length reachable by playing `move` from `state` when `move` is not a direct King-Capture.
     *
     * Assumes `move` is a pseudo-legal move generated from `state`, so the mover's die is present in the dice pool.
     * Returns `0` if `move` is castling but the required dice (King and Rook) are not both available in the dice pool.
     */
-  private def continuationLength(state: GameState, move: Move): Int =
+  private def continuationLength(state: GameState, move: Move, eligibleEpPawns: Bitboard): Int =
     val survived = state.diceAfter(move)
     if !survived.isValid then 0
     else
       val diceConsumed = if move.isCastling then 2 else 1
       val next         = state.makeMove(move).withDiceSlotsOf(survived)
-      val nextResult   = maxSequenceLength(next)
-      val nextDepth    = nextResult & DepthMask
-      val nextKingCap  = nextResult & KingCaptureMask
+      val nextEligible =
+        if move.isEnPassant || eligibleEpPawns.contains(move.fromSquare) then eligibleEpPawns.remove(move.fromSquare)
+        else eligibleEpPawns
+      val nextResult  = maxSequenceLength(next, nextEligible)
+      val nextDepth   = nextResult & DepthMask
+      val nextKingCap = nextResult & KingCaptureMask
       (diceConsumed + nextDepth) | nextKingCap
 
   /** Recursively computes the maximum achievable micro-move sequence length from `state` and whether any branch reaches
@@ -70,21 +73,26 @@ object LegalMovesFilter:
     * @return
     *   the packed integer: lower 8 bits are maximum sequence length, bit 8 is set if any branch reaches a King capture
     */
-  private def maxSequenceLength(state: GameState): Int =
+  private def maxSequenceLength(state: GameState, eligibleEpPawns: Bitboard): Int =
     if state.flags.isDicePoolEmpty then 0
     else
       var bestDepth      = 0
       var anyKingCapture = false
 
-      for move <- MoveGenerator.generateMoves(state) do
-        val depth = rootDepth(state, move)
+      for move <- MoveGenerator.generateMoves(state, eligibleEpPawns) do
+        val depth = rootDepth(state, move, eligibleEpPawns)
         val d     = depth & DepthMask
         if d > bestDepth then bestDepth = d
         if (depth & KingCaptureMask) != 0 then anyKingCapture = true
 
       bestDepth | (if anyKingCapture then KingCaptureMask else 0)
 
-  private inline def recordDepths(state: GameState, moves: List[Move], depths: Array[Int]): Int =
+  private inline def recordDepths(
+      state: GameState,
+      moves: List[Move],
+      depths: Array[Int],
+      eligibleEpPawns: Bitboard
+  ): Int =
     var maxLen = 0
     var i      = 0
     var cur    = moves
@@ -93,7 +101,7 @@ object LegalMovesFilter:
     // This considers all branches, including King-capture paths, without redundant re-traversal.
     while cur.nonEmpty do
       val move  = cur.head
-      val depth = rootDepth(state, move)
+      val depth = rootDepth(state, move, eligibleEpPawns)
       depths(i) = depth
       val d = depth & DepthMask
       if d > maxLen then maxLen = d
@@ -138,11 +146,12 @@ object LegalMovesFilter:
   def filterMaximalMoves(state: GameState): List[Move] =
     if state.flags.isDicePoolEmpty then Nil
     else
-      val moves = MoveGenerator.generateMoves(state)
+      val initialEligible = MoveGenerator.computeEligibleEpPawns(state)
+      val moves           = MoveGenerator.generateMoves(state, initialEligible)
       if moves.isEmpty then Nil
       else
         val depths = new Array[Int](moves.length)
-        val maxLen = recordDepths(state, moves, depths)
+        val maxLen = recordDepths(state, moves, depths, initialEligible)
 
         // If no sequence is achievable (all dice unplayable), the player passes
         if maxLen == 0 then Nil

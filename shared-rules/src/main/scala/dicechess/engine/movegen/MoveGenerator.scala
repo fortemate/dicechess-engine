@@ -34,6 +34,33 @@ object MoveGenerator {
   def generateMoves(state: GameState): List[Move] =
     generateMoves(state, Bitboard.full)
 
+  /** Computes the set of friendly pawns that are eligible to capture an en-passant target at turn start. Under strict
+    * chess rules (FIDE 3.7.4 / DiceChess.com), only pawns that were already adjacent to the passed square when the
+    * double-push occurred are permitted to capture en passant.
+    */
+  def computeEligibleEpPawns(state: GameState): Bitboard =
+    if state.enPassant.isEmpty then Bitboard.empty
+    else
+      val color       = state.activeColor
+      val validEPRank = if color.isWhite then 6 else 3
+      val myPawnRank  = if color.isWhite then 5 else 4
+      val ownPawns    = if color.isWhite then state.pawns & state.whitePieces else state.pawns & state.blackPieces
+      var ep          = state.enPassant.value
+      var eligible    = Bitboard.empty
+      while ep != 0L do
+        val epIdx = java.lang.Long.numberOfTrailingZeros(ep)
+        val epSq  = Square.fromIndex(epIdx)
+        if epSq.rank == validEPRank then
+          val fileChar = epSq.file
+          if fileChar > 'a' then
+            val leftSq = Square((fileChar - 1).toChar, myPawnRank)
+            if ownPawns.contains(leftSq) then eligible = eligible.add(leftSq)
+          if fileChar < 'h' then
+            val rightSq = Square((fileChar + 1).toChar, myPawnRank)
+            if ownPawns.contains(rightSq) then eligible = eligible.add(rightSq)
+        ep &= ep - 1L
+      eligible
+
   /** Generates all pseudo-legal moves for all pieces of the active color (standard chess).
     *
     * Iterates over every [[dicechess.engine.domain.PieceType]] and concatenates the results of [[generatePieceMoves]].

@@ -44,27 +44,7 @@ object TurnGenerator:
     * permitted to capture en passant.
     */
   def computeEligibleEpPawns(state: GameState): Bitboard =
-    if state.enPassant.isEmpty then Bitboard.empty
-    else
-      val color       = state.activeColor
-      val validEPRank = if color.isWhite then 6 else 3
-      val myPawnRank  = if color.isWhite then 5 else 4
-      val ownPawns    = if color.isWhite then state.pawns & state.whitePieces else state.pawns & state.blackPieces
-      var ep          = state.enPassant.value
-      var eligible    = Bitboard.empty
-      while ep != 0L do
-        val epIdx = java.lang.Long.numberOfTrailingZeros(ep)
-        val epSq  = Square.fromIndex(epIdx)
-        if epSq.rank == validEPRank then
-          val fileChar = epSq.file
-          if fileChar > 'a' then
-            val leftSq = Square((fileChar - 1).toChar, myPawnRank)
-            if ownPawns.contains(leftSq) then eligible = eligible.add(leftSq)
-          if fileChar < 'h' then
-            val rightSq = Square((fileChar + 1).toChar, myPawnRank)
-            if ownPawns.contains(rightSq) then eligible = eligible.add(rightSq)
-        ep &= ep - 1L
-      eligible
+    MoveGenerator.computeEligibleEpPawns(state)
 
   /** Traverses all legal turn paths (sequences of 1 to 3 moves) using a visitor/callback pattern.
     *
