@@ -79,20 +79,26 @@ object BoardSvgRenderer:
     case 'k' => Some("bK")
     case _   => None
 
+  private def boardCoord(idx: Int, flipped: Boolean): Int =
+    if flipped then 7 - idx else idx
+
+  private def renderPieceUse(pieceId: String, col: Int, rankIndex: Int, flipped: Boolean): Option[String] =
+    if col < 0 || col >= 8 then None
+    else
+      val x = boardCoord(col, flipped) * 45
+      val y = boardCoord(rankIndex, flipped) * 45
+      Some(s"""    <use href="#$pieceId" x="$x" y="$y"/>""")
+
   private def renderRankPieces(rankStr: String, rankIndex: Int, flipped: Boolean): Seq[String] =
     val result = scala.collection.mutable.ArrayBuffer.empty[String]
     var col    = 0
     for c <- rankStr do
       if c.isDigit then col += c - '0'
       else
-        charToPieceId(c).foreach { pieceId =>
-          if col < 8 then
-            val finalCol = if flipped then 7 - col else col
-            val finalRow = if flipped then 7 - rankIndex else rankIndex
-            val x        = finalCol * 45
-            val y        = finalRow * 45
-            result += s"""    <use href="#$pieceId" x="$x" y="$y"/>"""
-        }
+        for
+          pieceId <- charToPieceId(c)
+          useTag  <- renderPieceUse(pieceId, col, rankIndex, flipped)
+        do result += useTag
         col += 1
     result.toSeq
 
