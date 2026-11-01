@@ -39,6 +39,33 @@ object TurnGenerator:
     }
     builder.result()
 
+  /** Computes the set of friendly pawns that are eligible to capture an en-passant target at turn start. Under strict
+    * chess rules, only pawns that were already adjacent to the passed square when the double-push occurred are
+    * permitted to capture en passant.
+    */
+  def computeEligibleEpPawns(state: GameState): Bitboard =
+    if state.enPassant.isEmpty then Bitboard.empty
+    else
+      val color       = state.activeColor
+      val validEPRank = if color.isWhite then 6 else 3
+      val myPawnRank  = if color.isWhite then 5 else 4
+      val ownPawns    = if color.isWhite then state.pawns & state.whitePieces else state.pawns & state.blackPieces
+      var ep          = state.enPassant.value
+      var eligible    = Bitboard.empty
+      while ep != 0L do
+        val epIdx = java.lang.Long.numberOfTrailingZeros(ep)
+        val epSq  = Square.fromIndex(epIdx)
+        if epSq.rank == validEPRank then
+          val fileChar = epSq.file
+          if fileChar > 'a' then
+            val leftSq = Square((fileChar - 1).toChar, myPawnRank)
+            if ownPawns.contains(leftSq) then eligible = eligible.add(leftSq)
+          if fileChar < 'h' then
+            val rightSq = Square((fileChar + 1).toChar, myPawnRank)
+            if ownPawns.contains(rightSq) then eligible = eligible.add(rightSq)
+        ep &= ep - 1L
+      eligible
+
   /** Traverses all legal turn paths (sequences of 1 to 3 moves) using a visitor/callback pattern.
     *
     * The callback `f` receives the path as an array of moves and the length of the path.
@@ -53,11 +80,12 @@ object TurnGenerator:
     *   the callback function invoked for each legal path
     */
   def forEachLegalTurnPath(state: GameState)(f: (Array[Move], Int) => Unit): Unit =
-    val moves = MoveGenerator.generateMoves(state)
+    val initialEligible = computeEligibleEpPawns(state)
+    val moves           = MoveGenerator.generateMoves(state, initialEligible)
     if moves.nonEmpty then
       val ctx         = new TurnGenContext()
       val currentPath = new Array[Move](3)
-      generatePathsSinglePass(state, currentPath, 0, 0, ctx, moves)
+      generatePathsSinglePass(state, currentPath, 0, 0, ctx, initialEligible, moves)
 
       if ctx.kingCaptureCount > 0 || ctx.normalCount > 0 then
         val outPath = new Array[Move](3)
@@ -102,12 +130,13 @@ object TurnGenerator:
   def forEachLegalTurnState(state: GameState)(
       f: (Array[Move], Int, GameState, Boolean) => Boolean
   ): Int =
-    val moves = MoveGenerator.generateMoves(state)
+    val initialEligible = computeEligibleEpPawns(state)
+    val moves           = MoveGenerator.generateMoves(state, initialEligible)
     if moves.isEmpty then 0
     else
       val ctx         = new TurnGenContext()
       val currentPath = new Array[Move](3)
-      generatePathsSinglePass(state, currentPath, 0, 0, ctx, moves)
+      generatePathsSinglePass(state, currentPath, 0, 0, ctx, initialEligible, moves)
       val (emitted, _) = replayTurnStates(state, ctx)(f)
       emitted
 
@@ -269,13 +298,17 @@ object TurnGenerator:
       depth: Int,
       diceConsumedSoFar: Int,
       ctx: TurnGenContext,
+      eligibleEpPawns: Bitboard,
       moves: List[Move]
   ): Unit =
     var curr = moves
     while curr.nonEmpty do
       val move = curr.head
       currentPath(depth) = move
-      processMove(state, currentPath, depth, diceConsumedSoFar, ctx, move)
+      val nextEligible =
+        if move.isEnPassant || eligibleEpPawns.contains(move.fromSquare) then eligibleEpPawns.remove(move.fromSquare)
+        else eligibleEpPawns
+      processMove(state, currentPath, depth, diceConsumedSoFar, ctx, nextEligible, move)
       curr = curr.tail
 
   private inline def processMove(
@@ -284,10 +317,11 @@ object TurnGenerator:
       depth: Int,
       diceConsumedSoFar: Int,
       ctx: TurnGenContext,
+      eligibleEpPawns: Bitboard,
       move: Move
   ): Unit =
     if state.isKingCapture(move) then handleKingCapture(currentPath, depth, diceConsumedSoFar, ctx, move)
-    else handleNonCapture(state, currentPath, depth, diceConsumedSoFar, ctx, move)
+    else handleNonCapture(state, currentPath, depth, diceConsumedSoFar, ctx, eligibleEpPawns, move)
 
   private inline def handleKingCapture(
       currentPath: Array[Move],
@@ -306,13 +340,14 @@ object TurnGenerator:
       depth: Int,
       diceConsumedSoFar: Int,
       ctx: TurnGenContext,
+      eligibleEpPawns: Bitboard,
       move: Move
   ): Unit =
     val survived = state.diceAfter(move)
     if survived.isValid then
       val diceConsumed = if move.isCastling then 2 else 1
       val next         = state.makeMove(move).withDiceSlotsOf(survived)
-      val subMoves     = MoveGenerator.generateMoves(next)
+      val subMoves     = MoveGenerator.generateMoves(next, eligibleEpPawns)
       val consumed     = diceConsumedSoFar + diceConsumed
       if subMoves.isEmpty then
         val packed = packPath(currentPath, depth + 1, consumed)
@@ -320,7 +355,7 @@ object TurnGenerator:
       else
         val normalBefore = ctx.normalCount
         val kingBefore   = ctx.kingCaptureCount
-        generatePathsSinglePass(next, currentPath, depth + 1, consumed, ctx, subMoves)
+        generatePathsSinglePass(next, currentPath, depth + 1, consumed, ctx, eligibleEpPawns, subMoves)
         if ctx.normalCount == normalBefore && ctx.kingCaptureCount == kingBefore then
           val packed = packPath(currentPath, depth + 1, consumed)
           ctx.addNormal(packed)

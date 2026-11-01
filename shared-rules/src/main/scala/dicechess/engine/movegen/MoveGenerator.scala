@@ -21,15 +21,18 @@ object MoveGenerator {
     * @return
     *   pseudo-legal moves for all available dice
     */
-  def generateMoves(state: GameState): List[Move] =
+  def generateMoves(state: GameState, eligibleEpPawns: Bitboard): List[Move] =
     state.dicePool.distinct.flatMap { diceRoll =>
       PieceType
         .fromDice(diceRoll)
         .map { pt =>
-          generatePieceMoves(state, pt)
+          generatePieceMoves(state, pt, eligibleEpPawns)
         }
         .getOrElse(Nil)
     }
+
+  def generateMoves(state: GameState): List[Move] =
+    generateMoves(state, Bitboard.full)
 
   /** Generates all pseudo-legal moves for all pieces of the active color (standard chess).
     *
@@ -49,7 +52,11 @@ object MoveGenerator {
     * Note: generates pseudo-legal moves without validating dice-pool constraints or castling legality, which callers
     * (such as search or filtering layers) must enforce.
     */
-  private[engine] def generatePieceMoves(state: GameState, pieceType: PieceType): List[Move] = {
+  private[engine] def generatePieceMoves(
+      state: GameState,
+      pieceType: PieceType,
+      eligibleEpPawns: Bitboard = Bitboard.full
+  ): List[Move] = {
     val color        = state.activeColor
     val isWhite      = color.isWhite
     val enemyPieces  = if isWhite then state.blackPieces else state.whitePieces
@@ -57,7 +64,7 @@ object MoveGenerator {
     val emptySquares = ~allPieces
 
     pieceType match {
-      case PieceType.Pawn   => generatePawnMoves(state, color, emptySquares, enemyPieces)
+      case PieceType.Pawn   => generatePawnMoves(state, color, emptySquares, enemyPieces, eligibleEpPawns)
       case PieceType.Knight => generateLeaperMoves(state, PieceType.Knight, color, enemyPieces)
       case PieceType.Bishop => generateSlidingMoves(state, PieceType.Bishop, color, allPieces, enemyPieces)
       case PieceType.Rook   => generateSlidingMoves(state, PieceType.Rook, color, allPieces, enemyPieces)
@@ -82,7 +89,8 @@ object MoveGenerator {
       state: GameState,
       color: Color,
       emptySquares: Bitboard,
-      enemies: Bitboard
+      enemies: Bitboard,
+      eligibleEpPawns: Bitboard
   ): List[Move] = boundary {
     val isWhite = color.isWhite
     val myPawns = if isWhite then state.whitePieces & state.pawns else state.blackPieces & state.pawns
@@ -104,7 +112,7 @@ object MoveGenerator {
       addPawnCaptures(from, east, color, enemyKings, moves)
       addPawnCaptures(from, west, color, enemyKings, moves)
 
-      addPawnEnPassant(from, fromBB, state.enPassant & emptySquares, color, moves)
+      addPawnEnPassant(from, fromBB, state.enPassant & emptySquares, color, eligibleEpPawns, moves)
 
       p &= p - 1
     }
@@ -147,25 +155,27 @@ object MoveGenerator {
       fromBB: Bitboard,
       enPassant: Bitboard,
       color: Color,
+      eligibleEpPawns: Bitboard,
       moves: mutable.Builder[Move, List[Move]]
-  ): Unit = {
-    val validEPRank = if color.isWhite then 6 else 3
-    var ep          = enPassant.value
-    while ep != 0 do {
-      val epIdx    = java.lang.Long.numberOfTrailingZeros(ep)
-      val epSquare = Square.fromIndex(epIdx)
-      if epSquare.rank == validEPRank then {
-        val epBB     = Bitboard.fromSquare(epSquare)
-        val epEast   = PawnGeneration.eastCaptures(fromBB, epBB, color)
-        val epWest   = PawnGeneration.westCaptures(fromBB, epBB, color)
-        val epTarget = epEast | epWest
-        if !epTarget.isEmpty then {
-          moves += Move(from, epSquare, Move.EnPassantCapture)
+  ): Unit =
+    if eligibleEpPawns.contains(from) then {
+      val validEPRank = if color.isWhite then 6 else 3
+      var ep          = enPassant.value
+      while ep != 0 do {
+        val epIdx    = java.lang.Long.numberOfTrailingZeros(ep)
+        val epSquare = Square.fromIndex(epIdx)
+        if epSquare.rank == validEPRank then {
+          val epBB     = Bitboard.fromSquare(epSquare)
+          val epEast   = PawnGeneration.eastCaptures(fromBB, epBB, color)
+          val epWest   = PawnGeneration.westCaptures(fromBB, epBB, color)
+          val epTarget = epEast | epWest
+          if !epTarget.isEmpty then {
+            moves += Move(from, epSquare, Move.EnPassantCapture)
+          }
         }
+        ep &= ep - 1
       }
-      ep &= ep - 1
     }
-  }
 
   /** Generates pseudo-legal moves for a leaper piece (Knight or King).
     *
