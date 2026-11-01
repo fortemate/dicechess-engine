@@ -47,7 +47,7 @@ Since capturing the opponent's king is the ultimate win condition, **any sequenc
 > [!IMPORTANT]
 > **Scope of the Rule:** The Maximum Micro-moves Rule applies to the **entire turn (macro-turn)** as evaluated from the initial state $S_0$ and the rolled dice pool $D_0$.
 >
-> A game state represented by a standard **DFEN** string only records the current board and the *remaining* dice (e.g., `PN`), but **does not retain memory** of the initial roll $D_0$, the turn's global maximum sequence length $L^*(S_0, D_0)$, or whether a preceding micro-move was played under the condition that it must terminate with capturing the King.
+> A game state represented by a standard **DFEN** string carries the current board position and state metadata (active color, castling rights, en-passant target, move counters, and *remaining* dice pool), but **does not retain memory** of the turn's initial roll $D_0$, the global maximum sequence length $L^*(S_0, D_0)$, or whether a preceding micro-move was played under the commitment that it must terminate with capturing the King.
 >
 > **DFEN alone is insufficient to validate subsequent micro-moves in isolation:**
 > * Re-evaluating legality afresh on an intermediate position (re-rooting) resets the calculation of $L^*$ to only what is achievable from that intermediate position.
@@ -146,10 +146,10 @@ Consider the position `8/8/8/2k5/8/1N6/2P5/K7 w - - 0 1 NPP` (White: Ka1, Nb3, P
 * From $S_0$, White can play a 3-move quiet sequence: `c2c3`, `c3c4`, followed by a Knight move. Thus $L^*(S_0, [N, P, P]) = 3$.
 * White can also play `c2c4` (1st move) followed by `Nb3xc5#` (2nd move, capturing the Black King). Because of the King-Capture Exemption, `c2c4` is admitted as a legal first move.
 * Suppose White plays `c2c4`. The resulting state $S_1$ has DFEN `8/8/8/2k5/2P5/1N6/8/K7 w - c3 0 1 PN` with remaining dice `[P, N]`.
-* If a client evaluates $S_1$ in isolation using `filterMaximalMoves(S_1, [P, N])`, the maximum sequence length achievable from $S_1$ is only 1 die (a Knight move; no Pawn move can follow because no pawn can move).
+* If a client evaluates $S_1$ in isolation using `LegalMovesFilter.filterMaximalMoves(S_1)` (or `filterMaximalMoves(S_1, [P, N])` in pseudocode), the maximum sequence length achievable from $S_1$ is only 1 die (a Knight move; no Pawn move can follow because no pawn can move).
 * Consequently, `filterMaximalMoves` re-rooted at $S_1$ would judge **every** Knight move as achieving length 1 = $L^*(S_1, [P, N])$, including quiet moves like `Nb3-a5`.
 * But playing `c2c4` followed by `Nb3-a5` produces a 2-move sequence that does not capture the King, violating the rule that White had to spend 3 dice!
-* Therefore, after `c2c4`, the **only** legal continuation is `Nb3xc5#`. The engine captures this constraint in `TurnGenerator` and `getLegalTurnTree(dfen)`, which only retains `["c2c4", "b3c5"]`.
+* Therefore, after `c2c4`, the **only** legal continuation is `Nb3xc5#`. The engine captures this constraint in `TurnGenerator` and `getLegalTurnTree(dfen)`: while the turn tree as a whole contains all legal turn sequences, its branch under `c2c4` retains only `b3c5`.
 
 ---
 
