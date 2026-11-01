@@ -1,0 +1,27 @@
+version: 1
+
+# Exclude automated bot PRs and non-production paths
+exclude:
+  authors:
+    - "dependabot[bot]"
+    - "renovate[bot]"
+    - "github-actions[bot]"
+  paths:
+    # Documentation and sites
+    - "docs/**"
+    - "api-docs/**"
+    - "**/*.md"
+    # Test suites, benchmarks, and match runners
+    - "**/src/test/**"
+    - "rules-smoke/**"
+    - "arena/**"
+    - "benchmark/**"
+    # Build output, caches, and package distributions
+    - "target/**"
+    - "project/target/**"
+    - ".sbt/**"
+    - ".bsp/**"
+    - ".wasm/**"
+    - "dist/**"
+    - "dist-wasm/**"
+    - "package-lock.json"
