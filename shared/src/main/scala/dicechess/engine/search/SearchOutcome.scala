@@ -105,11 +105,29 @@ enum SearchOutcome[+A] derives CanEqual:
     case UpperBound(value, _) => Some(value)
     case Incomplete(_)        => None
 
-  /** Transforms the carried value, preserving the outcome kind, its bound direction and its work count. */
+  /** Transforms the carried value with an **order-preserving** `f`, keeping the outcome kind, its bound direction and
+    * its work count.
+    *
+    * A bound is a proof about the true value, and the proof survives `f` only if `f` is monotonically non-decreasing:
+    * `LowerBound(2.0).map(_ * 10)` is still a lower bound, but `LowerBound(2.0).map(x => -x)` would claim the true
+    * value is at least `-2` while a true value of `3` maps to `-3`. Use [[mapReversing]] for an order-reversing `f`
+    * such as a perspective flip; an `f` that is neither (a clamp that is not monotone, a hash) is only sound on
+    * [[SearchOutcome.Exact]] and [[SearchOutcome.Incomplete]], so narrow with [[exactOption]] first.
+    */
   def map[B](f: A => B): SearchOutcome[B] = this match
     case Exact(value, work)      => Exact(f(value), work)
     case LowerBound(value, work) => LowerBound(f(value), work)
     case UpperBound(value, work) => UpperBound(f(value), work)
+    case Incomplete(work)        => Incomplete(work)
+
+  /** Transforms the carried value with an **order-reversing** `f` (monotonically non-increasing, such as negation when
+    * re-stating a value for the opposite perspective), swapping the bound direction so the proof stays true: a lower
+    * bound on the value is an upper bound on its negation.
+    */
+  def mapReversing[B](f: A => B): SearchOutcome[B] = this match
+    case Exact(value, work)      => Exact(f(value), work)
+    case LowerBound(value, work) => UpperBound(f(value), work)
+    case UpperBound(value, work) => LowerBound(f(value), work)
     case Incomplete(work)        => Incomplete(work)
 
   /** The same outcome reported with a different cumulative work count, for callers that aggregate nested work. */

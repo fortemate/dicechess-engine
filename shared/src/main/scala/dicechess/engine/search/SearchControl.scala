@@ -88,13 +88,19 @@ final class SearchControl(
     *
     * Cheap enough for the hottest yield point (a field read, an optional field read, and a clock read only on the timed
     * path), which is what lets a search check it between dice rolls rather than between root candidates.
+    *
+    * The clock is compared directly (`clockNanos() >= deadlineNanos`), as the pre-existing deadline code did, rather
+    * than through the `now - deadline >= 0` idiom: that idiom tolerates a clock that wraps around `Long.MaxValue`, but
+    * it also wraps for a caller-supplied deadline more than 2^63 ns from `now`, so `Long.MinValue` — a deadline that is
+    * already past by any reading — would never fire. A deadline is an instant on the same clock, so the direct
+    * comparison is the one that is correct for every representable value.
     */
   def isCancelled: Boolean =
     latched || {
       val exhausted = budget match
         case Some(b) => b.exhausted
         case None    => false
-      val fired = exhausted || (isTimed && clockNanos() - deadlineNanos >= 0L)
+      val fired = exhausted || (isTimed && clockNanos() >= deadlineNanos)
       if fired then latched = true
       fired
     }

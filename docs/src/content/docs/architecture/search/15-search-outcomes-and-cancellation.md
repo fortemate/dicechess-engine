@@ -32,6 +32,8 @@ Three decisions carry the contract:
 - **Strict cutoffs.** Fail-low needs `< alpha` and fail-high needs `> beta`, never `<=`/`>=`. A root candidate whose bound exactly ties the best completed score may still *equal* the best, so it must reach `Exact` and the seeded random tie-break instead of vanishing into a bound.
 - **One perspective.** Every value is expressed for the single `perspective` colour the search was asked for (section 3); nothing is negated on its way up the tree.
 
+`map(f)` keeps the outcome kind and is sound only for an order-preserving `f`; `mapReversing(f)` swaps `LowerBound` and `UpperBound` for an order-reversing `f` such as a perspective flip. Neither can turn a bound into a false proof as long as the caller picks the one matching its transform.
+
 `workUsed` is the invocation's cumulative [`BudgetedRules.Budget`](/dicechess-engine/architecture/rules-budgets/) count at the moment the outcome was produced — rules work units (generator calls, examined micro-moves, capture-roll iterations), not time or bytes — and `0` when the search ran without a budget. `SearchOutcome.fromRules` lifts a `BudgetedRules.Outcome` into this vocabulary (`Complete → Exact`, `Incomplete → Incomplete`); rules queries never produce one-sided bounds.
 
 ## 2. `SearchControl` and the cancellation check order

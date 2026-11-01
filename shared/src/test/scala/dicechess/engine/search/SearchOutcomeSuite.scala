@@ -54,6 +54,21 @@ class SearchOutcomeSuite extends FunSuite:
       )
     )
 
+  test("mapReversing swaps the bound direction so an order-reversing transform keeps the proof true"):
+    // True value v >= 2 (lower bound). Under negation -v <= -2: an upper bound, not a lower one.
+    val lower: SearchOutcome[Double] = SearchOutcome.LowerBound(2.0, 6L)
+    assertEquals(lower.mapReversing(x => -x), SearchOutcome.UpperBound(-2.0, 6L))
+    val upper: SearchOutcome[Double] = SearchOutcome.UpperBound(3.0, 7L)
+    assertEquals(upper.mapReversing(x => -x), SearchOutcome.LowerBound(-3.0, 7L))
+    assertEquals(SearchOutcome.Exact(1.0, 5L).mapReversing(x => -x), SearchOutcome.Exact(-1.0, 5L))
+    assertEquals(
+      (SearchOutcome.Incomplete(8L): SearchOutcome[Double]).mapReversing(x => -x),
+      SearchOutcome.Incomplete(8L)
+    )
+    // Witness: a true value of 3 satisfies the original lower bound, and its image -3 satisfies the swapped bound.
+    val trueValue = 3.0
+    assert(trueValue >= 2.0 && -trueValue <= -2.0)
+
   test("fromRules lifts Complete to Exact and Incomplete to Incomplete with the same work count"):
     val state = parse("4k3/8/8/8/8/8/8/4K2R w K - 0 1").withDicePool(List(6, 4))
     val full  = SearchOutcome.fromRules(BudgetedRules.turnPaths(state, new BudgetedRules.Budget(Long.MaxValue)))

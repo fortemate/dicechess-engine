@@ -397,8 +397,13 @@ final class ExpectimaxSearch(
       while i < resultStates.length && !ranOut do
         if control.isCancelled then ranOut = true
         else
-          tainted(i) = losesKingOnSomeRoll(resultStates(i), myColor)
-          i += 1
+          val taint = losesKingOnSomeRoll(resultStates(i), myColor, control)
+          // A budgeted guard query that ran out returns no verdict and leaves the control cancelled: re-read it before
+          // recording the candidate, exactly as the exact path re-reads it after a reply generation.
+          if control.isCancelled then ranOut = true
+          else
+            tainted(i) = taint
+            i += 1
       Option.unless(ranOut)(tainted)
 
   /** A collapsed candidate's ranking score: the model's expectation, blended with the root rescore unless this line
@@ -415,11 +420,21 @@ final class ExpectimaxSearch(
       case _                                      => value.toDouble
 
   /** Whether any dice outcome lets the opponent capture our king from `afterTurn`, which is exactly what the exact
-    * expansion records as a loss taint — obtained from [[KingCaptureProbability]]'s 216-outcome search instead of from
-    * 56 chance-node expansions, because a collapsed candidate never expands one.
+    * expansion records as a loss taint — obtained from a 216-outcome capture search instead of from 56 chance-node
+    * expansions, because a collapsed candidate never expands one.
+    *
+    * Under a work budget the query is `BudgetedRules.kingCaptureRolls` on the invocation's shared budget, so the guard
+    * is bounded like every other nested rules query; an interrupted query returns no verdict (the value here is then
+    * meaningless) and the caller re-reads `control.isCancelled`. Without a budget the scratch-board
+    * [[KingCaptureProbability]] search is the cheaper way to the same answer.
     */
-  private def losesKingOnSomeRoll(afterTurn: GameState, myColor: Color): Boolean =
-    KingCaptureProbability.kingCaptureProbability(afterTurn, myColor) > 0.0
+  private def losesKingOnSomeRoll(afterTurn: GameState, myColor: Color, control: SearchControl): Boolean =
+    control.budget match
+      case Some(budget) =>
+        BudgetedRules.kingCaptureRolls(afterTurn, myColor, budget) match
+          case BudgetedRules.Outcome.Complete(count, _) => count > 0
+          case BudgetedRules.Outcome.Incomplete(_)      => false
+      case None => KingCaptureProbability.kingCaptureProbability(afterTurn, myColor) > 0.0
 
   /** The rescore weight paired with one score per candidate, or `None` when no rescorer is configured, weight zero
     * disabled it, or the deadline elapsed before the batch could start.

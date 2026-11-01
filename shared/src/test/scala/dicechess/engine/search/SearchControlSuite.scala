@@ -46,6 +46,13 @@ class SearchControlSuite extends FunSuite:
     val control = SearchControl.untilDeadline(deadlineNanos = 0L, clockNanos = () => 1L)
     assert(control.isCancelled)
 
+  test("extreme deadlines cannot overflow the comparison: Long.MinValue is already past, Long.MaxValue - 1 is not"):
+    // A subtractive `now - deadline >= 0` check wraps for |deadline - now| >= 2^63 and would leave this control live.
+    assert(SearchControl.untilDeadline(Long.MinValue, () => 0L).isCancelled)
+    assert(SearchControl.untilDeadline(Long.MinValue, () => Long.MaxValue).isCancelled)
+    assert(!SearchControl.untilDeadline(Long.MaxValue - 1, () => Long.MinValue).isCancelled)
+    assert(!SearchControl.untilDeadline(Long.MaxValue - 1, () => 0L).isCancelled)
+
   test("a clock running backwards cannot revive a cancelled control"):
     var now     = 10L
     val control = SearchControl.untilDeadline(deadlineNanos = 5L, clockNanos = () => now)

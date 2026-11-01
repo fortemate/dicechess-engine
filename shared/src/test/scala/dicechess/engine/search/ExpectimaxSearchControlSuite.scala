@@ -213,6 +213,32 @@ class ExpectimaxSearchControlSuite extends FunSuite:
       assert(st.deadlineTruncated, s"Budget($limit): expected truncation, got $st")
       assertEquals(st.legalTurns, fullSt.legalTurns)
 
+  test("a collapsed root's loss guard is charged to the shared budget and abandons the batch when it runs out"):
+    // Black's rook on e8 sees the white king on e1 whatever White plays, so every candidate is loss-tainted; with the
+    // guard on, the rescorer (9000) must not rescue the collapsed value (500). The guard's 216-outcome searches are
+    // nested rules work and must run on the control's budget like every other nested query.
+    val lost    = parse("4r2k/8/8/8/8/8/P6P/4K3 w - - 0 1 PPP")
+    var stats   = Option.empty[RootSearchStats]
+    val guarded = ExpectimaxSearch(
+      materialBatch,
+      ExpectimaxConfig(candidateLimit = 2),
+      rootRescore = Some(RootRescore((states, _) => Array.fill(states.length)(9000), 1.0)),
+      statsSink = s => stats = Some(s),
+      chanceCollapse = Some(ChanceCollapse((states, _) => Array.fill(states.length)(500), lossGuard = true))
+    )
+    val ample = new BudgetedRules.Budget(Long.MaxValue)
+    assertEquals(guarded.findBestMove(lost, SearchControl.withBudget(ample), Random(0)).map(_.score), Some(500))
+    assert(ample.used > 0, "the guard's capture searches must be charged to the budget")
+    assertEquals(stats.map(_.candidatesCollapsed), Some(2))
+    assertEquals(guarded.findBestMove(lost, SearchControl.Unbounded, Random(0)).map(_.score), Some(500))
+
+    val tiny = new BudgetedRules.Budget(0)
+    val move = guarded.findBestMove(lost, SearchControl.withBudget(tiny), Random(0))
+    assert(move.isDefined, "the anytime contract still owes a legal turn")
+    assert(tiny.exhausted, "the guard must have tried to spend the budget")
+    assert(stats.get.fellBackToPreRank, s"a guard that runs out ranks nothing, got $stats")
+    assertEquals(stats.map(_.candidatesCollapsed), Some(0))
+
   test("F7: an immediate root king capture short-circuits with TerminalWinScore before any control check"):
     val probe  = new Probe(2)
     val budget = new BudgetedRules.Budget(0)
