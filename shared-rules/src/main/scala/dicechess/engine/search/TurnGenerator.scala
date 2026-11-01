@@ -201,8 +201,7 @@ object TurnGenerator:
       hasS2 = false
       prevM1 = -1
 
-    def replay(outPath: Array[Move], len: Int, isKingCapture: Boolean): GameState =
-      val m0    = outPath(0)
+    private inline def step1(m0: Move): Unit =
       val m0Int = m0.toInt
       if !hasS1 || m0Int != prevM0 then
         s1 = state.makeMove(m0)
@@ -211,18 +210,22 @@ object TurnGenerator:
         hasS2 = false
         prevM1 = -1
 
-      if len == 1 then if isKingCapture then s1 else s1.endTurn()
-      else
-        val m1    = outPath(1)
-        val m1Int = m1.toInt
-        if !hasS2 || m1Int != prevM1 then
-          s2 = s1.makeMove(m1)
-          prevM1 = m1Int
-          hasS2 = true
-        if len == 2 then if isKingCapture then s2 else s2.endTurn()
-        else
-          val s3 = s2.makeMove(outPath(2))
-          if isKingCapture then s3 else s3.endTurn()
+    private inline def step2(m1: Move): GameState =
+      val m1Int = m1.toInt
+      if !hasS2 || m1Int != prevM1 then
+        s2 = s1.makeMove(m1)
+        prevM1 = m1Int
+        hasS2 = true
+      s2
+
+    def replay(outPath: Array[Move], len: Int, isKingCapture: Boolean): GameState =
+      step1(outPath(0))
+      val rawState =
+        if len == 1 then s1
+        else if len == 2 then step2(outPath(1))
+        else step2(outPath(1)).makeMove(outPath(2))
+
+      if isKingCapture then rawState else rawState.endTurn()
 
   private[search] inline def replayTurnStates(
       state: GameState,
