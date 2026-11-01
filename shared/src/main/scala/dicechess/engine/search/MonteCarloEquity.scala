@@ -177,23 +177,18 @@ object MonteCarloEquity:
     * [[MaxRollRetries]] times; returns `None` when none is found.
     */
   private def advance(state: GameState, random: Random): Option[GameState] = boundary:
-    var attempt = 0
+    var attempt   = 0
+    val survivors = collection.mutable.ArrayBuffer.empty[GameState]
     while attempt < MaxRollRetries do
       val roll   = List(random.nextInt(6) + 1, random.nextInt(6) + 1, random.nextInt(6) + 1)
       val rolled = state.withDicePool(roll)
-      val paths  = TurnGenerator.generateAllLegalTurnPaths(rolled)
-      if paths.nonEmpty then
-        val survivors = paths.filterNot(p => capturesOpponentKing(rolled, p))
-        if survivors.nonEmpty then
-          val chosen = survivors(random.nextInt(survivors.length))
-          break(Some(chosen.foldLeft(rolled)((s, m) => s.makeMove(m)).endTurn()))
+      survivors.clear()
+      TurnGenerator.forEachLegalTurnState(rolled) { (_, _, resState, isKingCapture) =>
+        if !isKingCapture then survivors += resState
+        true
+      }
+      if survivors.nonEmpty then
+        val chosen = survivors(random.nextInt(survivors.length))
+        break(Some(chosen))
       attempt += 1
     None
-
-  /** True when the last move of `path` captures the side-not-to-move's king (i.e. the turn ends the game). */
-  private def capturesOpponentKing(state: GameState, path: List[Move]): Boolean =
-    if path.isEmpty then false
-    else
-      val beforeLast = path.init.foldLeft(state)((s, m) => s.makeMove(m))
-      val target     = beforeLast.mailbox(path.last.toSquare)
-      !target.isEmpty && target.pieceType == PieceType.King && target.color != state.activeColor

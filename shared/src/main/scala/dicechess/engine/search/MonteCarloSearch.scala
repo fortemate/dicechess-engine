@@ -40,6 +40,13 @@ object MonteCarloSearch extends SearchAlgorithm with DrawOfferLogic with TimeBud
 
   private val rand = new Random()
 
+  /** Internal container for candidate turns evaluated in search. */
+  final private case class CandidateTurn(
+      moves: List[Move],
+      score: Int,
+      resultingState: GameState
+  )
+
   override def findBestMove(state: GameState): Option[ScoredSequence] =
     findBestMove(state, DefaultConfig, rand)
 
@@ -49,13 +56,38 @@ object MonteCarloSearch extends SearchAlgorithm with DrawOfferLogic with TimeBud
 
   /** Finds the best turn under an explicit rollout budget and random source. */
   def findBestMove(state: GameState, config: MonteCarloConfig, random: Random): Option[ScoredSequence] =
-    val paths = TurnGenerator.generateAllLegalTurnPaths(state)
-    if paths.isEmpty then None
+    val kingCaptures = collection.mutable.ArrayBuffer.empty[(List[Move], Int)]
+    var bestScore    = Int.MinValue
+    val optimalMoves = collection.mutable.ArrayBuffer.empty[List[Move]]
+    var anyPath      = false
+
+    TurnGenerator.forEachLegalTurnState(state) { (moves, len, resState, isKingCapture) =>
+      anyPath = true
+      if isKingCapture then
+        kingCaptures += ((moves.take(len).toList, len))
+        true
+      else if kingCaptures.nonEmpty then
+        // All king captures are emitted before normal paths; stop early as a king capture strictly dominates.
+        false
+      else
+        val score = equityEval(config, random)(resState, state.activeColor)
+        if score > bestScore then
+          bestScore = score
+          optimalMoves.clear()
+          optimalMoves += moves.take(len).toList
+        else if score == bestScore then optimalMoves += moves.take(len).toList
+        true
+    }
+
+    if !anyPath then None
+    else if kingCaptures.nonEmpty then
+      val minLen   = kingCaptures.map(_._2).min
+      val bestWins = kingCaptures.filter(_._2 == minLen)
+      val chosen   = bestWins(random.nextInt(bestWins.length))._1
+      Some(ScoredSequence(chosen, SearchScoring.TerminalWinScore))
     else
-      val scoredPaths  = paths.map(path => SearchScoring.scorePath(state, path, equityEval(config, random)))
-      val maxCriterion = scoredPaths.map(s => (s.score, terminalWinPreference(s))).max
-      val optimalPaths = scoredPaths.filter(s => (s.score, terminalWinPreference(s)) == maxCriterion)
-      Some(optimalPaths(random.nextInt(optimalPaths.length)))
+      val chosen = optimalMoves(random.nextInt(optimalMoves.length))
+      Some(ScoredSequence(chosen, bestScore))
 
   /** Finds the best turn under a **wall-clock** deadline (`deadlineNanos`, a [[java.lang.System.nanoTime]] value), so a
     * bot on a game clock never overruns. The caller allocates the game budget into a per-move deadline.
@@ -71,22 +103,37 @@ object MonteCarloSearch extends SearchAlgorithm with DrawOfferLogic with TimeBud
       deadlineNanos: Long,
       random: Random
   ): Option[ScoredSequence] = boundary:
-    val paths = TurnGenerator.generateAllLegalTurnPaths(state)
-    if paths.isEmpty then break(None)
+    val kingCaptures = collection.mutable.ArrayBuffer.empty[CandidateTurn]
+    val normalTurns  = collection.mutable.ArrayBuffer.empty[CandidateTurn]
+    var anyPath      = false
 
-    // Cheap material pre-score; scorePath assigns TerminalWinScore to king-capture turns regardless of the evalFn.
-    val preScored = paths.map(p => SearchScoring.scorePath(state, p, Evaluator.evaluateMaterial))
-    val captures  = preScored.filter(_.score == SearchScoring.TerminalWinScore)
-    if captures.nonEmpty then break(Some(captures.minBy(_.moves.size))) // take the fastest win, no rollouts needed
+    TurnGenerator.forEachLegalTurnState(state) { (moves, len, resState, isKingCapture) =>
+      anyPath = true
+      if isKingCapture then
+        kingCaptures += CandidateTurn(moves.take(len).toList, SearchScoring.TerminalWinScore, resState)
+        true
+      else if kingCaptures.nonEmpty then
+        // All king captures are emitted first; stop early if any king capture was found.
+        false
+      else
+        val matScore = Evaluator.evaluateMaterial(resState, state.activeColor)
+        normalTurns += CandidateTurn(moves.take(len).toList, matScore, resState)
+        true
+    }
 
-    val candidates = preScored.sortBy(s => -s.score).take(MaxCandidates)
+    if !anyPath then break(None)
+    if kingCaptures.nonEmpty then
+      // Take the fastest win, no rollouts needed
+      break(Some(ScoredSequence(kingCaptures.minBy(_.moves.size).moves, SearchScoring.TerminalWinScore)))
+
+    val candidates = normalTurns.sortBy(c => -c.score).take(MaxCandidates)
     val myColor    = state.activeColor
     var best       = candidates.head // fallback: the best material turn
     var bestWin    = Double.NegativeInfinity
     var i          = 0
     while i < candidates.length && System.nanoTime() < deadlineNanos do
       val slice      = System.nanoTime() + (deadlineNanos - System.nanoTime()) / (candidates.length - i)
-      val finalState = candidates(i).moves.foldLeft(state)((s, m) => s.makeMove(m)).endTurn()
+      val finalState = candidates(i).resultingState
       val est        = MonteCarloEquity.estimate(finalState, config, slice, random)
       val win        = if myColor.isWhite then est.whiteWin else est.blackWin
       if win > bestWin then
@@ -104,13 +151,9 @@ object MonteCarloSearch extends SearchAlgorithm with DrawOfferLogic with TimeBud
   override def findBestMove(state: GameState, deadlineNanos: Long, random: Random): Option[ScoredSequence] =
     findBestMove(state, DeadlineConfig, deadlineNanos, random)
 
-  /** Among equal-scoring paths, prefer a shorter king capture (faster win); irrelevant for non-terminal scores. */
-  private def terminalWinPreference(scored: ScoredSequence): Int =
-    if scored.score == SearchScoring.TerminalWinScore then -scored.moves.size else 0
-
-  /** Evaluation handed to [[SearchScoring.scorePath]]: the Monte-Carlo win probability of the post-turn position from
-    * the moving side's perspective, scaled to an integer. `scorePath` short-circuits king captures to
-    * [[SearchScoring.TerminalWinScore]] before this is called, so rollouts run only on non-terminal continuations.
+  /** Computes the Monte-Carlo win probability of the post-turn position from the moving side's perspective, scaled to
+    * an integer. King captures short-circuit to [[SearchScoring.TerminalWinScore]] before this is called, so rollouts
+    * run only on non-terminal continuations.
     */
   private def equityEval(config: MonteCarloConfig, random: Random)(state: GameState, color: Color): Int =
     val est     = MonteCarloEquity.estimate(state, config, random)
