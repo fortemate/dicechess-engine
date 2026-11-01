@@ -640,6 +640,17 @@ object MoveGenFixtures:
         "b3d4",
         "c2c3",
         "c2c4"
+      ),
+    "8/6KP/8/8/8/8/1k6/8 w - - 0 1 PBB"
+      .titled("Blocked bishop promotion with bishop dice")
+      .describedAs(
+        "Pawn on h7 can promote to any piece. Although a bishop is rolled (PBB), promoting to a bishop blocks the diagonal due to the friendly King on g7, so the bishop cannot make a second move. As a result, no continuation can exceed 1 micro-move, making all promotions legal under the Maximum Micro-moves Rule."
+      )
+      .shouldYield(
+        "h7h8b",
+        "h7h8n",
+        "h7h8q",
+        "h7h8r"
       )
   )
 
