@@ -80,7 +80,7 @@ object BudgetedRules:
   def visitTurnStates(state: GameState, budget: Budget)(
       f: (Array[Move], Int, GameState, Boolean) => Boolean
   ): Outcome[TurnVisitSummary] =
-    val collector = new BudgetedPathCollector(budget)
+    val collector = new BudgetedPathCollector(budget, MoveGenerator.computeEligibleEpPawns(state))
     if !budget.exhausted then collector.visit(state, 0, 0)
     if budget.exhausted then Outcome.Incomplete(budget.used)
     else
@@ -115,7 +115,7 @@ object BudgetedRules:
   def foldTurnStates[A](state: GameState, initial: A, budget: Budget)(
       f: (A, List[Move], GameState, Boolean) => (A, Boolean)
   ): Outcome[TurnFoldResult[A]] =
-    val collector = new BudgetedPathCollector(budget)
+    val collector = new BudgetedPathCollector(budget, MoveGenerator.computeEligibleEpPawns(state))
     if !budget.exhausted then collector.visit(state, 0, 0)
     if budget.exhausted then Outcome.Incomplete(budget.used)
     else
@@ -134,13 +134,13 @@ object BudgetedRules:
         }
         Outcome.Complete(TurnFoldResult(acc, stopped), budget.used)
 
-  private class BudgetedPathCollector(budget: Budget):
+  private class BudgetedPathCollector(budget: Budget, eligibleEpPawns: Bitboard):
     val ctx                 = new TurnGenerator.TurnGenContext()
     private val currentPath = new Array[Move](3)
 
     def visit(s: GameState, depth: Int, consumed: Int): Unit =
       if budget.admit() then
-        var remaining = MoveGenerator.generateMoves(s)
+        var remaining = MoveGenerator.generateMoves(s, eligibleEpPawns)
         val before    = ctx.normalCount + ctx.kingCaptureCount
         while remaining.nonEmpty && !budget.exhausted do
           val move = remaining.head
@@ -165,7 +165,7 @@ object BudgetedRules:
     * complete list means a pass. Exhaustion during generation discards the buffered prefix.
     */
   def turnPaths(state: GameState, budget: Budget): Outcome[List[List[Move]]] =
-    val paths = new PathCollector(budget)
+    val paths = new PathCollector(budget, MoveGenerator.computeEligibleEpPawns(state))
     if !budget.exhausted then paths.visit(state, Nil, 0)
     if budget.exhausted then Outcome.Incomplete(budget.used)
     else Outcome.Complete(paths.result(), budget.used)
@@ -179,17 +179,17 @@ object BudgetedRules:
   def kingCapturePath(state: GameState, budget: Budget): Outcome[Option[List[Move]]] =
     val pieces  = if state.activeColor.isWhite then state.blackPieces else state.whitePieces
     val targets = state.kings & pieces
-    val search  = new CaptureWitness(budget)
+    val search  = new CaptureWitness(budget, MoveGenerator.computeEligibleEpPawns(state))
     if !budget.exhausted && !targets.isEmpty then search.visit(state, Nil, GameFlags.DiceSlots)
     if budget.exhausted then Outcome.Incomplete(budget.used)
     else Outcome.Complete(search.result, budget.used)
 
-  private class CaptureWitness(budget: Budget):
+  private class CaptureWitness(budget: Budget, eligibleEpPawns: Bitboard):
     private var found: Option[List[Move]]                                       = None
     def result: Option[List[Move]]                                              = found
     def visit(state: GameState, reversed: List[Move], remainingDice: Int): Unit =
       if remainingDice > 0 && budget.admit() then
-        var moves = MoveGenerator.generateMoves(state)
+        var moves = MoveGenerator.generateMoves(state, eligibleEpPawns)
         while moves.nonEmpty && found.isEmpty && !budget.exhausted do
           examine(state, reversed, remainingDice, moves.head)
           moves = moves.tail
@@ -203,7 +203,7 @@ object BudgetedRules:
           if surviving.isValid then
             visit(state.makeMove(move).withDiceSlotsOf(surviving), move :: reversed, remainingDice - spent)
 
-  private class PathCollector(budget: Budget):
+  private class PathCollector(budget: Budget, eligibleEpPawns: Bitboard):
     private val normal                                           = ListBuffer.empty[(List[Move], Int)]
     private val kings                                            = ListBuffer.empty[List[Move]]
     private var maxDice                                          = 0
@@ -214,7 +214,7 @@ object BudgetedRules:
       kings.toList ++ normal.iterator.filter(_._2 == maxDice).map(_._1).toList
     def visit(s: GameState, path: List[Move], consumed: Int): Unit =
       if budget.admit() then
-        var remaining = MoveGenerator.generateMoves(s)
+        var remaining = MoveGenerator.generateMoves(s, eligibleEpPawns)
         val before    = normal.size + kings.size
         while remaining.nonEmpty && !budget.exhausted do
           examine(s, path, consumed, remaining.head)
@@ -240,30 +240,41 @@ object BudgetedRules:
   def kingCaptureRolls(state: GameState, defender: Color, budget: Budget): Outcome[Int] =
     val pieces  = if defender.isWhite then state.whitePieces else state.blackPieces
     val targets = pieces & state.kings
-    var count   = 0
-    var index   = 0
+    val mover   = state.withActiveColor(defender.opponent)
+    // Eligibility depends only on the attacker's pawns and the inherited target, not on the roll, so it is fixed
+    // once per query exactly as `TurnGenerator` fixes it once per turn (#419).
+    val eligible = MoveGenerator.computeEligibleEpPawns(mover)
+    var count    = 0
+    var index    = 0
     while !targets.isEmpty && index < DiceRolls.weighted.length && !budget.exhausted do
       if budget.admit() then
         val (dice, weight) = DiceRolls.weighted(index)
-        val rolled         = state.withActiveColor(defender.opponent).withDicePool(dice)
-        if canCapture(rolled, budget, GameFlags.DiceSlots) then count += weight
+        val rolled         = mover.withDicePool(dice)
+        if canCapture(rolled, budget, GameFlags.DiceSlots, eligible) then count += weight
       index += 1
     if budget.exhausted then Outcome.Incomplete(budget.used)
     else Outcome.Complete(count, budget.used)
 
-  private def canCapture(state: GameState, budget: Budget, remainingDice: Int): Boolean =
+  private def canCapture(state: GameState, budget: Budget, remainingDice: Int, eligibleEpPawns: Bitboard): Boolean =
     var found = false
     if remainingDice > 0 && budget.admit() then
-      var moves = MoveGenerator.generateMoves(state)
+      var moves = MoveGenerator.generateMoves(state, eligibleEpPawns)
       while moves.nonEmpty && !found && !budget.exhausted do
         val move = moves.head
-        if budget.admit() then found = captureMove(state, move, budget, remainingDice)
+        if budget.admit() then found = captureMove(state, move, budget, remainingDice, eligibleEpPawns)
         moves = moves.tail
     found
 
-  private def captureMove(state: GameState, move: Move, budget: Budget, remainingDice: Int): Boolean =
+  private def captureMove(
+      state: GameState,
+      move: Move,
+      budget: Budget,
+      remainingDice: Int,
+      eligibleEpPawns: Bitboard
+  ): Boolean =
     if state.isKingCapture(move) then true
     else
       val surviving = state.diceAfter(move)
       val spent     = if move.isCastling then 2 else 1
-      surviving.isValid && canCapture(state.makeMove(move).withDiceSlotsOf(surviving), budget, remainingDice - spent)
+      surviving.isValid &&
+      canCapture(state.makeMove(move).withDiceSlotsOf(surviving), budget, remainingDice - spent, eligibleEpPawns)
