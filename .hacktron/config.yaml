@@ -1,0 +1,34 @@
+version: 1
+
+# Skip scans on automated dependency/bot pull requests to preserve quota
+skip:
+  authors:
+    - "dependabot[bot]"
+    - "renovate[bot]"
+    - "github-actions[bot]"
+
+# Exclude non-production paths and dependency branches
+exclude:
+  branches:
+    - "dependabot/**"
+    - "renovate/**"
+  paths:
+    # Documentation and sites
+    - "docs/**"
+    - "api-docs/**"
+    - "**/*.md"
+    # Test suites, benchmarks, and match runners
+    - "**/src/test/**"
+    - "rules-smoke/**"
+    - "arena/**"
+    - "benchmark/**"
+    # Build output, caches, and package distributions
+    - "target/**"
+    - "project/target/**"
+    - ".sbt/**"
+    - ".bsp/**"
+    - ".wasm/**"
+    - ".mise/**"
+    - "dist/**"
+    - "dist-wasm/**"
+    - "package-lock.json"
