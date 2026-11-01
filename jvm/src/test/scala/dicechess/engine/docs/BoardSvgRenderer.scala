@@ -29,6 +29,82 @@ object BoardSvgRenderer:
     |    <g id="bK" fill="none" fill-rule="evenodd" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22.5 11.63V6" stroke-linejoin="miter"/><path d="M22.5 25s4.5-7.5 3-10.5c0 0-1-2.5-3-2.5s-3 2.5-3 2.5c-1.5 3 3 10.5 3 10.5" fill="#000" stroke-linecap="butt" stroke-linejoin="miter"/><path d="M11.5 37c5.5 3.5 15.5 3.5 21 0v-7s9-4.5 6-10.5c-4-6.5-13.5-3.5-16 4V27v-3.5c-3.5-7.5-13-10.5-16-4-3 6 5 10 5 10V37z" fill="#000"/><path d="M20 8h5" stroke-linejoin="miter"/><path d="M32 29.5s8.5-4 6.03-9.65C34.15 14 25 18 22.5 24.5l.01 2.1-.01-2.1C20 18 9.906 14 6.997 19.85c-2.497 5.65 4.853 9 4.853 9" stroke="#ececec"/><path d="M11.5 30c5.5-3 15.5-3 21 0m-21 3.5c5.5-3 15.5-3 21 0m-21 3.5c5.5-3 15.5-3 21 0" stroke="#ececec"/></g>
     |  </defs>""".stripMargin
 
+  private def renderDarkSquares: String =
+    val squares = for
+      row <- 0 until 8
+      col <- 0 until 8
+      if (col + row) % 2 == 1
+    yield
+      val x = col * 45
+      val y = row * 45
+      s"""    <rect x="$x" y="$y" width="45" height="45"/>"""
+    squares.mkString("  <g fill=\"#b58863\">\n", "\n", "\n  </g>")
+
+  private def renderFileLabels(flipped: Boolean): Seq[String] =
+    for col <- 0 until 8 yield
+      val fileChar = if flipped then ('h' - col).toChar else ('a' + col).toChar
+      val fill     = if (col + 7) % 2 == 1 then "#f0d9b5" else "#b58863"
+      val x        = col * 45 + 3
+      val y        = 7 * 45 + 42
+      s"""    <text x="$x" y="$y" fill="$fill">$fileChar</text>"""
+
+  private def renderRankLabels(flipped: Boolean): Seq[String] =
+    for row <- 0 until 8 yield
+      val rankNum = if flipped then row + 1 else 8 - row
+      val fill    = if (7 + row) % 2 == 1 then "#f0d9b5" else "#b58863"
+      val x       = 7 * 45 + 37
+      val y       = row * 45 + 11
+      s"""    <text x="$x" y="$y" fill="$fill">$rankNum</text>"""
+
+  private def renderCoordinates(flipped: Boolean): String =
+    val labels = renderFileLabels(flipped) ++ renderRankLabels(flipped)
+    labels.mkString(
+      "  <g font-family=\"-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\" font-size=\"10\" font-weight=\"bold\">\n",
+      "\n",
+      "\n  </g>"
+    )
+
+  private def charToPieceId(c: Char): Option[String] = c match
+    case 'P' => Some("wP")
+    case 'N' => Some("wN")
+    case 'B' => Some("wB")
+    case 'R' => Some("wR")
+    case 'Q' => Some("wQ")
+    case 'K' => Some("wK")
+    case 'p' => Some("bP")
+    case 'n' => Some("bN")
+    case 'b' => Some("bB")
+    case 'r' => Some("bR")
+    case 'q' => Some("bQ")
+    case 'k' => Some("bK")
+    case _   => None
+
+  private def renderRankPieces(rankStr: String, rankIndex: Int, flipped: Boolean): Seq[String] =
+    val result = scala.collection.mutable.ArrayBuffer.empty[String]
+    var col    = 0
+    for c <- rankStr do
+      if c.isDigit then col += c - '0'
+      else
+        charToPieceId(c).foreach { pieceId =>
+          if col < 8 then
+            val finalCol = if flipped then 7 - col else col
+            val finalRow = if flipped then 7 - rankIndex else rankIndex
+            val x        = finalCol * 45
+            val y        = finalRow * 45
+            result += s"""    <use href="#$pieceId" x="$x" y="$y"/>"""
+        }
+        col += 1
+    result.toSeq
+
+  private def renderPieces(fen: String, flipped: Boolean): String =
+    val placement = fen.trim.split(" ").headOption.getOrElse("")
+    val ranks     = placement.split("/").take(8)
+    val uses      = for
+      (rankStr, rankIndex) <- ranks.zipWithIndex
+      useTag               <- renderRankPieces(rankStr, rankIndex, flipped)
+    yield useTag
+    uses.mkString("  <g>\n", "\n", "\n  </g>")
+
   /** Renders an SVG chessboard from the given FEN string.
     *
     * @param fen
@@ -44,76 +120,10 @@ object BoardSvgRenderer:
       """<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 360 360" width="100%" height="100%">""" + "\n"
     )
     sb.append(SvgDefs).append("\n")
-
-    // Background light squares
     sb.append("""  <rect width="360" height="360" fill="#f0d9b5"/>""" + "\n")
-
-    // 32 dark squares
-    sb.append("  <g fill=\"#b58863\">\n")
-    for row <- 0 until 8 do
-      for col <- 0 until 8 do
-        if (col + row) % 2 == 1 then
-          val x = col * 45
-          val y = row * 45
-          sb.append(s"""    <rect x="$x" y="$y" width="45" height="45"/>\n""")
-    sb.append("  </g>\n")
-
-    // Coordinate text labels
-    sb.append(
-      "  <g font-family=\"-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\" font-size=\"10\" font-weight=\"bold\">\n"
-    )
-    // File labels on bottom rank (row 7)
-    for col <- 0 until 8 do
-      val fileChar = if flipped then ('h' - col).toChar else ('a' + col).toChar
-      val isDark   = (col + 7) % 2 == 1
-      val fill     = if isDark then "#f0d9b5" else "#b58863"
-      val x        = col * 45 + 3
-      val y        = 7 * 45 + 42
-      sb.append(s"""    <text x="$x" y="$y" fill="$fill">$fileChar</text>\n""")
-
-    // Rank labels on right file (col 7)
-    for row <- 0 until 8 do
-      val rankNum = if flipped then row + 1 else 8 - row
-      val isDark  = (7 + row) % 2 == 1
-      val fill    = if isDark then "#f0d9b5" else "#b58863"
-      val x       = 7 * 45 + 37
-      val y       = row * 45 + 11
-      sb.append(s"""    <text x="$x" y="$y" fill="$fill">$rankNum</text>\n""")
-    sb.append("  </g>\n")
-
-    // Pieces placement
-    val fenPlacement = fen.trim.split(" ")(0)
-    val ranks        = fenPlacement.split("/")
-    sb.append("  <g>\n")
-    for (rankStr, rankIndex) <- ranks.zipWithIndex if rankIndex < 8 do
-      var col = 0
-      for c <- rankStr do
-        if c.isDigit then col += c - '0'
-        else
-          val pieceId = c match
-            case 'P' => "wP"
-            case 'N' => "wN"
-            case 'B' => "wB"
-            case 'R' => "wR"
-            case 'Q' => "wQ"
-            case 'K' => "wK"
-            case 'p' => "bP"
-            case 'n' => "bN"
-            case 'b' => "bB"
-            case 'r' => "bR"
-            case 'q' => "bQ"
-            case 'k' => "bK"
-            case _   => ""
-
-          if pieceId.nonEmpty && col < 8 then
-            val finalCol = if flipped then 7 - col else col
-            val finalRow = if flipped then 7 - rankIndex else rankIndex
-            val x        = finalCol * 45
-            val y        = finalRow * 45
-            sb.append(s"""    <use href="#$pieceId" x="$x" y="$y"/>\n""")
-          col += 1
-    sb.append("  </g>\n")
-
+    sb.append(renderDarkSquares).append("\n")
+    sb.append(renderCoordinates(flipped)).append("\n")
+    sb.append(renderPieces(fen, flipped)).append("\n")
     sb.append("</svg>\n")
     sb.toString()
 
