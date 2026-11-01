@@ -34,6 +34,133 @@ object BudgetedRules:
     case Complete(value: A, used: Long)
     case Incomplete(used: Long)
 
+  /** Summary of a budgeted turn traversal over legal turn paths and resulting states.
+    *
+    * @param emittedPaths
+    *   the number of legal turn paths visited by the callback before completion or early stop
+    * @param totalLegalPaths
+    *   the total number of legal turn paths for the state (0 if forced pass)
+    * @param stoppedEarly
+    *   `true` if traversal was terminated early by the callback returning `false`
+    */
+  final case class TurnVisitSummary(emittedPaths: Int, totalLegalPaths: Int, stoppedEarly: Boolean) derives CanEqual
+
+  /** Result of a budgeted fold over legal turn paths and resulting states.
+    *
+    * @param value
+    *   the accumulated value after all visited paths (or after early stop)
+    * @param stoppedEarly
+    *   `true` if the fold was terminated early by the callback returning `false`
+    */
+  final case class TurnFoldResult[+A](value: A, stoppedEarly: Boolean) derives CanEqual
+
+  /** Traverses legal turn paths and their resulting states under budget constraints.
+    *
+    * Admissions during Phase 1 DFS exploration count towards `budget`: 1 unit before each move-generator invocation and
+    * 1 unit before examining each generated micro-move, matching [[turnPaths]] accounting.
+    *
+    * If `budget.exhausted` occurs during Phase 1, zero visitor callbacks are invoked and traversal returns
+    * [[Outcome.Incomplete]].
+    *
+    * Phase 2 emits King captures first in MoveGenerator order (without calling `endTurn()`), followed by maximal-dice
+    * normal paths in MoveGenerator order (calling `endTurn()` once on the final step), reusing a 2-slot intra-turn
+    * prefix cache. If the visitor callback returns `false`, traversal stops early and returns [[Outcome.Complete]] with
+    * `stoppedEarly = true`.
+    *
+    * @param state
+    *   the incoming [[dicechess.engine.domain.GameState]]
+    * @param budget
+    *   the shared traversal budget
+    * @param f
+    *   callback receiving borrowed moves array, path length, resulting state, and isKingCapture flag. Returns `true` to
+    *   continue, `false` to stop early.
+    * @return
+    *   [[Outcome.Complete]] with [[TurnVisitSummary]] and work used, or [[Outcome.Incomplete]] if budget exhausted
+    */
+  def visitTurnStates(state: GameState, budget: Budget)(
+      f: (Array[Move], Int, GameState, Boolean) => Boolean
+  ): Outcome[TurnVisitSummary] =
+    val collector = new BudgetedPathCollector(budget)
+    if !budget.exhausted then collector.visit(state, 0, 0)
+    if budget.exhausted then Outcome.Incomplete(budget.used)
+    else
+      val ctx        = collector.ctx
+      val totalLegal = ctx.totalLegalPaths
+      if totalLegal == 0 then Outcome.Complete(TurnVisitSummary(0, 0, false), budget.used)
+      else
+        val (emitted, stopped) = TurnGenerator.replayTurnStates(state, ctx)(f)
+        Outcome.Complete(TurnVisitSummary(emitted, totalLegal, stopped), budget.used)
+
+  /** Folds over legal turn paths and their resulting states under budget constraints.
+    *
+    * Work accounting and emission semantics match [[visitTurnStates]].
+    *
+    * If `budget.exhausted` occurs during Phase 1, zero callbacks are invoked and traversal returns
+    * [[Outcome.Incomplete]].
+    *
+    * The fold callback receives the accumulated value, path as a `List[Move]`, resulting state, and isKingCapture flag,
+    * returning a pair of updated accumulator and continuation flag (`false` to stop early).
+    *
+    * @param state
+    *   the incoming [[dicechess.engine.domain.GameState]]
+    * @param initial
+    *   initial accumulator value
+    * @param budget
+    *   the shared traversal budget
+    * @param f
+    *   folding function `(acc, path, resState, isKingCapture) => (nextAcc, continue)`
+    * @return
+    *   [[Outcome.Complete]] with [[TurnFoldResult]] and work used, or [[Outcome.Incomplete]] if budget exhausted
+    */
+  def foldTurnStates[A](state: GameState, initial: A, budget: Budget)(
+      f: (A, List[Move], GameState, Boolean) => (A, Boolean)
+  ): Outcome[TurnFoldResult[A]] =
+    val collector = new BudgetedPathCollector(budget)
+    if !budget.exhausted then collector.visit(state, 0, 0)
+    if budget.exhausted then Outcome.Incomplete(budget.used)
+    else
+      val ctx = collector.ctx
+      if ctx.totalLegalPaths == 0 then Outcome.Complete(TurnFoldResult(initial, false), budget.used)
+      else
+        var acc          = initial
+        val (_, stopped) = TurnGenerator.replayTurnStates(state, ctx) { (moves, len, resState, isKing) =>
+          val pathList =
+            if len == 1 then moves(0) :: Nil
+            else if len == 2 then moves(0) :: moves(1) :: Nil
+            else moves(0) :: moves(1) :: moves(2) :: Nil
+          val (nextAcc, cont) = f(acc, pathList, resState, isKing)
+          acc = nextAcc
+          cont
+        }
+        Outcome.Complete(TurnFoldResult(acc, stopped), budget.used)
+
+  private class BudgetedPathCollector(budget: Budget):
+    val ctx                 = new TurnGenerator.TurnGenContext()
+    private val currentPath = new Array[Move](3)
+
+    def visit(s: GameState, depth: Int, consumed: Int): Unit =
+      if budget.admit() then
+        var remaining = MoveGenerator.generateMoves(s)
+        val before    = ctx.normalCount + ctx.kingCaptureCount
+        while remaining.nonEmpty && !budget.exhausted do
+          val move = remaining.head
+          currentPath(depth) = move
+          examine(s, depth, consumed, move)
+          remaining = remaining.tail
+        if !budget.exhausted && depth > 0 && ctx.normalCount + ctx.kingCaptureCount == before then
+          val packed = TurnGenerator.packPath(currentPath, depth, consumed)
+          ctx.addNormal(packed)
+
+    private def examine(s: GameState, depth: Int, consumed: Int, move: Move): Unit =
+      if budget.admit() then
+        val spent = consumed + (if move.isCastling then 2 else 1)
+        if s.isKingCapture(move) then
+          val packed = TurnGenerator.packPath(currentPath, depth + 1, spent)
+          ctx.addKingCapture(packed)
+        else
+          val surviving = s.diceAfter(move)
+          if surviving.isValid then visit(s.makeMove(move).withDiceSlotsOf(surviving), depth + 1, spent)
+
   /** Ordered full legal paths, with king captures before maximal-dice normal paths, as in [[TurnGenerator]]. An empty
     * complete list means a pass. Exhaustion during generation discards the buffered prefix.
     */
