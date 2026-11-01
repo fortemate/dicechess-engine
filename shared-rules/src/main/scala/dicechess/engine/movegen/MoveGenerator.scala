@@ -35,8 +35,8 @@ object MoveGenerator {
     generateMoves(state, Bitboard.full)
 
   /** Computes the set of friendly pawns that are eligible to capture an en-passant target at turn start. Under strict
-    * chess rules (FIDE 3.7.4 / DiceChess.com), only pawns that were already adjacent to the passed square when the
-    * double-push occurred are permitted to capture en passant.
+    * chess rules (FIDE 3.7.4 / DiceChess.com), only pawns that were already horizontally adjacent to the opponent pawn
+    * that double-pushed are permitted to capture en passant.
     */
   def computeEligibleEpPawns(state: GameState): Bitboard =
     if state.enPassant.isEmpty then Bitboard.empty
@@ -67,10 +67,13 @@ object MoveGenerator {
     * Note: generates pseudo-legal moves without validating dice-pool constraints or castling legality, which callers
     * (such as search or filtering layers) must enforce.
     */
+  private[engine] def generatePieceMoves(state: GameState, pieceType: PieceType): List[Move] =
+    generatePieceMoves(state, pieceType, Bitboard.full)
+
   private[engine] def generatePieceMoves(
       state: GameState,
       pieceType: PieceType,
-      eligibleEpPawns: Bitboard = Bitboard.full
+      eligibleEpPawns: Bitboard
   ): List[Move] = {
     val color        = state.activeColor
     val isWhite      = color.isWhite

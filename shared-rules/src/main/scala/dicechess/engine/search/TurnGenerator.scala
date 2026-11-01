@@ -40,7 +40,7 @@ object TurnGenerator:
     builder.result()
 
   /** Computes the set of friendly pawns that are eligible to capture an en-passant target at turn start. Under strict
-    * chess rules, only pawns that were already adjacent to the passed square when the double-push occurred are
+    * chess rules, only pawns that were already horizontally adjacent to the opponent pawn that double-pushed are
     * permitted to capture en passant.
     */
   def computeEligibleEpPawns(state: GameState): Bitboard =
