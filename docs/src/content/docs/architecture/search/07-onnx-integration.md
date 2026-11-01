@@ -64,9 +64,10 @@ Cost, not width, decides where a set belongs: the four capture-probability colum
 integrate over the 216 dice outcomes of the next roll, which is affordable per root candidate and not
 per chance-node leaf.
 
-> [!NOTE]
-> A model declares which schema it was trained on in its manifest, and the engine resolves that id
-> back to the extractor — see [Model Serving Contract](/dicechess-engine/architecture/search/10-model-contract/).
+:::note
+A model declares which schema it was trained on in its manifest, and the engine resolves that id
+back to the extractor — see [Model Serving Contract](/dicechess-engine/architecture/search/10-model-contract/).
+:::
 
 ---
 

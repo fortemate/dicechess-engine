@@ -44,15 +44,16 @@ Since capturing the opponent's king is the ultimate win condition, **any sequenc
 
 ### Macro-Turn Maximality vs. Step-by-Step Legality
 
-> [!IMPORTANT]
-> **Scope of the Rule:** The Maximum Micro-moves Rule applies to the **entire turn (macro-turn)** as evaluated from the initial state $S_0$ and the rolled dice pool $D_0$.
->
-> A game state represented by a standard **DFEN** string carries the current board position and state metadata (active color, castling rights, en-passant target, move counters, and *remaining* dice pool), but **does not retain memory** of the turn's initial roll $D_0$, the global maximum sequence length $L^*(S_0, D_0)$, or whether a preceding micro-move was played under the commitment that it must terminate with capturing the King.
->
-> **DFEN alone is insufficient to validate subsequent micro-moves in isolation:**
-> * Re-evaluating legality afresh on an intermediate position (re-rooting) resets the calculation of $L^*$ to only what is achievable from that intermediate position.
-> * If a first micro-move $m_1$ was admitted *only* because a continuation captures the opponent's King (for instance, a 2-move sequence where a 3-move quiet turn was also possible), re-evaluating the position after $m_1$ in isolation would falsely admit quiet continuation moves that end the turn after 2 moves without capturing the King.
-> * To enforce full-turn legality, clients and search algorithms do not validate moves step-by-step from DFEN. Instead, the engine generates full turn sequences ([`TurnGenerator`](../turn-lifecycle#2-generate-and-filter-legal-turns)) and exposes them as a prefix tree of legal turns via `getLegalTurnTree(dfen)`. A client traverses this tree rather than calling single-move filtering after every micro-move. See [The Turn Lifecycle](../turn-lifecycle) for full details.
+:::caution[Scope of the Rule]
+The Maximum Micro-moves Rule applies to the **entire turn (macro-turn)** as evaluated from the initial state $S_0$ and the rolled dice pool $D_0$.
+
+A game state represented by a standard **DFEN** string carries the current board position and state metadata (active color, castling rights, en-passant target, move counters, and *remaining* dice pool), but **does not retain memory** of the turn's initial roll $D_0$, the global maximum sequence length $L^*(S_0, D_0)$, or whether a preceding micro-move was played under the commitment that it must terminate with capturing the King.
+
+**DFEN alone is insufficient to validate subsequent micro-moves in isolation:**
+* Re-evaluating legality afresh on an intermediate position (re-rooting) resets the calculation of $L^*$ to only what is achievable from that intermediate position.
+* If a first micro-move $m_1$ was admitted *only* because a continuation captures the opponent's King (for instance, a 2-move sequence where a 3-move quiet turn was also possible), re-evaluating the position after $m_1$ in isolation would falsely admit quiet continuation moves that end the turn after 2 moves without capturing the King.
+* To enforce full-turn legality, clients and search algorithms do not validate moves step-by-step from DFEN. Instead, the engine generates full turn sequences ([`TurnGenerator`](../turn-lifecycle#2-generate-and-filter-legal-turns)) and exposes them as a prefix tree of legal turns via `getLegalTurnTree(dfen)`. A client traverses this tree rather than calling single-move filtering after every micro-move. See [The Turn Lifecycle](../turn-lifecycle) for full details.
+:::
 
 ---
 

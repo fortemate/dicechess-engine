@@ -88,8 +88,9 @@ Each time they make a move, the engine performs a **micro-move**:
 
 A client that walks the tree plays one of the current node's keys with `applyMove` and descends into that key's child. When the child is empty, the turn is complete. To show which of the dice left the rest of the turn can still spend, it calls `getPlayableDice` with the rolled DFEN and the moves played so far.
 
-> [!WARNING]  
-> **Color Preservation:** During `applyMove`, the active color **does not change**. If White plays their first micro-move, the resulting state still belongs to White.
+:::caution[Color Preservation]
+During `applyMove`, the active color **does not change**. If White plays their first micro-move, the resulting state still belongs to White.
+:::
 
 ## 4. Formal Turn Completion (`endTurn`)
 
