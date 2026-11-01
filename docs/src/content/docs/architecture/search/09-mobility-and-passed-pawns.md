@@ -136,11 +136,12 @@ piece type is mobile ($>0$) or blocked ($0$).
 
 ## Schema Versioning Rule
 
-> [!IMPORTANT]
-> Any change in column order, normalization, perspective, or semantic definition
-> requires a **new schema identifier** (e.g. `kcp-mobility-27-v2`) and a corresponding
-> newly trained model. Existing schemas must remain immutable to preserve reproducibility
-> and avoid silent evaluation failures.
+:::caution
+Any change in column order, normalization, perspective, or semantic definition
+requires a **new schema identifier** (e.g. `kcp-mobility-27-v2`) and a corresponding
+newly trained model. Existing schemas must remain immutable to preserve reproducibility
+and avoid silent evaluation failures.
+:::
 
 ## JMH Benchmarks
 

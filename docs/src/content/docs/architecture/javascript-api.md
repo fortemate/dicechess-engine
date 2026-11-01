@@ -186,8 +186,9 @@ const weight = DiceChess.threatWeight('r5r1/2pk2R1/p1nb4/1p4P1/NPP5/3PK3/P2BP3/R
 Applies a **micro-move** to the given DFEN and returns the resulting board state. 
 This function acts as the **Single Source of Truth** for chess rules, ensuring correct handling of castling rights, en passant, and pawn promotions.
 
-> [!NOTE]  
-> Because a Dice Chess turn consists of multiple micro-moves, `applyMove` **does not** transition the turn to the opponent. The active color and full-move number remain unchanged. To formally end a turn, you must call `endTurn`.
+:::note
+Because a Dice Chess turn consists of multiple micro-moves, `applyMove` **does not** transition the turn to the opponent. The active color and full-move number remain unchanged. To formally end a turn, you must call `endTurn`.
+:::
 
 ```typescript
 function applyMove(dfen: string, from: string, to: string, promotion?: string): string | undefined
@@ -210,11 +211,11 @@ so it cannot apply the Maximum Micro-moves Rule, and once the last die is spent 
 no dice: DFEN cannot tell spent dice from dice not yet rolled, so a further move on it is accepted.
 Walk [`getLegalTurnTree`](#getlegalturntree), and call `endTurn` at an empty child.
 
-> [!CAUTION]
-> **Behaviour change ([#279](https://github.com/fortemate/dicechess-engine/issues/279)).** Up to
-> 0.12.3, `applyMove` emptied the dice pool after every move and did not check the dice, and clients
-> removed the played die themselves. A client that appends or re-attaches the remaining dice after
-> `applyMove` must stop doing so, and a move the dice do not allow now returns `undefined`.
+:::danger[Behaviour change (#279)]
+Up to 0.12.3, `applyMove` emptied the dice pool after every move and did not check the dice, and clients
+removed the played die themselves. A client that appends or re-attaches the remaining dice after
+`applyMove` must stop doing so, and a move the dice do not allow now returns `undefined`.
+:::
 
 ---
 

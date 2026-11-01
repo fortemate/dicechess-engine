@@ -44,8 +44,9 @@ rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - BKP	e2e4,e1e2
 rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - bpr	e8e7,d7d5
 ```
 
-> [!IMPORTANT]
-> **Cross-Repository Invariant**: The `OpeningBook.key` contract is shared across the Dice Chess ecosystem (the engine, `dicechess-analytics`, and the play platform). Any change to the key format is a breaking cross-repository event.
+:::caution[Cross-Repository Invariant]
+The `OpeningBook.key` contract is shared across the Dice Chess ecosystem (the engine, `dicechess-analytics`, and the play platform). Any change to the key format is a breaking cross-repository event.
+:::
 
 ---
 

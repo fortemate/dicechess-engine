@@ -12,11 +12,12 @@ surface that hides the Scala-shaped parts of the API.
 For dependency coordinates and authentication, see
 [Maven Artifact & JVM Integration](/dicechess-engine/guidelines/maven-artifact/).
 
-> [!NOTE]
-> The facade is exactly the methods documented below. Doubling-cube and draw-offer decisions are **not**
-> among them: `DrawOfferLogic` is a Scala trait that bot implementations mix into a `SearchAlgorithm`, not
-> a utility a Java caller can use. The Scaladoc published under the `-javadoc` classifier is the
-> authoritative method list.
+:::note
+The facade is exactly the methods documented below. Doubling-cube and draw-offer decisions are **not**
+among them: `DrawOfferLogic` is a Scala trait that bot implementations mix into a `SearchAlgorithm`, not
+a utility a Java caller can use. The Scaladoc published under the `-javadoc` classifier is the
+authoritative method list.
+:::
 
 ## Two shapes of consumer
 

@@ -77,10 +77,11 @@ For each weighted dice roll in a chance node:
 3. At depth 2, the resulting positions are leaves. At depth 3, each result recursively enters our next chance/MAX layer.
 4. Leaf positions are **deduplicated in-place** using `LeafKey` before evaluation.
 
-> [!NOTE]
-> **Leaf Deduplication vs Transposition Tables**: Dice Chess turns consist of 1–3 micro-moves. Independent micro-moves played in different orders often reach identical board states (~78% duplicate leaves per chance node). Because the opponent minimizes over leaves ($\min(S) = \min(\text{distinct}(S))$), duplicate boards can be dropped with zero loss of precision.
->
-> Deduplication uses `LeafKey`, which packs 11 primitives (piece bitboards, en-passant, flags, full-move counter) and hashes them in 64-bit CPU registers without heap allocations. This is per-chance-node leaf compaction, not a cross-ply Transposition Table.
+:::note[Leaf Deduplication vs Transposition Tables]
+Dice Chess turns consist of 1–3 micro-moves. Independent micro-moves played in different orders often reach identical board states (~78% duplicate leaves per chance node). Because the opponent minimizes over leaves ($\min(S) = \min(\text{distinct}(S))$), duplicate boards can be dropped with zero loss of precision.
+
+Deduplication uses `LeafKey`, which packs 11 primitives (piece bitboards, en-passant, flags, full-move counter) and hashes them in 64-bit CPU registers without heap allocations. This is per-chance-node leaf compaction, not a cross-ply Transposition Table.
+:::
 
 ### 4. Batched Leaf Evaluation
 
@@ -174,14 +175,15 @@ When finished, call `registration.close()` to unregister the bot and release ass
 
 ### JavaScript API Usage
 
-> [!WARNING]
-> In the npm distribution (`@fortemate/dicechess-engine`), `ExpectimaxSearch` is not registered by default. Calling:
->
-> ```javascript
-> const result = DiceChess.getBestMove(dfen, { algorithm: "expectimax" });
-> ```
->
-> without previously registering a custom bot named `"expectimax"` will **silently fall back to the default algorithm (`Greedy (L3)`)**.
+:::caution
+In the npm distribution (`@fortemate/dicechess-engine`), `ExpectimaxSearch` is not registered by default. Calling:
+
+```javascript
+const result = DiceChess.getBestMove(dfen, { algorithm: "expectimax" });
+```
+
+without previously registering a custom bot named `"expectimax"` will **silently fall back to the default algorithm (`Greedy (L3)`)**.
+:::
 
 ---
 
