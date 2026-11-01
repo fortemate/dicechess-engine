@@ -67,37 +67,9 @@
     <text x="352" y="326" fill="#b58863">1</text>
   </g>
   <g>
-    <use href="#bR" x="0" y="0"/>
-    <use href="#bN" x="45" y="0"/>
-    <use href="#bB" x="90" y="0"/>
-    <use href="#bQ" x="135" y="0"/>
-    <use href="#bK" x="180" y="0"/>
-    <use href="#bB" x="225" y="0"/>
-    <use href="#bN" x="270" y="0"/>
-    <use href="#bR" x="315" y="0"/>
-    <use href="#bP" x="0" y="45"/>
-    <use href="#bP" x="45" y="45"/>
-    <use href="#bP" x="90" y="45"/>
-    <use href="#bP" x="135" y="45"/>
-    <use href="#bP" x="180" y="45"/>
-    <use href="#bP" x="225" y="45"/>
-    <use href="#bP" x="270" y="45"/>
-    <use href="#bP" x="315" y="45"/>
-    <use href="#wP" x="45" y="180"/>
-    <use href="#wP" x="0" y="270"/>
-    <use href="#wP" x="90" y="270"/>
-    <use href="#wP" x="135" y="270"/>
-    <use href="#wP" x="180" y="270"/>
-    <use href="#wP" x="225" y="270"/>
-    <use href="#wP" x="270" y="270"/>
-    <use href="#wP" x="315" y="270"/>
-    <use href="#wR" x="0" y="315"/>
-    <use href="#wN" x="45" y="315"/>
-    <use href="#wB" x="90" y="315"/>
-    <use href="#wQ" x="135" y="315"/>
-    <use href="#wK" x="180" y="315"/>
-    <use href="#wB" x="225" y="315"/>
-    <use href="#wN" x="270" y="315"/>
-    <use href="#wR" x="315" y="315"/>
+    <use href="#bK" x="135" y="45"/>
+    <use href="#wP" x="225" y="45"/>
+    <use href="#wP" x="90" y="90"/>
+    <use href="#wK" x="225" y="180"/>
   </g>
 </svg>

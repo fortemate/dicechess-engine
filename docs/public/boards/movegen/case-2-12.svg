@@ -67,9 +67,9 @@
     <text x="352" y="326" fill="#b58863">1</text>
   </g>
   <g>
-    <use href="#bK" x="180" y="0"/>
-    <use href="#bB" x="270" y="225"/>
-    <use href="#wK" x="180" y="315"/>
-    <use href="#wR" x="315" y="315"/>
+    <use href="#bK" x="135" y="0"/>
+    <use href="#wP" x="225" y="45"/>
+    <use href="#wP" x="90" y="90"/>
+    <use href="#wK" x="225" y="180"/>
   </g>
 </svg>

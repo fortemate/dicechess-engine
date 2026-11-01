@@ -49,52 +49,26 @@
     <rect x="270" y="315" width="45" height="45"/>
   </g>
   <g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" font-size="10" font-weight="bold">
-    <text x="3" y="357" fill="#f0d9b5">h</text>
-    <text x="48" y="357" fill="#b58863">g</text>
-    <text x="93" y="357" fill="#f0d9b5">f</text>
-    <text x="138" y="357" fill="#b58863">e</text>
-    <text x="183" y="357" fill="#f0d9b5">d</text>
-    <text x="228" y="357" fill="#b58863">c</text>
-    <text x="273" y="357" fill="#f0d9b5">b</text>
-    <text x="318" y="357" fill="#b58863">a</text>
-    <text x="352" y="11" fill="#f0d9b5">1</text>
-    <text x="352" y="56" fill="#b58863">2</text>
-    <text x="352" y="101" fill="#f0d9b5">3</text>
-    <text x="352" y="146" fill="#b58863">4</text>
-    <text x="352" y="191" fill="#f0d9b5">5</text>
-    <text x="352" y="236" fill="#b58863">6</text>
-    <text x="352" y="281" fill="#f0d9b5">7</text>
-    <text x="352" y="326" fill="#b58863">8</text>
+    <text x="3" y="357" fill="#f0d9b5">a</text>
+    <text x="48" y="357" fill="#b58863">b</text>
+    <text x="93" y="357" fill="#f0d9b5">c</text>
+    <text x="138" y="357" fill="#b58863">d</text>
+    <text x="183" y="357" fill="#f0d9b5">e</text>
+    <text x="228" y="357" fill="#b58863">f</text>
+    <text x="273" y="357" fill="#f0d9b5">g</text>
+    <text x="318" y="357" fill="#b58863">h</text>
+    <text x="352" y="11" fill="#f0d9b5">8</text>
+    <text x="352" y="56" fill="#b58863">7</text>
+    <text x="352" y="101" fill="#f0d9b5">6</text>
+    <text x="352" y="146" fill="#b58863">5</text>
+    <text x="352" y="191" fill="#f0d9b5">4</text>
+    <text x="352" y="236" fill="#b58863">3</text>
+    <text x="352" y="281" fill="#f0d9b5">2</text>
+    <text x="352" y="326" fill="#b58863">1</text>
   </g>
   <g>
-    <use href="#bR" x="315" y="315"/>
-    <use href="#bN" x="270" y="315"/>
-    <use href="#bQ" x="225" y="315"/>
-    <use href="#bK" x="135" y="315"/>
-    <use href="#bR" x="0" y="315"/>
-    <use href="#bP" x="315" y="270"/>
-    <use href="#bP" x="270" y="270"/>
-    <use href="#bP" x="225" y="270"/>
-    <use href="#bB" x="180" y="270"/>
-    <use href="#bP" x="135" y="270"/>
-    <use href="#bP" x="90" y="270"/>
-    <use href="#bP" x="0" y="270"/>
-    <use href="#bP" x="180" y="225"/>
-    <use href="#bP" x="45" y="225"/>
-    <use href="#wQ" x="0" y="225"/>
-    <use href="#wB" x="225" y="135"/>
-    <use href="#wP" x="180" y="135"/>
-    <use href="#wP" x="135" y="135"/>
-    <use href="#wN" x="225" y="90"/>
-    <use href="#wN" x="90" y="90"/>
-    <use href="#wP" x="315" y="45"/>
-    <use href="#wP" x="270" y="45"/>
-    <use href="#wP" x="225" y="45"/>
-    <use href="#wK" x="180" y="45"/>
-    <use href="#wP" x="90" y="45"/>
-    <use href="#wP" x="45" y="45"/>
     <use href="#wP" x="0" y="45"/>
-    <use href="#wR" x="270" y="0"/>
-    <use href="#wR" x="0" y="0"/>
+    <use href="#bK" x="0" y="315"/>
+    <use href="#wK" x="315" y="315"/>
   </g>
 </svg>
