@@ -25,4 +25,6 @@ A capture found on the last admitted micro-move is complete. An exhausted shared
 
 This query returns a witness for one turn, not an optimal move, full-game evaluation or search result. It is a Scala-shaped rules-core API cross-compiled for JVM, JavaScript and WebAssembly; it adds no Java/Kotlin or exported JavaScript facade method. Consumers must compile against an artifact version providing this method.
 
-See [Shared Traversal & Search Contracts](/dicechess-engine/architecture/search/14-traversal-and-search-contracts/) for how rules-level `Budget` accounting composes with shared-prefix resulting-state visitors and bounded stochastic-search cancellation.
+Every traversal applies the strict turn-start en-passant eligibility of `TurnGenerator` (#419), so budgeted and canonical paths agree on en-passant positions.
+
+See [Shared Traversal & Search Contracts](/dicechess-engine/architecture/search/14-traversal-and-search-contracts/) for how rules-level `Budget` accounting composes with shared-prefix resulting-state visitors and bounded stochastic-search cancellation, and [Bounded Search Outcomes & Cooperative Cancellation](/dicechess-engine/architecture/search/15-search-outcomes-and-cancellation/) for the `SearchControl` that shares one `Budget` with every nested rules query of a search.

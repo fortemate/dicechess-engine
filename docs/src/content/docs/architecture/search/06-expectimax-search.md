@@ -117,12 +117,13 @@ Star1, Star2, and TT upper-bound checks all use this candidate-specific bound ra
 
 `RootRescore.weight` accepts the closed interval `[0, 1]`. Weight `0` is exactly equivalent to omitting `RootRescore` and does not invoke its evaluator. At weight `1`, the final score of a non-loss-tainted candidate no longer depends on the search value, so no finite inverse exists; transformed root pruning is explicitly disabled while exact search still determines loss taint.
 
-### 8. Time Management & Telemetry
+### 8. Cancellation, Time Management & Telemetry
 
-`ExpectimaxSearch` extends `TimeBudgetedSearch` and coordinates with [`TimeManager`](/dicechess-engine/architecture/search/05-time-management/):
-- **Fine-grained clock checks**: The deadline is checked **between dice rolls at every recursive chance node**, not merely between root candidates.
-- **Anytime contract**: Truncated candidates (cut mid-expansion) are abandoned and discarded rather than compared against completed candidates. If the deadline expires before even one candidate completes, the search falls back to the pre-ranker's top pick.
-- **Telemetry sink (`RootSearchStats`)**: An optional `statsSink` receives search diagnostics per move (`legalTurns`, `candidatesSelected`, `candidatesCompleted`, `candidatesAbandoned`, `cutoffs`, `rollsSaved`, `probeCutoffs`), reporting cutoff telemetry and deadline truncation.
+`ExpectimaxSearch` implements `ControlledSearch`: `findBestMove(state, control: SearchControl, random)` runs under a shared `SearchControl` — a wall-clock deadline, a deterministic `BudgetedRules.Budget`, or both — and the historical `findBestMove(state, deadlineNanos, random)` of `TimeBudgetedSearch` is the adapter `SearchControl.untilDeadline(deadlineNanos)`. It coordinates with [`TimeManager`](/dicechess-engine/architecture/search/05-time-management/) for the deadline and with [Bounded Search Outcomes & Cooperative Cancellation](/dicechess-engine/architecture/search/15-search-outcomes-and-cancellation/) for the contract:
+- **Fine-grained checks**: The control is consulted **between dice rolls at every recursive chance node**, immediately after every reply generation, and **before every transposition-table probe** — not merely between root candidates. A work budget is also handed to every nested reply generation (`BudgetedRules.turnPaths`), so exhaustion inside a subtree cancels the invocation deterministically, without a clock.
+- **Explicit outcomes**: Every root candidate's chance node produces a `SearchOutcome[Double]`. Only `Exact` is ranked; `UpperBound` records a Star or table cutoff; `Incomplete` carries no value at all, so a cancelled candidate cannot be ranked, blended or cached by construction.
+- **Anytime contract**: Truncated candidates (cut mid-expansion) are abandoned and discarded rather than compared against completed candidates. If the control cancels before even one candidate completes, the search falls back to the pre-ranker's top pick; an immediate king capture is taken before any control check, and a forced pass is `None`.
+- **Telemetry sink (`RootSearchStats`)**: An optional `statsSink` receives search diagnostics per move (`legalTurns`, `candidatesSelected`, `candidatesCompleted`, `candidatesAbandoned`, `cutoffs`, `rollsSaved`, `probeCutoffs`), reporting cutoff telemetry and truncation by the deadline or the budget.
 
 ---
 
@@ -214,4 +215,5 @@ Star1/Star2, Zobrist/TT, and the first configurable depth increase are implement
 - [Primitive Bot Strategies (Levels 1–5)](/dicechess-engine/architecture/search/01-primitive-search/) — Single-turn heuristic bots
 - [ONNX Model Integration](/dicechess-engine/architecture/search/07-onnx-integration/) — `OnnxExpectimaxSearch` combining learned value models with Expectimax lookahead
 - [Time Management](/dicechess-engine/architecture/search/05-time-management/) — Per-turn time budgets and deadline checking
+- [Bounded Search Outcomes & Cooperative Cancellation](/dicechess-engine/architecture/search/15-search-outcomes-and-cancellation/) — `SearchOutcome`, `SearchControl` and `UtilityBounds`
 - [Search Roadmap & Evaluation](/dicechess-engine/architecture/search/03-search-roadmap/) — Implemented search capabilities, remaining work and evaluation protocol

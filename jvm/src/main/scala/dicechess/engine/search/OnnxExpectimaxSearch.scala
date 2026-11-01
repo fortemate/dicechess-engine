@@ -190,7 +190,7 @@ final case class OnnxSearchOptions(
   * other bot here.
   */
 final class OnnxExpectimaxSearch private[search] (built: (OnnxSearchSessions, ExpectimaxSearch))
-    extends TimeBudgetedSearch
+    extends ControlledSearch
     with AutoCloseable:
 
   /** The path-based constructor every host has used so far: the leaf model as a filesystem path, the hooks as options.
@@ -232,8 +232,8 @@ final class OnnxExpectimaxSearch private[search] (built: (OnnxSearchSessions, Ex
   override def findBestMove(state: GameState, random: Random): Option[ScoredSequence] =
     expectimax.findBestMove(state, random)
 
-  override def findBestMove(state: GameState, deadlineNanos: Long, random: Random): Option[ScoredSequence] =
-    expectimax.findBestMove(state, deadlineNanos, random)
+  override def findBestMove(state: GameState, control: SearchControl, random: Random): Option[ScoredSequence] =
+    expectimax.findBestMove(state, control, random)
 
   override def close(): Unit = sessions.closeAll()
 
