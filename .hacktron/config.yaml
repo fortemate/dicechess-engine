@@ -1,14 +1,11 @@
 version: 1
 
-# Exclude automated bot PRs, dependency branches, and non-production paths
+# Exclude automated bot PRs and non-production paths
 exclude:
   authors:
     - "dependabot[bot]"
     - "renovate[bot]"
     - "github-actions[bot]"
-  branches:
-    - "dependabot/**"
-    - "renovate/**"
   paths:
     # Documentation and sites
     - "docs/**"
