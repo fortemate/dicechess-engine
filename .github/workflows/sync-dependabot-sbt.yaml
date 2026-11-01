@@ -1,0 +1,47 @@
+name: "CI: Sync Dependabot sbt to mise"
+
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  sync-sbt:
+    name: Sync sbt version to mise.toml
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync sbt version to mise.toml
+        run: |
+          if [ ! -f project/build.properties ] || [ ! -f mise.toml ]; then
+            echo "Required files not found, skipping."
+            exit 0
+          fi
+
+          SBT_VERSION="$(sed -n 's/^sbt.version=//p' project/build.properties | tr -d '[:space:]')"
+          if [ -z "$SBT_VERSION" ]; then
+            echo "sbt.version not found in project/build.properties."
+            exit 0
+          fi
+
+          echo "Detected sbt.version: $SBT_VERSION"
+          sed -i -E "s/^(sbt = \")[^\"]+(\".*)$/\1${SBT_VERSION}\2/" mise.toml
+
+          if ! git diff --quiet mise.toml; then
+            echo "mise.toml differs; committing updated sbt version..."
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add mise.toml
+            git commit -m "chore(deps): sync sbt runner in mise.toml to ${SBT_VERSION}"
+            git push
+          else
+            echo "mise.toml already up to date."
+          fi
