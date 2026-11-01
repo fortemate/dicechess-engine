@@ -1,7 +1,7 @@
 [tools]
 # --- Core Runtime & Build ---
 java = "temurin-25"            # Primary runtime, aligned with CI (Java 25)
-sbt = "2.0.10"                 # sbt runner; MUST match sbt.version in project/build.properties (also provisions the Jules VM)
+sbt = "2.0.12"                 # sbt runner; MUST match sbt.version in project/build.properties (also provisions the Jules VM)
 node = "26"                    # Required for Astro/Starlight documentation
 
 # --- Git Hooks & Formatting ---
