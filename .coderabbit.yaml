@@ -216,6 +216,9 @@ reviews:
         - Check for broken internal links and correct sidebar slugs.
         - Verify Mermaid diagram syntax is valid.
         - Ensure frontmatter (title, description) is present and descriptive.
+        - Strictly enforce native Starlight asides syntax (`:::note`, `:::tip`, `:::caution`, `:::danger`).
+          Reject GitHub-style alert callouts (e.g. `> [!NOTE]`, `> [!IMPORTANT]`, `> [!WARNING]`, `> [!CAUTION]`, `> [!TIP]`)
+          as Starlight does not render them as styled callouts without third-party plugins.
 
     - path: "build.sbt"
       instructions: |
