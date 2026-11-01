@@ -15,8 +15,8 @@ object PawnGeneration:
   private val NotHFile: Bitboard = Bitboard(0x7f7f7f7f7f7f7f7fL)
 
   // Rank masks to determine if a double-push is legal
-  private val Rank3: Bitboard = Bitboard(0x0000000000ff0000L)
-  private val Rank6: Bitboard = Bitboard(0x0000ff0000000000L)
+  private[movegen] val Rank3: Bitboard = Bitboard(0x0000000000ff0000L)
+  private[movegen] val Rank6: Bitboard = Bitboard(0x0000ff0000000000L)
 
   // Promotion target ranks: white promotes on rank 8 (bits 56-63), black on rank 1 (bits 0-7)
   private[movegen] val Rank1: Bitboard = Bitboard(0x00000000000000ffL)
