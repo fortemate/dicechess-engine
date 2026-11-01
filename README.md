@@ -10,10 +10,10 @@ An open-source, high-performance, cross-platform game engine and AI search for *
 
 ## Built with the engine
 
-- **[Browser client prototype](https://github.com/fortemate/dicechess-play)** — a SvelteKit
-  application in development, with local bot search in a Web Worker.
-- **[Dice Chess TV](https://fortemate.github.io/dicechess-tv/)** — React Native for Vega,
-  with remote-controlled hotseat play and on-device bots using the same npm package.
+- **[Dice Chess Play](https://fortemate.com)** ([GitHub](https://github.com/fortemate/dicechess-play)) — the public
+  SvelteKit play application, with local bot search in a Web Worker and online multiplayer.
+- **[Dice Chess TV](https://dicechess-tv.fortemate.com/)** ([GitHub](https://github.com/fortemate/dicechess-tv)) — React
+  Native for Vega, with remote-controlled hotseat play and on-device bots using the `@fortemate/dicechess-engine` npm package.
   Its public demo was recorded on the Vega Virtual Device; see the TV project for device-testing status.
 
 Choose your package and application path in **[Build with the Engine](https://fortemate.github.io/dicechess-engine/guides/integrations/)**:
@@ -51,9 +51,9 @@ Dice Chess is a stochastic chess variant where players roll **three six-sided di
 
 This project compiles from a single Scala 3 codebase into four published artifacts, all at one version per release:
 
-* **Maven rules artifact** (`com.fortemate:dicechess-rules_3`, from 0.11.0): the rules of the game only — board and DFEN model, move generation, legal turn enumeration, dice probabilities. Depends on the Scala standard library and nothing else.
+* **Maven rules artifact** (`com.fortemate:dicechess-rules_3`, from 0.11.0): the rules of the game only — board and DFEN model, move generation, legal turn enumeration and canonical turn traversal, dice probabilities. Depends on the Scala standard library and nothing else.
 * **Maven engine artifact** (`com.fortemate:dicechess-engine_3`): bots, evaluators, feature extractors and the Java/Kotlin facade `JvmApi`. Depends on `dicechess-rules_3` of the same version; `onnxruntime` is an optional dependency that ONNX consumers declare themselves. The JMH benchmarks, the bot arena and the CLI live in this repository but are not part of the jar.
-* **NPM JavaScript Package** (`@fortemate/dicechess-engine`): ES Module for browsers and Node.js.
+* **NPM JavaScript Package** (`@fortemate/dicechess-engine`): ES Module for browsers and Node.js, including the rules-only `./rules` subpath.
 * **NPM WebAssembly Package** (`@fortemate/dicechess-engine-wasm`): WasmGC build running on modern WebAssembly runtimes.
 
 What each artifact contains, what is deliberately left out and how to pick or switch a coordinate: [Published Artifacts & Rules-Only Migration](https://fortemate.github.io/dicechess-engine/architecture/artifacts/).
