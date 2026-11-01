@@ -2,8 +2,8 @@
 package dicechess.engine.movegen
 
 import java.io.File
-import java.net.URLEncoder
 import java.nio.file.Files
+import dicechess.engine.docs.BoardSvgRenderer
 import dicechess.engine.domain.{FenParser, Square}
 
 /** Generates the visual Markdown catalog of move-generator test cases from [[MoveGenFixtures]].
@@ -26,6 +26,9 @@ object DocGenerator:
   def main(args: Array[String]): Unit =
     println("Starting documentation generation for Dice Chess Test Cases...")
 
+    val boardsDir = new File("docs/public/boards/movegen")
+    boardsDir.mkdirs()
+
     val sb = new StringBuilder()
     sb.append("---\n")
     sb.append("title: Move Generator Test Cases\n")
@@ -44,7 +47,7 @@ object DocGenerator:
     )
     sb.append(":::\n\n")
 
-    for (title, description, cases) <- MoveGenFixtures.allSuites do
+    for ((title, description, cases), suiteIndex) <- MoveGenFixtures.allSuites.zipWithIndex do
       sb.append(s"## $title\n\n")
       sb.append(s"$description\n\n")
 
@@ -66,7 +69,6 @@ object DocGenerator:
           val fenParts    = tc.fen.split(" ")
 
           val isWhite     = fenParts.lift(1).contains("w")
-          val boardColor  = if isWhite then "white" else "black"
           val activeColor = if isWhite then "White" else "Black"
 
           val castlingRaw = fenParts.lift(2).getOrElse("-")
@@ -102,12 +104,11 @@ object DocGenerator:
               val squaresCodes = epSquares.map(s => s"<code>$s</code>").mkString(", ")
               s"""\n      <li style="margin-bottom: 8px;"><strong>$label:</strong> $squaresCodes</li>"""
 
-          // Generate Lichess FEN image URL — strip the 7th dice field (not part of standard FEN)
-          val standardFen = tc.fen.split(" ").take(6).mkString(" ")
-          val cleanFen    = standardFen.replace(' ', '_')
-          val encodedFen  = URLEncoder.encode(cleanFen, "UTF-8")
-          val imgUrl      =
-            s"https://lichess1.org/export/fen.gif?fen=$encodedFen&color=$boardColor&theme=brown&piece=cburnett"
+          // Render local SVG chessboard — eliminates external HTTP dependencies and rate-limiting
+          val svgFileName = s"case-${suiteIndex + 1}-$caseNum.svg"
+          val svgFile     = new File(boardsDir, svgFileName)
+          BoardSvgRenderer.saveToFile(svgFile, tc.fen, flipped = !isWhite)
+          val imgUrl = s"/dicechess-engine/boards/movegen/$svgFileName"
 
           sb.append(s"### $caseNum. $caseTitle\n\n")
           sb.append(

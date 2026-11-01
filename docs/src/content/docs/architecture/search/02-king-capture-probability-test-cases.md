@@ -22,7 +22,7 @@ This page catalogs all our active test cases for king capture probability, allow
     </ul>
   </div>
   <div style="flex: 0 0 280px; width: 280px; min-width: 280px; margin: 0 auto;">
-    <img src="https://lichess1.org/export/fen.gif?fen=4k3%2F8%2F8%2F8%2F8%2F8%2F8%2F4K3_b_-_-&color=black&theme=brown&piece=cburnett" alt="Kings at a distance" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
+    <img src="/dicechess-engine/boards/kcp/case-1.svg" alt="Kings at a distance" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
   </div>
 </div>
 
@@ -41,7 +41,7 @@ This page catalogs all our active test cases for king capture probability, allow
     </ul>
   </div>
   <div style="flex: 0 0 280px; width: 280px; min-width: 280px; margin: 0 auto;">
-    <img src="https://lichess1.org/export/fen.gif?fen=rnbqkbnr%2FpppppBpp%2F8%2F8%2F4P3%2F8%2FPPPP1PPP%2FRNB1K1NR_w_KQkq_-_0_1&color=white&theme=brown&piece=cburnett" alt="At least one bishop" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
+    <img src="/dicechess-engine/boards/kcp/case-2.svg" alt="At least one bishop" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
   </div>
 </div>
 
@@ -60,7 +60,7 @@ This page catalogs all our active test cases for king capture probability, allow
     </ul>
   </div>
   <div style="flex: 0 0 280px; width: 280px; min-width: 280px; margin: 0 auto;">
-    <img src="https://lichess1.org/export/fen.gif?fen=rnb1qbnr%2Fpppppkpp%2F8%2F6N1%2F8%2F4PQ2%2FPPPP1PPP%2FRNB1K2R_w_KQ_-_0_1&color=white&theme=brown&piece=cburnett" alt="At least one of two pieces" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
+    <img src="/dicechess-engine/boards/kcp/case-3.svg" alt="At least one of two pieces" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
   </div>
 </div>
 
@@ -79,7 +79,7 @@ This page catalogs all our active test cases for king capture probability, allow
     </ul>
   </div>
   <div style="flex: 0 0 280px; width: 280px; min-width: 280px; margin: 0 auto;">
-    <img src="https://lichess1.org/export/fen.gif?fen=rnbq1bnr%2Fppppkppp%2F8%2F4p3%2F1P6%2FB7%2FP1PPPPPP%2FR3KBNR_w_KQ_-_0_1&color=white&theme=brown&piece=cburnett" alt="Two pieces (different)" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
+    <img src="/dicechess-engine/boards/kcp/case-4.svg" alt="Two pieces (different)" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
   </div>
 </div>
 
@@ -98,7 +98,7 @@ This page catalogs all our active test cases for king capture probability, allow
     </ul>
   </div>
   <div style="flex: 0 0 280px; width: 280px; min-width: 280px; margin: 0 auto;">
-    <img src="https://lichess1.org/export/fen.gif?fen=rnbqkbnr%2Fpppppppp%2F8%2F8%2F2B1P3%2F8%2FPPPP1PPP%2FRNB1K1NR_w_KQ_-_0_1&color=white&theme=brown&piece=cburnett" alt="Two identical pieces (doubles)" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
+    <img src="/dicechess-engine/boards/kcp/case-5.svg" alt="Two identical pieces (doubles)" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
   </div>
 </div>
 
@@ -117,7 +117,7 @@ This page catalogs all our active test cases for king capture probability, allow
     </ul>
   </div>
   <div style="flex: 0 0 280px; width: 280px; min-width: 280px; margin: 0 auto;">
-    <img src="https://lichess1.org/export/fen.gif?fen=rnbqkbnr%2Fpppppppp%2F8%2F8%2F8%2F2N5%2FPPPPPPPP%2FR1BQKBNR_w_KQ_-_0_1&color=white&theme=brown&piece=cburnett" alt="Three identical pieces (triplets)" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
+    <img src="/dicechess-engine/boards/kcp/case-6.svg" alt="Three identical pieces (triplets)" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
   </div>
 </div>
 
@@ -136,7 +136,7 @@ This page catalogs all our active test cases for king capture probability, allow
     </ul>
   </div>
   <div style="flex: 0 0 280px; width: 280px; min-width: 280px; margin: 0 auto;">
-    <img src="https://lichess1.org/export/fen.gif?fen=rnbq1bnr%2Fppppkppp%2F4p3%2F3N4%2F3P3B%2FQ7%2FPPP1PPPP%2FR3KBNR_w_KQ_-_0_1&color=white&theme=brown&piece=cburnett" alt="One of three pieces" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
+    <img src="/dicechess-engine/boards/kcp/case-7.svg" alt="One of three pieces" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
   </div>
 </div>
 
@@ -155,7 +155,7 @@ This page catalogs all our active test cases for king capture probability, allow
     </ul>
   </div>
   <div style="flex: 0 0 280px; width: 280px; min-width: 280px; margin: 0 auto;">
-    <img src="https://lichess1.org/export/fen.gif?fen=rnbq1bnr%2Fppppkppp%2F8%2F3N2B1%2FP2P4%2FQ3R3%2F1PP1PPPP%2F4KBNR_w_K_-_0_1&color=white&theme=brown&piece=cburnett" alt="One of four pieces" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
+    <img src="/dicechess-engine/boards/kcp/case-8.svg" alt="One of four pieces" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
   </div>
 </div>
 
@@ -174,7 +174,7 @@ This page catalogs all our active test cases for king capture probability, allow
     </ul>
   </div>
   <div style="flex: 0 0 280px; width: 280px; min-width: 280px; margin: 0 auto;">
-    <img src="https://lichess1.org/export/fen.gif?fen=4R3%2F8%2F8%2FQ3k3%2F3P4%2F5N2%2F7B%2F6K1_w_-_-_0_1&color=white&theme=brown&piece=cburnett" alt="One of five pieces" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
+    <img src="/dicechess-engine/boards/kcp/case-9.svg" alt="One of five pieces" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
   </div>
 </div>
 
@@ -193,7 +193,7 @@ This page catalogs all our active test cases for king capture probability, allow
     </ul>
   </div>
   <div style="flex: 0 0 280px; width: 280px; min-width: 280px; margin: 0 auto;">
-    <img src="https://lichess1.org/export/fen.gif?fen=rnbq1bnr%2Fpppppkpp%2F8%2F3N4%2F2P5%2F1B1P2P1%2FPP2PP1P%2FR1B1K2R_w_KQ_-_0_1&color=white&theme=brown&piece=cburnett" alt="Three different pieces" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
+    <img src="/dicechess-engine/boards/kcp/case-10.svg" alt="Three different pieces" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
   </div>
 </div>
 
@@ -212,7 +212,7 @@ This page catalogs all our active test cases for king capture probability, allow
     </ul>
   </div>
   <div style="flex: 0 0 280px; width: 280px; min-width: 280px; margin: 0 auto;">
-    <img src="https://lichess1.org/export/fen.gif?fen=rnbq1bnr%2Fpppppkpp%2F8%2F8%2F8%2F2P5%2FPP1PPPPP%2FR1B1KB1R_w_KQ_-_0_1&color=white&theme=brown&piece=cburnett" alt="Two identical pieces + one different piece" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
+    <img src="/dicechess-engine/boards/kcp/case-11.svg" alt="Two identical pieces + one different piece" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
   </div>
 </div>
 
@@ -231,7 +231,7 @@ This page catalogs all our active test cases for king capture probability, allow
     </ul>
   </div>
   <div style="flex: 0 0 280px; width: 280px; min-width: 280px; margin: 0 auto;">
-    <img src="https://lichess1.org/export/fen.gif?fen=rnbqkbnr%2Fpppppppp%2F8%2F1B6%2F4P3%2F5Q2%2FPPPP1PPP%2FRNB1K1NR_w_KQkq_-_0_1&color=white&theme=brown&piece=cburnett" alt="Queen and Bishop threatening the King" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
+    <img src="/dicechess-engine/boards/kcp/case-12.svg" alt="Queen and Bishop threatening the King" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
   </div>
 </div>
 
@@ -250,7 +250,7 @@ This page catalogs all our active test cases for king capture probability, allow
     </ul>
   </div>
   <div style="flex: 0 0 280px; width: 280px; min-width: 280px; margin: 0 auto;">
-    <img src="https://lichess1.org/export/fen.gif?fen=rnbqkbnr%2FpppppBpp%2F8%2F8%2F4P3%2F8%2FPPPP1PPP%2FRNBQK1NR_w_KQkq_-_0_1&color=white&theme=brown&piece=cburnett" alt="A bishop and the three queens" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
+    <img src="/dicechess-engine/boards/kcp/case-13.svg" alt="A bishop and the three queens" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
   </div>
 </div>
 
@@ -269,7 +269,7 @@ This page catalogs all our active test cases for king capture probability, allow
     </ul>
   </div>
   <div style="flex: 0 0 280px; width: 280px; min-width: 280px; margin: 0 auto;">
-    <img src="https://lichess1.org/export/fen.gif?fen=rnbq1bnr%2Fppppkppp%2F8%2F4p3%2F1P6%2FB7%2FP1PPPPPP%2FRN1QKBNR_w_KQ_-_0_1&color=white&theme=brown&piece=cburnett" alt="Two pieces or queens" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
+    <img src="/dicechess-engine/boards/kcp/case-14.svg" alt="Two pieces or queens" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);" />
   </div>
 </div>
 

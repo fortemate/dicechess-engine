@@ -2,8 +2,8 @@
 package dicechess.engine.search
 
 import java.io.File
-import java.net.URLEncoder
 import java.nio.file.Files
+import dicechess.engine.docs.BoardSvgRenderer
 
 /** Generates the visual Markdown catalog of KingCaptureProbability test cases from Scala fixtures.
   *
@@ -15,6 +15,9 @@ object KingCaptureDocGenerator:
 
   def main(args: Array[String]): Unit =
     println("Starting documentation generation for KingCaptureProbability Test Cases...")
+
+    val boardsDir = new File("docs/public/boards/kcp")
+    boardsDir.mkdirs()
 
     val cases = KingCaptureFixtures.cases
 
@@ -34,13 +37,12 @@ object KingCaptureDocGenerator:
     for (tc, index) <- cases.zipWithIndex do
       val caseNum = index + 1
 
-      // Generate Lichess FEN image URL — strip the 7th dice field (not part of standard FEN)
-      val standardFen = tc.fen.split(" ").take(6).mkString(" ")
-      val cleanFen    = standardFen.replace(' ', '_')
-      val encodedFen  = URLEncoder.encode(cleanFen, "UTF-8")
-      val boardColor  = if tc.fen.split(" ").lift(1).contains("w") then "white" else "black"
-      val imgUrl      =
-        s"https://lichess1.org/export/fen.gif?fen=$encodedFen&color=$boardColor&theme=brown&piece=cburnett"
+      // Render local SVG chessboard — eliminates external HTTP dependencies and rate-limiting
+      val isWhite     = tc.fen.split(" ").lift(1).contains("w")
+      val svgFileName = s"case-$caseNum.svg"
+      val svgFile     = new File(boardsDir, svgFileName)
+      BoardSvgRenderer.saveToFile(svgFile, tc.fen, flipped = !isWhite)
+      val imgUrl = s"/dicechess-engine/boards/kcp/$svgFileName"
 
       val probStr =
         String.format(java.util.Locale.US, "%.2f%%", java.lang.Double.valueOf(tc.expectedKingProbability * 100))
