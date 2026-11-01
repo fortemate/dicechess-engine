@@ -353,9 +353,9 @@ function filterMaximalMoves(state: GameState, dice: List[Int]): List[Move] = {
 
 ## Relationship to Full-Turn Generation
 
-`filterMaximalMoves` corresponds to [`LegalMovesFilter.filterMaximalMoves`](file:///home/jegors/Fortemate/dicechess-engine/shared-rules/src/main/scala/dicechess/engine/movegen/LegalMovesFilter.scala#L138) in the codebase. It computes the legal first micro-moves and matches exactly the first level of the turn tree.
+`filterMaximalMoves` corresponds to [`LegalMovesFilter.filterMaximalMoves`](https://github.com/fortemate/dicechess-engine/blob/main/shared-rules/src/main/scala/dicechess/engine/movegen/LegalMovesFilter.scala) in the codebase. It computes the legal first micro-moves and matches exactly the first level of the turn tree.
 
 For complete turn execution and multi-step validation:
-* **Search and Validation:** The engine uses [`TurnGenerator.generateAllLegalTurnPaths`](file:///home/jegors/Fortemate/dicechess-engine/shared-rules/src/main/scala/dicechess/engine/search/TurnGenerator.scala#L35) to exhaustively construct and filter complete legal paths over the whole turn.
+* **Search and Validation:** The engine uses [`TurnGenerator.generateAllLegalTurnPaths`](https://github.com/fortemate/dicechess-engine/blob/main/shared-rules/src/main/scala/dicechess/engine/search/TurnGenerator.scala) to exhaustively construct and filter complete legal paths over the whole turn.
 * **Client UI & APIs:** The JavaScript API provides `getLegalTurnTree(dfen)`, returning the legal moves as a prefix tree. Clients walk down this tree as moves are executed, preventing illegal premature terminations.
 * For more information on how turns progress from roll to completion, see [The Turn Lifecycle](../turn-lifecycle).
