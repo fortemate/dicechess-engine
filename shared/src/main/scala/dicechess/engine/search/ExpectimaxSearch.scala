@@ -87,10 +87,10 @@ final case class ChanceCollapse(
 
 /** One move's root telemetry from [[ExpectimaxSearch]]: how wide the decision node really was.
   *
-  * `candidatesCompleted < candidatesSelected` means the wall-clock deadline truncated the anytime loop — the move was
-  * chosen among fewer candidates than [[ExpectimaxConfig.candidateLimit]] allowed. Persistently tiny completion counts
-  * on production hardware mean the effective search degenerates toward "play the pre-ranker's first pick", which no
-  * amount of candidate-limit tuning can fix — that evidence is exactly what this type exists to surface.
+  * `candidatesCompleted < candidatesSelected` means the deadline or work budget truncated the anytime loop — the move
+  * was chosen among fewer candidates than [[ExpectimaxConfig.candidateLimit]] allowed. Persistently tiny completion
+  * counts on production hardware mean the effective search degenerates toward "play the pre-ranker's first pick", which
+  * no amount of candidate-limit tuning can fix — that evidence is exactly what this type exists to surface.
   *
   * An immediate king-capture win reports `0/0` selected/completed: no candidate was pre-ranked or expanded, so counting
   * it as a completed candidate would overstate the searched width. A forced pass (no legal turn for the roll) reports
@@ -107,9 +107,10 @@ final case class ChanceCollapse(
   *   candidate ([[RootSearchStats.candidatesCollapsed]]) are the other two, and are counted separately because they did
   *   no expansion work
   * @param candidatesAbandoned
-  *   candidates whose chance node was cut mid-expansion by the deadline (at most one: the search stops afterwards).
-  *   Their partial expectation is discarded rather than ranked, so this counts work paid for and thrown away — a
-  *   persistent non-zero value means the per-move budget is too small for even one candidate at this width.
+  *   candidates whose chance node was cut mid-expansion by the deadline or the work budget (at most one: the search
+  *   stops afterwards). Their partial expectation is discarded rather than ranked, so this counts work paid for and
+  *   thrown away — a persistent non-zero value means the per-move budget is too small for even one candidate at this
+  *   width.
   */
 final case class RootSearchStats(
     legalTurns: Int,
@@ -196,7 +197,7 @@ final class ExpectimaxSearch(
     statsSink: RootSearchStats => Unit = ExpectimaxSearch.NoStats,
     tt: Option[TranspositionTable] = None,
     chanceCollapse: Option[ChanceCollapse] = None
-) extends TimeBudgetedSearch:
+) extends ControlledSearch:
 
   import ExpectimaxSearch.*
 
@@ -205,24 +206,31 @@ final class ExpectimaxSearch(
 
   /** Finds the best turn with an explicit `Random`, running to completion over every candidate. */
   override def findBestMove(state: GameState, rand: Random): Option[ScoredSequence] =
-    findBestMove(state, NoDeadline, rand)
+    findBestMove(state, SearchControl.Unbounded, rand)
 
-  /** Finds the best turn under a wall-clock deadline.
+  /** Finds the best turn under a [[SearchControl]] — a wall-clock deadline, a deterministic rules work budget, or both.
+    * The historical `findBestMove(state, deadlineNanos, random)` is this method with
+    * `SearchControl.untilDeadline(deadlineNanos)`.
     *
-    * Candidates are expanded in material-ranked order, and the deadline is honoured **between dice rolls inside** a
+    * Candidates are expanded in pre-ranked order, and the control is consulted **between dice rolls inside** a
     * candidate's chance node — not merely between candidates. Even the top candidate can therefore be abandoned before
     * it yields a comparable value, which is the point: one candidate routinely costs more than the whole per-turn
-    * budget, so a coarser check made the deadline advisory rather than binding (#496).
+    * budget, so a coarser check made the deadline advisory rather than binding (#496). A budget reaches further still:
+    * the same [[BudgetedRules.Budget]] generates every opponent reply inside the tree, so exhaustion inside one roll's
+    * reply generation cancels the invocation at the very next check, deterministically and without a clock.
     *
-    * The result is the best *completed* candidate, or — when the deadline left no candidate time to finish — the
-    * pre-ranker's own top pick, so the anytime contract still delivers a legal turn. A partially expanded candidate is
-    * never ranked: its expectation covers only the rolls the clock allowed, so comparing it against complete ones would
-    * let the instant the deadline landed choose the move. [[RootSearchStats]] reports both cases.
+    * The result is the best *completed* ([[SearchOutcome.Exact]]) candidate, or — when cancellation left no candidate
+    * time to finish — the pre-ranker's own top pick, so the anytime contract still delivers a legal turn. A partially
+    * expanded candidate is never ranked: its expectation covers only the rolls the control allowed, so comparing it
+    * against complete ones would let the instant the deadline landed choose the move. [[RootSearchStats]] reports both
+    * cases. The complete fallback order is documented on [[ControlledSearch]]; root legal-turn generation, the
+    * immediate-capture test and the pre-rank batch are part of it and run even when `control` is already cancelled at
+    * entry — the first operation cancellation skips is the first piece of search work.
     *
     * All of this matters because a single roll can generate thousands of opponent replies (the Dice Chess branching
     * tail).
     */
-  override def findBestMove(state: GameState, deadlineNanos: Long, random: Random): Option[ScoredSequence] =
+  override def findBestMove(state: GameState, control: SearchControl, random: Random): Option[ScoredSequence] =
     val paths = TurnGenerator.generateAllLegalTurnPaths(state)
     if paths.isEmpty then
       // Forced pass: still one record per call — all-zero, distinguished from a win shortcut by legalTurns == 0.
@@ -233,7 +241,7 @@ final class ExpectimaxSearch(
         case Some(win) =>
           statsSink(RootSearchStats(paths.size, 0, 0))
           Some(win)
-        case None => Some(searchRoot(state, paths, deadlineNanos, random))
+        case None => Some(searchRoot(state, paths, control, random))
 
   /** The shortest immediate king capture among `paths`, if any: it wins outright, so it is taken before pre-ranking,
     * which would otherwise be free to prune it (the king has no material or model value).
@@ -246,13 +254,13 @@ final class ExpectimaxSearch(
   private def searchRoot(
       state: GameState,
       paths: List[List[Move]],
-      deadlineNanos: Long,
+      control: SearchControl,
       random: Random
   ): ScoredSequence =
     val myColor    = state.activeColor
     val candidates = selectRootCandidates(state, paths, myColor)
     val expansion  = new RootExpansion
-    expandRootCandidates(candidates, myColor, deadlineNanos, expansion)
+    expandRootCandidates(candidates, myColor, control, expansion)
     statsSink(expansion.toStats(paths.size, candidates.entries.length))
     val results = expansion.ranked
     // The deadline elapsed inside the very first candidate, so nothing has a comparable value yet. The anytime
@@ -290,23 +298,23 @@ final class ExpectimaxSearch(
   private def expandRootCandidates(
       candidates: RootCandidates,
       myColor: Color,
-      deadlineNanos: Long,
+      control: SearchControl,
       expansion: RootExpansion
   ): Unit =
     chanceCollapse match
-      case Some(collapse) => collapseRootCandidates(candidates, myColor, deadlineNanos, expansion, collapse)
-      case None           => expandRootCandidatesExactly(candidates, myColor, deadlineNanos, expansion)
+      case Some(collapse) => collapseRootCandidates(candidates, myColor, control, expansion, collapse)
+      case None           => expandRootCandidatesExactly(candidates, myColor, control, expansion)
 
   /** The exact expansion: one chance node per candidate, pruned and cached as configured. */
   private def expandRootCandidatesExactly(
       candidates: RootCandidates,
       myColor: Color,
-      deadlineNanos: Long,
+      control: SearchControl,
       expansion: RootExpansion
   ): Unit =
     val entries             = candidates.entries
-    val activeRootRescore   = rootRescoreValues(entries, myColor, deadlineNanos)
-    val expiredBeforeChance = expired(deadlineNanos)
+    val activeRootRescore   = rootRescoreValues(entries, myColor, control)
+    val expiredBeforeChance = control.isCancelled
     // Preserve the established anytime telemetry: if no search can start, the first selected candidate is the one the
     // deadline abandoned and the move falls back to the pre-ranker's top pick.
     if expiredBeforeChance then expansion.abandoned = 1
@@ -318,13 +326,13 @@ final class ExpectimaxSearch(
       val alpha = rootSearchAlpha(expansion, activeRootRescore, i)
       continue = recordRootCandidate(
         path,
-        rootChanceNode(resultState, myColor, deadlineNanos, alpha),
+        rootChanceNode(resultState, myColor, control, alpha),
         activeRootRescore,
         i,
         expansion
       )
       i += 1
-      if continue && expired(deadlineNanos) then continue = false
+      if continue && control.isCancelled then continue = false
 
   /** The collapsed expansion: the whole candidate set is resolved by one batched model call.
     *
@@ -338,14 +346,14 @@ final class ExpectimaxSearch(
   private def collapseRootCandidates(
       candidates: RootCandidates,
       myColor: Color,
-      deadlineNanos: Long,
+      control: SearchControl,
       expansion: RootExpansion,
       collapse: ChanceCollapse
   ): Unit =
     val entries           = candidates.entries
     val resultStates      = entries.map(_._2)
-    val activeRootRescore = rootRescoreValues(entries, myColor, deadlineNanos)
-    if expired(deadlineNanos) then expansion.abandoned = 1
+    val activeRootRescore = rootRescoreValues(entries, myColor, control)
+    if control.isCancelled then expansion.abandoned = 1
     else
       val values = collapse.evalBatch(resultStates, myColor)
       // A model that answers with a different number of rows than it was given has broken the batching contract, and
@@ -355,7 +363,7 @@ final class ExpectimaxSearch(
       // different problems for whoever reads the telemetry.
       if values.length != entries.length then expansion.collapseRejected = true
       else
-        lossTaints(collapse, activeRootRescore, resultStates, myColor, deadlineNanos) match
+        lossTaints(collapse, activeRootRescore, resultStates, myColor, control) match
           case None          => expansion.abandoned = 1
           case Some(tainted) =>
             var i = 0
@@ -379,16 +387,15 @@ final class ExpectimaxSearch(
       activeRootRescore: Option[(Double, Array[Int])],
       resultStates: Array[GameState],
       myColor: Color,
-      deadlineNanos: Long
+      control: SearchControl
   ): Option[Array[Boolean]] =
     if !collapse.lossGuard || activeRootRescore.isEmpty then Some(new Array[Boolean](resultStates.length))
     else
-      val tainted    = new Array[Boolean](resultStates.length)
-      val checkClock = timed(deadlineNanos)
-      var i          = 0
-      var ranOut     = false
+      val tainted = new Array[Boolean](resultStates.length)
+      var i       = 0
+      var ranOut  = false
       while i < resultStates.length && !ranOut do
-        if clockExpired(checkClock, deadlineNanos) then ranOut = true
+        if control.isCancelled then ranOut = true
         else
           tainted(i) = losesKingOnSomeRoll(resultStates(i), myColor)
           i += 1
@@ -422,10 +429,10 @@ final class ExpectimaxSearch(
   private def rootRescoreValues(
       entries: Array[(List[Move], GameState)],
       myColor: Color,
-      deadlineNanos: Long
+      control: SearchControl
   ): Option[(Double, Array[Int])] =
     rootRescore match
-      case Some(RootRescore(rescoreEval, weight)) if weight > 0.0 && !expired(deadlineNanos) =>
+      case Some(RootRescore(rescoreEval, weight)) if weight > 0.0 && !control.isCancelled =>
         Some(weight -> rescoreEval(entries.map(_._2), myColor))
       case _ => None
 
@@ -445,11 +452,11 @@ final class ExpectimaxSearch(
   private def rootChanceNode(
       resultState: GameState,
       myColor: Color,
-      deadlineNanos: Long,
+      control: SearchControl,
       searchAlpha: Double
   ): ChanceNodeResult =
-    if config.searchDepth == 2 then chanceNodeValue(resultState, myColor, deadlineNanos, searchAlpha)
-    else depthThreeChanceNodeValue(resultState, myColor, deadlineNanos, searchAlpha)
+    if config.searchDepth == 2 then chanceNodeValue(resultState, myColor, control, searchAlpha)
+    else depthThreeChanceNodeValue(resultState, myColor, control, searchAlpha)
 
   /** Folds one candidate's chance-node result into the expansion, and reports whether the loop may continue.
     *
@@ -465,30 +472,35 @@ final class ExpectimaxSearch(
       index: Int,
       expansion: RootExpansion
   ): Boolean =
-    if res.complete then
-      expansion.rank(path, blendedRootValue(res, activeRootRescore, index))
-      // A TT-exact hit is ranked like a completed candidate (the value IS exact, alpha may advance from it), but it
-      // did no expansion work — counting it as completed would inflate the effective-width metric.
-      if res.fromTT then expansion.ttHits += 1 else expansion.completed += 1
-      true
-    else if res.pruned then
-      recordPrunedCandidate(res, expansion)
-      true
-    else
-      expansion.abandoned += 1
-      false
+    res.outcome match
+      case SearchOutcome.Exact(value, _) =>
+        expansion.rank(path, blendedRootValue(value, res.lossTainted, activeRootRescore, index))
+        // A TT-exact hit is ranked like a completed candidate (the value IS exact, alpha may advance from it), but it
+        // did no expansion work — counting it as completed would inflate the effective-width metric.
+        if res.fromTT then expansion.ttHits += 1 else expansion.completed += 1
+        true
+      case SearchOutcome.UpperBound(_, _) | SearchOutcome.LowerBound(_, _) =>
+        // A root chance node is bounded by alpha alone (its beta is +∞), so only an upper bound — "provably below the
+        // best completed candidate" — can arrive here; a lower bound is unreachable and, were it ever produced, is
+        // still not rankable, so it is treated the same way: counted, never ranked.
+        recordPrunedCandidate(res, expansion)
+        true
+      case SearchOutcome.Incomplete(_) =>
+        expansion.abandoned += 1
+        false
 
   /** The candidate's final ranking score: its raw search value, or that value blended with the root rescore — never
     * blended for a line that loses our king on some roll, at any weight.
     */
   private def blendedRootValue(
-      res: ChanceNodeResult,
+      value: Double,
+      lossTainted: Boolean,
       activeRootRescore: Option[(Double, Array[Int])],
       index: Int
   ): Double =
     activeRootRescore match
-      case Some((weight, values)) if !res.lossTainted => blendRootScore(res.value, values(index).toDouble, weight)
-      case _                                          => res.value
+      case Some((weight, values)) if !lossTainted => blendRootScore(value, values(index).toDouble, weight)
+      case _                                      => value
 
   /** Attributes a pruned candidate to the mechanism that pruned it, keeping TT reuse out of the expansion counters. */
   private def recordPrunedCandidate(res: ChanceNodeResult, expansion: RootExpansion): Unit =
@@ -549,23 +561,32 @@ final class ExpectimaxSearch(
     * — tracked precisely per roll (an exact match against the sentinel, not a threshold on the weighted average) so
     * [[RootRescore]] can never rescue a line that is lost on even one roll, however small its weight.
     *
-    * [[ChanceNodeResult.complete]] says whether every weighted roll was processed before `deadlineNanos`. `false` means
-    * the expansion was cut short, so the accumulated value is a partial expectation over an arbitrary prefix of the
-    * roll order — the caller must discard it rather than rank it against complete ones (#496).
+    * The result's [[SearchOutcome]] is [[SearchOutcome.Exact]] only when every weighted roll was processed before
+    * `control` cancelled the invocation. [[SearchOutcome.Incomplete]] means the expansion was cut short: the partial
+    * expectation over an arbitrary prefix of the roll order is not carried at all, so the caller cannot rank it against
+    * complete ones (#496). The control is consulted **before** the transposition-table lookup, so an invocation that is
+    * already cancelled returns `Incomplete` deterministically instead of being rescued by a cache hit.
     *
     * @param oppToMove
     *   position after our turn: the opponent is to move and the dice pool is empty.
-    * @param deadlineNanos
-    *   [[ExpectimaxSearch.NoDeadline]] for the untimed path, which skips the clock entirely
+    * @param control
+    *   the invocation's cancellation control; [[SearchControl.Unbounded]] for the untimed path, which never reads a
+    *   clock
     */
   private def chanceNodeValue(
       oppToMove: GameState,
       myColor: Color,
-      deadlineNanos: Long,
+      control: SearchControl,
       alpha: Double
   ): ChanceNodeResult =
-    val key = oppToMove.zobristHash
-    ttChanceHit(key, alpha).getOrElse(computeChanceNodeValue(oppToMove, myColor, deadlineNanos, alpha, key))
+    if control.isCancelled then incompleteChance(control, lossTainted = false, rollsProcessed = 0)
+    else
+      val key = oppToMove.zobristHash
+      ttChanceHit(key, alpha, control).getOrElse(computeChanceNodeValue(oppToMove, myColor, control, alpha, key))
+
+  /** A root chance node the control cancelled: no value, only the work consumed so far. */
+  private def incompleteChance(control: SearchControl, lossTainted: Boolean, rollsProcessed: Int): ChanceNodeResult =
+    ChanceNodeResult(SearchOutcome.Incomplete(control.workUsed), lossTainted, rollsProcessed)
 
   /** A stored value that already answers this chance node: an exact entry at the same depth, or — outside
     * [[ExpectimaxConfig.exactOnlyMode]] — an upper bound provably below `alpha`.
@@ -573,24 +594,18 @@ final class ExpectimaxSearch(
     * Strict inequality, matching the Star1/Star2 cutoffs: a candidate whose stored bound exactly ties alpha may still
     * equal the best and must reach the random tie-break, not vanish into the table (#69).
     */
-  private def ttChanceHit(key: Long, alpha: Double): Option[ChanceNodeResult] =
+  private def ttChanceHit(key: Long, alpha: Double, control: SearchControl): Option[ChanceNodeResult] =
     tt.flatMap(_.probe(key))
       .filter(_.depth == config.searchDepth - 1)
       .flatMap: entry =>
-        if entry.bound == TTBound.Exact then Some(ttChanceResult(entry, complete = true, pruned = false))
+        if entry.bound == TTBound.Exact then
+          Some(ttChanceResult(entry, SearchOutcome.Exact(entry.value, control.workUsed)))
         else if !config.exactOnlyMode && entry.bound == TTBound.UpperBound && entry.value < alpha then
-          Some(ttChanceResult(entry, complete = false, pruned = true))
+          Some(ttChanceResult(entry, SearchOutcome.UpperBound(entry.value, control.workUsed)))
         else None
 
-  private def ttChanceResult(entry: TTEntry, complete: Boolean, pruned: Boolean): ChanceNodeResult =
-    ChanceNodeResult(
-      value = entry.value,
-      lossTainted = entry.lossTainted,
-      complete = complete,
-      pruned = pruned,
-      rollsProcessed = 0,
-      fromTT = true
-    )
+  private def ttChanceResult(entry: TTEntry, outcome: SearchOutcome[Double]): ChanceNodeResult =
+    ChanceNodeResult(outcome, lossTainted = entry.lossTainted, rollsProcessed = 0, fromTT = true)
 
   /** Expands the chance node for real: Star2 probing (only with a finite alpha), then the Star1 roll loop, then one
     * transposition-table store for whatever the two phases produced.
@@ -598,33 +613,24 @@ final class ExpectimaxSearch(
   private def computeChanceNodeValue(
       oppToMove: GameState,
       myColor: Color,
-      deadlineNanos: Long,
+      control: SearchControl,
       alpha: Double,
       key: Long
   ): ChanceNodeResult =
     val scratch = new ChanceNodeScratch
-    if alpha > Double.NegativeInfinity then star2Ceiling(scratch, oppToMove, myColor, deadlineNanos, alpha)
+    if alpha > Double.NegativeInfinity then star2Ceiling(scratch, oppToMove, myColor, control, alpha)
     val res =
       if scratch.cutByStar2 then
         ChanceNodeResult(
-          value = scratch.remainingCeiling(0),
+          SearchOutcome.UpperBound(scratch.remainingCeiling(0), control.workUsed),
           lossTainted = scratch.lossTainted,
-          complete = false,
-          pruned = true,
           rollsProcessed = 0,
           probePruned = true
         )
-      else if scratch.cutByDeadline then
-        ChanceNodeResult(
-          value = 0.0,
-          lossTainted = scratch.lossTainted,
-          complete = false,
-          pruned = false,
-          rollsProcessed = 0
-        )
+      else if scratch.cutByDeadline then incompleteChance(control, scratch.lossTainted, rollsProcessed = 0)
       else
-        expandChanceRolls(scratch, oppToMove, myColor, deadlineNanos, alpha)
-        star1Result(scratch, alpha)
+        expandChanceRolls(scratch, oppToMove, myColor, control, alpha)
+        star1Result(scratch, control, alpha)
     storeChanceNode(key, res)
     res
 
@@ -635,10 +641,10 @@ final class ExpectimaxSearch(
       scratch: ChanceNodeScratch,
       oppToMove: GameState,
       myColor: Color,
-      deadlineNanos: Long,
+      control: SearchControl,
       alpha: Double
   ): Unit =
-    val probes = collectStar2Probes(scratch, oppToMove, myColor, deadlineNanos)
+    val probes = collectStar2Probes(scratch, oppToMove, myColor, control)
     if !scratch.cutByDeadline then
       fillProbeCeilings(scratch, probes, myColor)
       accumulateCeilingSuffix(scratch)
@@ -649,29 +655,32 @@ final class ExpectimaxSearch(
       scratch: ChanceNodeScratch,
       oppToMove: GameState,
       myColor: Color,
-      deadlineNanos: Long
+      control: SearchControl
   ): Star2Probes =
     val rolls       = DiceRolls.byWeightDescending
-    val checkClock  = timed(deadlineNanos)
     val statesBuf   = List.newBuilder[GameState]
     val rollIndices = new Array[Int](rolls.length)
     var stateCount  = 0
     var i           = 0
     while i < rolls.length && !scratch.cutByDeadline do
-      if clockExpired(checkClock, deadlineNanos) then scratch.cutByDeadline = true
+      if control.isCancelled then scratch.cutByDeadline = true
       else
         val rolled  = oppToMove.withDicePool(rolls(i)._1)
-        val replies = TurnGenerator.generateAllLegalTurnPaths(rolled)
-        scratch.replies(i) = replies
-        star2ProbeState(rolled, replies, oppToMove, myColor) match
-          case Some(state) =>
-            statesBuf += state
-            rollIndices(i) = stateCount
-            stateCount += 1
-          case None =>
-            scratch.lossTainted = true
-            rollIndices(i) = Star2Probes.LostRoll
-        i += 1
+        val replies = legalReplies(control, rolled)
+        // Reply generation is the one place a work budget can run out mid-roll: an exhausted budget hands back an
+        // empty list that must not be mistaken for a forced pass, so the control is re-read before it is used.
+        if control.isCancelled then scratch.cutByDeadline = true
+        else
+          scratch.replies(i) = replies
+          star2ProbeState(rolled, replies, oppToMove, myColor) match
+            case Some(state) =>
+              statesBuf += state
+              rollIndices(i) = stateCount
+              stateCount += 1
+            case None =>
+              scratch.lossTainted = true
+              rollIndices(i) = Star2Probes.LostRoll
+          i += 1
     new Star2Probes(statesBuf.result().toArray, rollIndices)
 
   /** The single state whose evaluation bounds one roll, or `None` when some reply to that roll captures our king — the
@@ -735,15 +744,14 @@ final class ExpectimaxSearch(
       scratch: ChanceNodeScratch,
       oppToMove: GameState,
       myColor: Color,
-      deadlineNanos: Long,
+      control: SearchControl,
       alpha: Double
   ): Unit =
-    val rolls      = DiceRolls.byWeightDescending
-    val checkClock = timed(deadlineNanos)
+    val rolls = DiceRolls.byWeightDescending
     while scratch.index < rolls.length && !scratch.cutByDeadline && !scratch.cutByStar1 do
       if alpha > Double.NegativeInfinity && star1UpperBound(scratch, alpha) < alpha then scratch.cutByStar1 = true
-      else if clockExpired(checkClock, deadlineNanos) then scratch.cutByDeadline = true
-      else accumulateRoll(scratch, oppToMove, myColor)
+      else if control.isCancelled then scratch.cutByDeadline = true
+      else accumulateRoll(scratch, oppToMove, myColor, control)
 
   /** The most the expectation can still reach from the current roll on: the Star2 suffix ceiling when a probing phase
     * ran, otherwise the unprocessed probability mass at the evaluator's ceiling ($S + R \cdot U$).
@@ -756,50 +764,81 @@ final class ExpectimaxSearch(
       scratch.acc + remainingProb * UpperScoreBound
 
   /** Expands one roll's opponent replies and folds the weighted result into the running expectation. */
-  private def accumulateRoll(scratch: ChanceNodeScratch, oppToMove: GameState, myColor: Color): Unit =
+  private def accumulateRoll(
+      scratch: ChanceNodeScratch,
+      oppToMove: GameState,
+      myColor: Color,
+      control: SearchControl
+  ): Unit =
     val (roll, weight) = DiceRolls.byWeightDescending(scratch.index)
     val rolled         = oppToMove.withDicePool(roll)
-    val replies        = repliesFor(scratch.replies, scratch.index, rolled)
-    val rollValue      =
-      if replies.isEmpty then evalOne(oppToMove.endTurn(), myColor)
-      else opponentMinValue(rolled, replies, myColor)
-    if rollValue == LossValue then scratch.lossTainted = true
-    scratch.acc += (weight.toDouble / DiceRolls.totalOrderedRolls) * rollValue
-    scratch.processedWeight += weight
-    scratch.index += 1
+    val replies        = repliesFor(control, scratch.replies, scratch.index, rolled)
+    // An exhausted budget returns no replies; that is a cancellation, not a forced pass (see collectStar2Probes).
+    if control.isCancelled then scratch.cutByDeadline = true
+    else
+      val rollValue =
+        if replies.isEmpty then evalOne(oppToMove.endTurn(), myColor)
+        else opponentMinValue(rolled, replies, myColor)
+      if rollValue == LossValue then scratch.lossTainted = true
+      scratch.acc += (weight.toDouble / DiceRolls.totalOrderedRolls) * rollValue
+      scratch.processedWeight += weight
+      scratch.index += 1
 
   /** The node's result once the roll loop has stopped: a Star1 bound, a partial expectation the caller must discard, or
     * the complete expectation.
     */
-  private def star1Result(scratch: ChanceNodeScratch, alpha: Double): ChanceNodeResult =
+  private def star1Result(scratch: ChanceNodeScratch, control: SearchControl, alpha: Double): ChanceNodeResult =
     if scratch.cutByStar1 then
       ChanceNodeResult(
-        value = star1UpperBound(scratch, alpha),
+        SearchOutcome.UpperBound(star1UpperBound(scratch, alpha), control.workUsed),
         lossTainted = scratch.lossTainted,
-        complete = false,
-        pruned = true,
         rollsProcessed = scratch.index
       )
+    else if scratch.cutByDeadline then incompleteChance(control, scratch.lossTainted, scratch.index)
     else
       ChanceNodeResult(
-        value = scratch.acc,
+        SearchOutcome.Exact(scratch.acc, control.workUsed),
         lossTainted = scratch.lossTainted,
-        complete = !scratch.cutByDeadline,
-        pruned = false,
         rollsProcessed = scratch.index
       )
 
+  /** Writes a finished or bounded chance node to the table; an [[SearchOutcome.Incomplete]] node is never stored. */
   private def storeChanceNode(key: Long, res: ChanceNodeResult): Unit =
     tt.foreach: table =>
-      if res.complete then table.store(key, res.value, TTBound.Exact, config.searchDepth - 1, res.lossTainted)
-      else if res.pruned && !config.exactOnlyMode then
-        table.store(key, res.value, TTBound.UpperBound, config.searchDepth - 1, res.lossTainted)
+      res.outcome match
+        case SearchOutcome.Exact(value, _) =>
+          table.store(key, value, TTBound.Exact, config.searchDepth - 1, res.lossTainted)
+        case SearchOutcome.UpperBound(value, _) if !config.exactOnlyMode =>
+          table.store(key, value, TTBound.UpperBound, config.searchDepth - 1, res.lossTainted)
+        case SearchOutcome.LowerBound(value, _) if !config.exactOnlyMode =>
+          table.store(key, value, TTBound.LowerBound, config.searchDepth - 1, res.lossTainted)
+        case _ => ()
 
   /** The reply list for one roll: the one a probing phase already generated, or a fresh generation when none ran. */
-  private def repliesFor(cached: Array[List[List[Move]]], index: Int, rolled: GameState): List[List[Move]] =
+  private def repliesFor(
+      control: SearchControl,
+      cached: Array[List[List[Move]]],
+      index: Int,
+      rolled: GameState
+  ): List[List[Move]] =
     val stored = cached(index)
     if stored ne null then stored // scalafix:ok(DisableSyntax.null)
-    else TurnGenerator.generateAllLegalTurnPaths(rolled)
+    else legalReplies(control, rolled)
+
+  /** Every legal reply to `rolled`, generated through the invocation's shared rules budget when it has one.
+    *
+    * With a budget the generation is `BudgetedRules.turnPaths`, whose canonical order is the one
+    * `TurnGenerator.generateAllLegalTurnPaths` produces, so a budgeted and an unbudgeted search expand identical trees
+    * until the budget runs out. Exhaustion yields an empty list **and** a cancelled control: every caller re-reads
+    * `control.isCancelled` before treating an empty list as a forced pass.
+    */
+  private def legalReplies(control: SearchControl, rolled: GameState): List[List[Move]] =
+    control.budget match
+      case Some(budget) =>
+        BudgetedRules.turnPaths(rolled, budget) match
+          case BudgetedRules.Outcome.Complete(paths, _) => paths
+          case BudgetedRules.Outcome.Incomplete(_)      => Nil
+      case None => TurnGenerator.generateAllLegalTurnPaths(rolled)
 
   /** Mutable state of one depth-2 chance-node expansion: the reply lists the probing phase generated, the Star2
     * per-roll ceilings, the weighted accumulator of the Star1 roll loop, and the three ways that loop can stop.
@@ -825,7 +864,7 @@ final class ExpectimaxSearch(
   private def depthThreeChanceNodeValue(
       oppToMove: GameState,
       myColor: Color,
-      deadlineNanos: Long,
+      control: SearchControl,
       alpha: Double
   ): ChanceNodeResult =
     val result = recursiveChanceNode(
@@ -834,16 +873,21 @@ final class ExpectimaxSearch(
         myColor,
         pliesRemaining = config.searchDepth - 1,
         maximizing = false,
-        deadlineNanos,
+        control,
         alpha,
         beta = Double.PositiveInfinity
       )
     )
+    val outcome =
+      if result.aborted then SearchOutcome.Incomplete(control.workUsed)
+      else
+        result.bound match
+          case TTBound.Exact      => SearchOutcome.Exact(result.value, control.workUsed)
+          case TTBound.UpperBound => SearchOutcome.UpperBound(result.value, control.workUsed)
+          case TTBound.LowerBound => SearchOutcome.LowerBound(result.value, control.workUsed)
     ChanceNodeResult(
-      value = result.value,
+      outcome,
       lossTainted = result.lossTainted,
-      complete = !result.aborted && result.bound == TTBound.Exact,
-      pruned = !result.aborted && result.bound != TTBound.Exact,
       rollsProcessed = result.rollsProcessed,
       probePruned = result.probePruned,
       fromTT = result.fromTT
@@ -857,13 +901,16 @@ final class ExpectimaxSearch(
     * roles.
     */
   private def recursiveChanceNode(toMove: GameState, ctx: SearchContext): RecursiveNodeResult =
-    val key = transpositionKey(toMove, ctx.maximizing)
-    val hit = ttRecursiveHit(key, ctx)
-    if hit.isDefined then hit.get
+    // The control is read before the table: an already-cancelled invocation must not be rescued by a cache hit.
+    if ctx.control.isCancelled then RecursiveNodeResult.aborted
     else
-      val result = computeRecursiveChanceNode(toMove, ctx)
-      if !result.aborted then storeRecursiveNode(key, ctx.pliesRemaining, result)
-      result
+      val key = transpositionKey(toMove, ctx.maximizing)
+      val hit = ttRecursiveHit(key, ctx)
+      if hit.isDefined then hit.get
+      else
+        val result = computeRecursiveChanceNode(toMove, ctx)
+        if !result.aborted then storeRecursiveNode(key, ctx.pliesRemaining, result)
+        result
 
   /** A stored value that already answers this node: an exact entry at the same depth, or a fail-soft bound that the
     * node's own window has already been driven past.
@@ -923,24 +970,25 @@ final class ExpectimaxSearch(
   /** Probing one ply above the leaves: every probe is a single position, so all of them are scored in one batch. */
   private def probeLeafRolls(scratch: RecursiveNodeScratch, toMove: GameState, ctx: SearchContext): Unit =
     val rolls        = DiceRolls.byWeightDescending
-    val checkClock   = timed(ctx.deadlineNanos)
     val probeStates  = List.newBuilder[GameState]
     val stateIndices = Array.fill(rolls.length)(Star2Probes.LostRoll)
     var stateCount   = 0
     var i            = 0
     while i < rolls.length && !scratch.aborted do
-      if clockExpired(checkClock, ctx.deadlineNanos) then scratch.aborted = true
+      if ctx.control.isCancelled then scratch.aborted = true
       else
         val rolled  = toMove.withDicePool(rolls(i)._1)
-        val replies = TurnGenerator.generateAllLegalTurnPaths(rolled)
-        scratch.replies(i) = replies
-        terminalDecisionValue(rolled, replies, ctx.maximizing) match
-          case Some(value) => scratch.probeNodes(i) = Some(RecursiveNodeResult.exact(value, !ctx.maximizing))
-          case None        =>
-            probeStates += probeLeafState(scratch, i, toMove, rolled, replies, ctx)
-            stateIndices(i) = stateCount
-            stateCount += 1
-        i += 1
+        val replies = legalReplies(ctx.control, rolled)
+        if ctx.control.isCancelled then scratch.aborted = true
+        else
+          scratch.replies(i) = replies
+          terminalDecisionValue(rolled, replies, ctx.maximizing) match
+            case Some(value) => scratch.probeNodes(i) = Some(RecursiveNodeResult.exact(value, !ctx.maximizing))
+            case None        =>
+              probeStates += probeLeafState(scratch, i, toMove, rolled, replies, ctx)
+              stateIndices(i) = stateCount
+              stateCount += 1
+          i += 1
     if !scratch.aborted then scoreLeafProbes(scratch, probeStates.result().toArray, stateIndices, ctx.myColor)
 
   /** The single state that bounds one roll, recording the probing path so the decision node can reuse the probe's exact
@@ -977,19 +1025,20 @@ final class ExpectimaxSearch(
 
   /** Probing deeper in the tree: each probe is itself a chance node, searched with an open window. */
   private def probeInnerRolls(scratch: RecursiveNodeScratch, toMove: GameState, ctx: SearchContext): Unit =
-    val rolls      = DiceRolls.byWeightDescending
-    val checkClock = timed(ctx.deadlineNanos)
-    var i          = 0
+    val rolls = DiceRolls.byWeightDescending
+    var i     = 0
     while i < rolls.length && !scratch.aborted do
-      if clockExpired(checkClock, ctx.deadlineNanos) then scratch.aborted = true
+      if ctx.control.isCancelled then scratch.aborted = true
       else
         val rolled  = toMove.withDicePool(rolls(i)._1)
-        val replies = TurnGenerator.generateAllLegalTurnPaths(rolled)
-        scratch.replies(i) = replies
-        terminalDecisionValue(rolled, replies, ctx.maximizing) match
-          case Some(value) => scratch.probeNodes(i) = Some(RecursiveNodeResult.exact(value, !ctx.maximizing))
-          case None        => probeInnerRoll(scratch, i, toMove, rolled, replies, ctx)
-        i += 1
+        val replies = legalReplies(ctx.control, rolled)
+        if ctx.control.isCancelled then scratch.aborted = true
+        else
+          scratch.replies(i) = replies
+          terminalDecisionValue(rolled, replies, ctx.maximizing) match
+            case Some(value) => scratch.probeNodes(i) = Some(RecursiveNodeResult.exact(value, !ctx.maximizing))
+            case None        => probeInnerRoll(scratch, i, toMove, rolled, replies, ctx)
+          i += 1
 
   /** Probes one non-terminal roll with an open window. A bound pointing the wrong way for this node's role cannot bound
     * the Star2 sum, so it degrades to the role's own worst case instead.
@@ -1034,14 +1083,13 @@ final class ExpectimaxSearch(
     * first aborted child, or the deadline.
     */
   private def expandRecursiveRolls(scratch: RecursiveNodeScratch, toMove: GameState, ctx: SearchContext): Unit =
-    val rolls      = DiceRolls.byWeightDescending
-    val checkClock = timed(ctx.deadlineNanos)
+    val rolls = DiceRolls.byWeightDescending
     while scratch.rollsProcessed < rolls.length && scratch.result.isEmpty do
       val index = scratch.rollsProcessed
       windowCut(scratch, ctx, index) match
-        case Some(cut)                                           => scratch.result = Some(cut)
-        case None if clockExpired(checkClock, ctx.deadlineNanos) => scratch.result = Some(RecursiveNodeResult.aborted)
-        case None                                                => expandOneRecursiveRoll(scratch, toMove, ctx, index)
+        case Some(cut)                       => scratch.result = Some(cut)
+        case None if ctx.control.isCancelled => scratch.result = Some(RecursiveNodeResult.aborted)
+        case None                            => expandOneRecursiveRoll(scratch, toMove, ctx, index)
 
   /** The Star1 window cutoff for the roll at `index`, taken before any of that roll's work is paid for. */
   private def windowCut(scratch: RecursiveNodeScratch, ctx: SearchContext, index: Int): Option[RecursiveNodeResult] =
@@ -1065,25 +1113,28 @@ final class ExpectimaxSearch(
   ): Unit =
     val (roll, weight) = DiceRolls.byWeightDescending(index)
     val rolled         = toMove.withDicePool(roll)
-    val replies        = repliesFor(scratch.replies, index, rolled)
-    scratch.rollProbability = weight.toDouble / DiceRolls.totalOrderedRolls
-    // A decision node at the leaf ply never reads its window — terminal shortcut, forced pass and leaf batch all
-    // ignore it, and `searchDecisionNode` is unreachable there — so the transform and its context are skipped on the
-    // tree's hottest edge (56 rolls under every reply of every node above).
-    val childCtx =
-      if ctx.pliesRemaining == 1 then ctx
-      else ctx.withWindow(childAlpha(scratch, ctx), childBeta(scratch, ctx))
-    val child = recursiveDecisionNode(
-      rolled,
-      replies,
-      childCtx,
-      scratch.probePathAt(index),
-      scratch.probeNodeAt(index)
-    )
-    if child.aborted then scratch.result = Some(child)
+    val replies        = repliesFor(ctx.control, scratch.replies, index, rolled)
+    // An exhausted budget returns no replies; that is a cancellation, not a forced pass (see legalReplies).
+    if ctx.control.isCancelled then scratch.result = Some(RecursiveNodeResult.aborted)
     else
-      scratch.lossTainted ||= child.lossTainted
-      foldRecursiveChild(scratch, ctx, rolled, replies, child)
+      scratch.rollProbability = weight.toDouble / DiceRolls.totalOrderedRolls
+      // A decision node at the leaf ply never reads its window — terminal shortcut, forced pass and leaf batch all
+      // ignore it, and `searchDecisionNode` is unreachable there — so the transform and its context are skipped on
+      // the tree's hottest edge (56 rolls under every reply of every node above).
+      val childCtx =
+        if ctx.pliesRemaining == 1 then ctx
+        else ctx.withWindow(childAlpha(scratch, ctx), childBeta(scratch, ctx))
+      val child = recursiveDecisionNode(
+        rolled,
+        replies,
+        childCtx,
+        scratch.probePathAt(index),
+        scratch.probeNodeAt(index)
+      )
+      if child.aborted then scratch.result = Some(child)
+      else
+        scratch.lossTainted ||= child.lossTainted
+        foldRecursiveChild(scratch, ctx, rolled, replies, child)
 
   /** The alpha the child must beat for the current roll to still matter to the parent's window, mapped through that
     * roll's own probability. [[clampScore]] keeps the transformed window inside the range Star bounds are stated in.
@@ -1521,11 +1572,13 @@ final class ExpectimaxSearch(
   private def evalOne(state: GameState, color: Color): Double =
     evalBatch(Array(state), color)(0).toDouble
 
+/** One root candidate's chance-node result: the [[SearchOutcome]] the root ranks, prunes or abandons on, plus the
+  * telemetry [[RootSearchStats]] reports. An [[SearchOutcome.Incomplete]] outcome carries no expectation at all, so a
+  * cancelled candidate cannot be ranked by construction (#496).
+  */
 final private case class ChanceNodeResult(
-    value: Double,
+    outcome: SearchOutcome[Double],
     lossTainted: Boolean,
-    complete: Boolean,
-    pruned: Boolean,
     rollsProcessed: Int,
     probePruned: Boolean = false,
     // True when the result came from the transposition table rather than an expansion. The caller counts such
@@ -1552,7 +1605,7 @@ private object RecursiveNodeResult:
   val aborted: RecursiveNodeResult =
     RecursiveNodeResult(0.0, TTBound.Exact, lossTainted = false, aborted = true)
 
-/** Everything a depth-3 node needs about *where* it sits — role, remaining plies, clock and window — carried as one
+/** Everything a depth-3 node needs about *where* it sits — role, remaining plies, control and window — carried as one
   * value so descending the tree is a single explicit transformation rather than ten positional arguments.
   *
   * The combinators are the only ways the tree moves: [[child]] and [[childWithWindow]] go one ply down with the roles
@@ -1568,7 +1621,7 @@ final private case class SearchContext(
     myColor: Color,
     pliesRemaining: Int,
     maximizing: Boolean,
-    deadlineNanos: Long,
+    control: SearchControl,
     alpha: Double,
     beta: Double
 ):
@@ -1676,23 +1729,14 @@ object ExpectimaxSearch:
   private val EmptyProbeNodes: Array[Option[RecursiveNodeResult]] = Array.empty
   private val EmptyStar2Bounds: Array[Double]                     = Array.empty
 
-  /** Sentinel deadline for the un-timed entry points: `System.nanoTime()` never reaches it in practice. */
-  private val NoDeadline: Long = Long.MaxValue
-
-  /** Whether a real deadline was supplied. Guarding every clock read with this keeps the untimed path free of
-    * `System.nanoTime()` syscalls entirely — the per-roll check added for #496 must not tax the arena, whose
-    * reproducibility and benchmarks both live on that path.
+  /** The utility scale the recursive tree reasons on, declared for `perspective` (the root mover): the terminal
+    * sentinels [[LossValue]] and [[WinValue]] strictly dominate the non-terminal range `[-UpperScoreBound,
+    * UpperScoreBound]` that leaf evaluators must stay inside. Chance-node expectations, Star bounds and transposition
+    * entries are all stated on this scale; only the root's immediate king capture uses
+    * [[SearchScoring.TerminalWinScore]] instead, before any tree is built.
     */
-  private inline def timed(deadlineNanos: Long): Boolean = deadlineNanos != NoDeadline
-
-  /** Whether the deadline has already passed. `checkClock` is [[timed]] hoisted out of a roll loop, so the untimed path
-    * never reaches `System.nanoTime()` at all.
-    */
-  private inline def clockExpired(checkClock: Boolean, deadlineNanos: Long): Boolean =
-    checkClock && System.nanoTime() >= deadlineNanos
-
-  /** [[clockExpired]] for a one-off check with no loop to hoist [[timed]] out of. */
-  private inline def expired(deadlineNanos: Long): Boolean = clockExpired(timed(deadlineNanos), deadlineNanos)
+  def utilityBounds(perspective: Color): UtilityBounds =
+    UtilityBounds(perspective, LossValue, -UpperScoreBound, UpperScoreBound, WinValue)
 
   /** Default stats sink: discard. `private[search]` so JVM-only wiring (e.g. [[OnnxExpectimaxSearch]]) can name the
     * same default instead of re-inventing its own no-op.

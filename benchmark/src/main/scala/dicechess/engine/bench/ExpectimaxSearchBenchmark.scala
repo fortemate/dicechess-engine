@@ -6,7 +6,15 @@ import java.util.concurrent.TimeUnit
 import org.openjdk.jmh.annotations.*
 
 import dicechess.engine.domain.{Color, GameState}
-import dicechess.engine.search.{Evaluator, ExpectimaxConfig, ExpectimaxSearch, ScoredSequence, TranspositionTable}
+import dicechess.engine.search.{
+  BudgetedRules,
+  Evaluator,
+  ExpectimaxConfig,
+  ExpectimaxSearch,
+  ScoredSequence,
+  SearchControl,
+  TranspositionTable
+}
 
 import scala.compiletime.uninitialized
 import scala.util.Random
@@ -54,3 +62,11 @@ class ExpectimaxSearchBenchmark:
 
   @Benchmark
   def coldTree(): Option[ScoredSequence] = search.findBestMove(state, random)
+
+  /** The same tree under an ample [[SearchControl]] work budget (#393): every nested reply generation goes through
+    * `BudgetedRules.turnPaths` and the control is consulted at every yield point, so the gap to [[coldTree]] is the
+    * price of deterministic cancellation.
+    */
+  @Benchmark
+  def coldTreeBudgeted(): Option[ScoredSequence] =
+    search.findBestMove(state, SearchControl.withBudget(new BudgetedRules.Budget(Long.MaxValue)), random)

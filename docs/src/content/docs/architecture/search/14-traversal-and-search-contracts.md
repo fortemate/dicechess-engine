@@ -130,6 +130,10 @@ At any chance node for an upcoming unknown roll on `postEndTurnState` (`dicePool
 
 ## 3. Bounded Search Outcomes and Cooperative Cancellation (`#393`)
 
+:::note
+Implemented: `SearchOutcome`, `SearchControl`, `UtilityBounds` and the `ControlledSearch` adapter ship in `dicechess-engine_3`, and `ExpectimaxSearch` runs on them. The implementation guide, fixture results and evaluator obligations are on [Bounded Search Outcomes & Cooperative Cancellation](/dicechess-engine/architecture/search/15-search-outcomes-and-cancellation/); this section remains the reviewed contract.
+:::
+
 ### 3.1 Public `SearchOutcome` Semantics
 
 ```scala
@@ -210,7 +214,7 @@ All implementation stages validate against public synthetic DFEN fixtures rather
 ### 5.2 Staged Adoption Sequence (`#392`–`#399`)
 
 1. **Wave 1 — Leaf & Feature Primitives**: Qualify `PassedPawns.bitboard` ([#396](https://github.com/fortemate/dicechess-engine/issues/396)), add exact attacker-type mask / roll-availability / parameterized minimum-value helpers ([#395](https://github.com/fortemate/dicechess-engine/issues/395)), implement `EvaluationCache` ([#295](https://github.com/fortemate/dicechess-engine/issues/295)), and publish compiled cache-boundary examples ([#397](https://github.com/fortemate/dicechess-engine/issues/397)).
-2. **Wave 2 — Canonical Traversal & Bounded Outcomes**: Ship shared-prefix resulting-state visitors in `TurnGenerator` and `BudgetedRules` ([#392](https://github.com/fortemate/dicechess-engine/issues/392)) and `SearchOutcome` / `SearchControl` ([#393](https://github.com/fortemate/dicechess-engine/issues/393)).
+2. **Wave 2 — Canonical Traversal & Bounded Outcomes**: Ship shared-prefix resulting-state visitors in `TurnGenerator` and `BudgetedRules` ([#392](https://github.com/fortemate/dicechess-engine/issues/392), done) and `SearchOutcome` / `SearchControl` ([#393](https://github.com/fortemate/dicechess-engine/issues/393), done — see [Bounded Search Outcomes & Cooperative Cancellation](/dicechess-engine/architecture/search/15-search-outcomes-and-cancellation/)).
 3. **Wave 3 — Shared Weighted Chance-Node Search**: Extract callback-based weighted chance-node accumulation and sound Star1/Star2 pruning over `ActiveDicePartitioner` partitions and reconcile `ExpectimaxSearch` ([#394](https://github.com/fortemate/dicechess-engine/issues/394)).
 4. **Wave 4 — Incremental Downstream Migration**: Adopt published engine releases downstream one API group at a time ([#398](https://github.com/fortemate/dicechess-engine/issues/398)), removing duplicate local traversal/pruning code only after fixed-work score, path, multiplicity, and RNG parity are verified while keeping private evaluators, weights, profiles, books, and models in their owning repository.
 5. **Wave 5 — Cross-Platform Qualification**: Run integrated JVM, Scala.js, Wasm, `rules-smoke`, MiMa, JMH, Scaladoc, and docs-site verification across the combined contracts ([#399](https://github.com/fortemate/dicechess-engine/issues/399)).
