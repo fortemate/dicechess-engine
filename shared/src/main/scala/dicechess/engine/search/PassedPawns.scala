@@ -9,6 +9,34 @@ import dicechess.engine.domain.*
   * adjacent file on any square ahead of the pawn along its direction of advance.
   *
   * The evaluation perspective is the explicit `color` argument, independent of `state.activeColor` and the dice pool.
+  * Friendly pawns (including doubled pawns) and non-pawn pieces do not disqualify a pawn. Opposing pawns level with or
+  * behind it do not disqualify it either. Passed status does not imply an unobstructed or legal promotion path.
+  *
+  * Consumers should reuse [[bitboard]] for detection and retain their own rank bonuses and evaluation weights. For
+  * pawns on ranks 2–7, this consumer-owned adapter indexes a caller-supplied table by relative advancement 1–6. The
+  * table has at least seven entries; index 0 is unused. Construct it once outside the evaluation loop. Iterating the
+  * primitive bitboard requires no per-pawn allocation and includes every doubled pawn separately:
+  *
+  * ```scala
+  * import dicechess.engine.domain.*
+  * import dicechess.engine.search.PassedPawns
+  *
+  * def passedPawnBonus(state: GameState, color: Color, bonusByAdvancement: IArray[Int]): Int =
+  *   var p     = PassedPawns.bitboard(state, color).value
+  *   var score = 0
+  *   while p != 0L do
+  *     val square = java.lang.Long.numberOfTrailingZeros(p)
+  *     val rank   = square / 8 + 1
+  *     val adv    = if color.isWhite then rank - 1 else 8 - rank
+  *     score += bonusByAdvancement(adv)
+  *     p &= p - 1L
+  *   score
+  * ```
+  *
+  * A caller-owned `Int => Int` can replace the table lookup with `bonusByAdvancement(adv)` using the same loop; reuse
+  * the function rather than constructing a closure per evaluation. Apply existing weights, signs and normalization at
+  * the same stage as before. If the previous detector or rank convention disagrees, report the discrepancy before
+  * migrating rather than silently changing scores. No consumer table or scoring policy is owned by this detector.
   */
 object PassedPawns:
 
