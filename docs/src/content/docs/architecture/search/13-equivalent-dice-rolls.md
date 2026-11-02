@@ -101,11 +101,12 @@ answers a different question: which dice an already known roll can spend across 
 optionally after a move prefix. `TurnGenerator` remains the authority for legal turn paths, castling,
 en passant and early king captures.
 
-See [Expectimax Search Engine](/dicechess-engine/architecture/search/06-expectimax-search/) for the
-consumer-side chance-node calculation and
-[Shared Traversal & Search Contracts](/dicechess-engine/architecture/search/14-traversal-and-search-contracts/)
-for the weighted chance-node accumulation, mandatory-move bound, and staged migration contracts. ADEP
-does not alter built-in bot behavior in this release.
+The engine's own consumer is [Weighted Chance-Node Search](/dicechess-engine/architecture/search/16-weighted-chance-node-search/):
+`ChanceNode.expand` iterates these classes, preserves their mass and prunes on proven bounds, and
+[Expectimax Search Engine](/dicechess-engine/architecture/search/06-expectimax-search/) runs both of its
+depths on it. [Shared Traversal & Search Contracts](/dicechess-engine/architecture/search/14-traversal-and-search-contracts/)
+holds the reviewed weighted-accumulation, mandatory-move bound and staged migration contracts. Built-in
+bot defaults are unchanged.
 
 ## Verification and measurement
 

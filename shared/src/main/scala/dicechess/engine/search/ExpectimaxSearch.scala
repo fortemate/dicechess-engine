@@ -111,6 +111,14 @@ final case class ChanceCollapse(
   *   stops afterwards). Their partial expectation is discarded rather than ranked, so this counts work paid for and
   *   thrown away — a persistent non-zero value means the per-move budget is too small for even one candidate at this
   *   width.
+  * @param cutoffs
+  *   candidates whose chance node Star1 or Star2 pruning settled as a bound instead of an exact expectation
+  * @param rollsSaved
+  *   dice **classes** those cutoffs left unexpanded, summed over the pruned candidates. A chance node iterates the
+  *   promotion-aware classes of [[ActiveDicePartitioner]], so one candidate has at most 56 classes and fewer when the
+  *   opponent's pieces retain fewer dice (ten for a king and a bishop)
+  * @param probeCutoffs
+  *   the subset of `cutoffs` settled by the Star2 probe sum before any class was expanded
   */
 final case class RootSearchStats(
     legalTurns: Int,
@@ -463,15 +471,27 @@ final class ExpectimaxSearch(
       case Some((weight, values)) => transformedRootAlpha(expansion.bestFinal, values(index).toDouble, weight)
       case _                      => expansion.bestFinal
 
-  /** The configured chance-node expansion of one root candidate. */
+  /** The chance node of one root candidate: the opponent's unknown roll after our turn, searched through the same
+    * recursive machinery at every depth — `searchDepth - 1` decision plies below it, MIN first, under the window
+    * `[alpha, +∞)`.
+    */
   private def rootChanceNode(
       resultState: GameState,
       myColor: Color,
       control: SearchControl,
       searchAlpha: Double
   ): ChanceNodeResult =
-    if config.searchDepth == 2 then chanceNodeValue(resultState, myColor, control, searchAlpha)
-    else depthThreeChanceNodeValue(resultState, myColor, control, searchAlpha)
+    recursiveChanceNode(
+      resultState,
+      SearchContext(
+        utilityBounds(myColor),
+        pliesRemaining = config.searchDepth - 1,
+        maximizing = false,
+        control,
+        searchAlpha,
+        beta = Double.PositiveInfinity
+      )
+    )
 
   /** Folds one candidate's chance-node result into the expansion, and reports whether the loop may continue.
     *
@@ -523,7 +543,7 @@ final class ExpectimaxSearch(
     else
       expansion.cutoffs += 1
       if res.probePruned then expansion.probeCutoffs += 1
-      expansion.rollsSaved += (DiceRolls.byWeightDescending.length - res.rollsProcessed)
+      expansion.rollsSaved += res.classes - res.classesResolved
 
   /** The pre-ranked root candidate set: the turns to expand with the position each reaches, plus the top pre-rank score
     * that the anytime fallback plays when no candidate finishes.
@@ -571,382 +591,60 @@ final class ExpectimaxSearch(
         collapseRejected
       )
 
-  /** The expectation, over the 56 weighted dice outcomes, of the opponent's best reply value (from `myColor`'s view),
-    * alongside whether any single roll forced [[ExpectimaxSearch.LossValue]] (the opponent capturing our king outright)
-    * — tracked precisely per roll (an exact match against the sentinel, not a threshold on the weighted average) so
-    * [[RootRescore]] can never rescue a line that is lost on even one roll, however small its weight.
+  /** A chance node at any depth: the control check, the transposition-table probe, the shared [[ChanceNode]] expansion
+    * under this search's [[NodePolicy]], and the store.
     *
-    * The result's [[SearchOutcome]] is [[SearchOutcome.Exact]] only when every weighted roll was processed before
-    * `control` cancelled the invocation. [[SearchOutcome.Incomplete]] means the expansion was cut short: the partial
-    * expectation over an arbitrary prefix of the roll order is not carried at all, so the caller cannot rank it against
-    * complete ones (#496). The control is consulted **before** the transposition-table lookup, so an invocation that is
-    * already cancelled returns `Incomplete` deterministically instead of being rescued by a cache hit.
+    * [[SearchContext.pliesRemaining]] counts decision plies below the node. `1` means the mover's replies are scored by
+    * the leaf evaluator — the historical depth-2 chance node — and `2` means every reply is followed by our own chance
+    * node and MAX reply. The root candidate's node is this method at `searchDepth - 1` with the MIN role and the window
+    * `[alpha, +∞)`, so a candidate can only be pruned from above, by the best completed candidate so far.
     *
-    * @param oppToMove
-    *   position after our turn: the opponent is to move and the dice pool is empty.
-    * @param control
-    *   the invocation's cancellation control; [[SearchControl.Unbounded]] for the untimed path, which never reads a
-    *   clock
+    * The result's [[SearchOutcome]] is [[SearchOutcome.Exact]] only when every weighted class was resolved before
+    * `ctx.control` cancelled the invocation. [[SearchOutcome.Incomplete]] carries no partial expectation at all, so a
+    * caller cannot rank it against complete ones (#496); it is also never written to the table. The control is read
+    * **before** the table, so an already-cancelled invocation returns `Incomplete` deterministically instead of being
+    * rescued by a hit. A role salt separates MAX continuations from MIN continuations in the table: the same board at
+    * the same nominal depth has the opposite value perspective in those two roles.
     */
-  private def chanceNodeValue(
-      oppToMove: GameState,
-      myColor: Color,
-      control: SearchControl,
-      alpha: Double
-  ): ChanceNodeResult =
-    if control.isCancelled then incompleteChance(control, lossTainted = false, rollsProcessed = 0)
-    else
-      val key = oppToMove.zobristHash
-      ttChanceHit(key, alpha, control).getOrElse(computeChanceNodeValue(oppToMove, myColor, control, alpha, key))
-
-  /** A root chance node the control cancelled: no value, only the work consumed so far. */
-  private def incompleteChance(control: SearchControl, lossTainted: Boolean, rollsProcessed: Int): ChanceNodeResult =
-    ChanceNodeResult(SearchOutcome.Incomplete(control.workUsed), lossTainted, rollsProcessed)
-
-  /** A stored value that already answers this chance node: an exact entry at the same depth, or — outside
-    * [[ExpectimaxConfig.exactOnlyMode]] — an upper bound provably below `alpha`.
-    *
-    * Strict inequality, matching the Star1/Star2 cutoffs: a candidate whose stored bound exactly ties alpha may still
-    * equal the best and must reach the random tie-break, not vanish into the table (#69).
-    */
-  private def ttChanceHit(key: Long, alpha: Double, control: SearchControl): Option[ChanceNodeResult] =
-    tt.flatMap(_.probe(key))
-      .filter(_.depth == config.searchDepth - 1)
-      .flatMap: entry =>
-        if entry.bound == TTBound.Exact then
-          Some(ttChanceResult(entry, SearchOutcome.Exact(entry.value, control.workUsed)))
-        else if !config.exactOnlyMode && entry.bound == TTBound.UpperBound && entry.value < alpha then
-          Some(ttChanceResult(entry, SearchOutcome.UpperBound(entry.value, control.workUsed)))
-        else None
-
-  private def ttChanceResult(entry: TTEntry, outcome: SearchOutcome[Double]): ChanceNodeResult =
-    ChanceNodeResult(outcome, lossTainted = entry.lossTainted, rollsProcessed = 0, fromTT = true)
-
-  /** Expands the chance node for real: Star2 probing (only with a finite alpha), then the Star1 roll loop, then one
-    * transposition-table store for whatever the two phases produced.
-    */
-  private def computeChanceNodeValue(
-      oppToMove: GameState,
-      myColor: Color,
-      control: SearchControl,
-      alpha: Double,
-      key: Long
-  ): ChanceNodeResult =
-    val scratch = new ChanceNodeScratch
-    if alpha > Double.NegativeInfinity then star2Ceiling(scratch, oppToMove, myColor, control, alpha)
-    val res =
-      if scratch.cutByStar2 then
-        ChanceNodeResult(
-          SearchOutcome.UpperBound(scratch.remainingCeiling(0), control.workUsed),
-          lossTainted = scratch.lossTainted,
-          rollsProcessed = 0,
-          probePruned = true
-        )
-      else if scratch.cutByDeadline then incompleteChance(control, scratch.lossTainted, rollsProcessed = 0)
-      else
-        expandChanceRolls(scratch, oppToMove, myColor, control, alpha)
-        star1Result(scratch, control, alpha)
-    storeChanceNode(key, res)
-    res
-
-  /** Star2 probing phase: bound every roll by its top-1 opponent reply, accumulate those bounds into per-roll suffix
-    * ceilings, and cut the whole node when even the best remaining expectation falls below `alpha`.
-    */
-  private def star2Ceiling(
-      scratch: ChanceNodeScratch,
-      oppToMove: GameState,
-      myColor: Color,
-      control: SearchControl,
-      alpha: Double
-  ): Unit =
-    val probes = collectStar2Probes(scratch, oppToMove, myColor, control)
-    if !scratch.cutByDeadline then
-      fillProbeCeilings(scratch, probes, myColor)
-      accumulateCeilingSuffix(scratch)
-      if scratch.remainingCeiling(0) < alpha then scratch.cutByStar2 = true
-
-  /** Generates every roll's replies (cached for the roll loop) and picks the one state that bounds each roll. */
-  private def collectStar2Probes(
-      scratch: ChanceNodeScratch,
-      oppToMove: GameState,
-      myColor: Color,
-      control: SearchControl
-  ): Star2Probes =
-    val rolls       = DiceRolls.byWeightDescending
-    val statesBuf   = List.newBuilder[GameState]
-    val rollIndices = new Array[Int](rolls.length)
-    var stateCount  = 0
-    var i           = 0
-    while i < rolls.length && !scratch.cutByDeadline do
-      if control.isCancelled then scratch.cutByDeadline = true
-      else
-        val rolled  = oppToMove.withDicePool(rolls(i)._1)
-        val replies = legalReplies(control, rolled)
-        // Reply generation is the one place a work budget can run out mid-roll: an exhausted budget hands back an
-        // empty list that must not be mistaken for a forced pass, so the control is re-read before it is used.
-        if control.isCancelled then scratch.cutByDeadline = true
-        else
-          scratch.replies(i) = replies
-          star2ProbeState(rolled, replies, oppToMove, myColor) match
-            case Some(state) =>
-              statesBuf += state
-              rollIndices(i) = stateCount
-              stateCount += 1
-            case None =>
-              scratch.lossTainted = true
-              rollIndices(i) = Star2Probes.LostRoll
-          i += 1
-    new Star2Probes(statesBuf.result().toArray, rollIndices)
-
-  /** The single state whose evaluation bounds one roll, or `None` when some reply to that roll captures our king — the
-    * ceiling is then the loss sentinel and there is nothing left to score.
-    */
-  private def star2ProbeState(
-      rolled: GameState,
-      replies: List[List[Move]],
-      oppToMove: GameState,
-      myColor: Color
-  ): Option[GameState] =
-    if replies.isEmpty then Some(oppToMove.endTurn())
-    else if replies.exists(reply => capturesEnemyKing(rolled, reply)) then None
-    else Some(applyTurn(rolled, replies.minBy(r => Evaluator.evaluateMaterial(applyTurn(rolled, r), myColor))))
-
-  /** Writes each roll's ceiling: one batched evaluation of the distinct probe leaves, then a lookup per roll. With no
-    * probe leaves at all, every roll lost our king, so every ceiling is the loss sentinel.
-    */
-  private def fillProbeCeilings(scratch: ChanceNodeScratch, probes: Star2Probes, myColor: Color): Unit =
-    val ceilings = scratch.remainingCeiling
-    if probes.states.isEmpty then java.util.Arrays.fill(ceilings, 0, probes.rollIndices.length, LossValue)
-    else
-      val scores = probeScoreMap(probes.states, myColor)
-      var k      = 0
-      while k < probes.rollIndices.length do
-        val idx = probes.rollIndices(k)
-        ceilings(k) = if idx < 0 then LossValue else scores(leafKey(probes.states(idx))).toDouble
-        k += 1
-
-  /** Turns the per-roll ceilings into suffix expectations in place: `remainingCeiling(k)` becomes the most the rolls
-    * from `k` on can still contribute, which is exactly what Star1 needs at every roll boundary.
-    */
-  private def accumulateCeilingSuffix(scratch: ChanceNodeScratch): Unit =
-    val rolls    = DiceRolls.byWeightDescending
-    val ceilings = scratch.remainingCeiling
-    var k        = rolls.length - 1
-    while k >= 0 do
-      ceilings(k) = ceilings(k + 1) + (rolls(k)._2.toDouble / DiceRolls.totalOrderedRolls) * ceilings(k)
-      k -= 1
-
-  /** One batched evaluation of the distinct probe leaves, keyed so each roll can look its own (possibly duplicated)
-    * leaf back up. Shared by the depth-2 and depth-3 probing phases, which score their probes identically.
-    */
-  private def probeScoreMap(
-      rawProbeStates: Array[GameState],
-      myColor: Color
-  ): scala.collection.mutable.HashMap[LeafKey, Int] =
-    val distinctProbeStates = distinctLeaves(rawProbeStates.clone())
-    val probeScores         = evalBatch(distinctProbeStates, myColor)
-    val scoreMap            = new scala.collection.mutable.HashMap[LeafKey, Int](distinctProbeStates.length * 2, 0.75)
-    var m                   = 0
-    while m < distinctProbeStates.length do
-      scoreMap.put(leafKey(distinctProbeStates(m)), probeScores(m))
-      m += 1
-    scoreMap
-
-  /** Star1 roll loop: fold each roll's weighted value into the expectation, stopping when the remaining probability
-    * mass can no longer reach `alpha`, or when the deadline lands between two rolls.
-    */
-  private def expandChanceRolls(
-      scratch: ChanceNodeScratch,
-      oppToMove: GameState,
-      myColor: Color,
-      control: SearchControl,
-      alpha: Double
-  ): Unit =
-    val rolls = DiceRolls.byWeightDescending
-    while scratch.index < rolls.length && !scratch.cutByDeadline && !scratch.cutByStar1 do
-      if alpha > Double.NegativeInfinity && star1UpperBound(scratch, alpha) < alpha then scratch.cutByStar1 = true
-      else if control.isCancelled then scratch.cutByDeadline = true
-      else accumulateRoll(scratch, oppToMove, myColor, control)
-
-  /** The most the expectation can still reach from the current roll on: the Star2 suffix ceiling when a probing phase
-    * ran, otherwise the unprocessed probability mass at the evaluator's ceiling ($S + R \cdot U$).
-    */
-  private def star1UpperBound(scratch: ChanceNodeScratch, alpha: Double): Double =
-    if alpha > Double.NegativeInfinity then scratch.acc + scratch.remainingCeiling(scratch.index)
-    else
-      val remainingProb =
-        (DiceRolls.totalOrderedRolls - scratch.processedWeight).toDouble / DiceRolls.totalOrderedRolls
-      scratch.acc + remainingProb * UpperScoreBound
-
-  /** Expands one roll's opponent replies and folds the weighted result into the running expectation. */
-  private def accumulateRoll(
-      scratch: ChanceNodeScratch,
-      oppToMove: GameState,
-      myColor: Color,
-      control: SearchControl
-  ): Unit =
-    val (roll, weight) = DiceRolls.byWeightDescending(scratch.index)
-    val rolled         = oppToMove.withDicePool(roll)
-    val replies        = repliesFor(control, scratch.replies, scratch.index, rolled)
-    // An exhausted budget returns no replies; that is a cancellation, not a forced pass (see collectStar2Probes).
-    if control.isCancelled then scratch.cutByDeadline = true
-    else
-      val rollValue =
-        if replies.isEmpty then evalOne(oppToMove.endTurn(), myColor)
-        else opponentMinValue(rolled, replies, myColor)
-      if rollValue == LossValue then scratch.lossTainted = true
-      scratch.acc += (weight.toDouble / DiceRolls.totalOrderedRolls) * rollValue
-      scratch.processedWeight += weight
-      scratch.index += 1
-
-  /** The node's result once the roll loop has stopped: a Star1 bound, a partial expectation the caller must discard, or
-    * the complete expectation.
-    */
-  private def star1Result(scratch: ChanceNodeScratch, control: SearchControl, alpha: Double): ChanceNodeResult =
-    if scratch.cutByStar1 then
-      ChanceNodeResult(
-        SearchOutcome.UpperBound(star1UpperBound(scratch, alpha), control.workUsed),
-        lossTainted = scratch.lossTainted,
-        rollsProcessed = scratch.index
-      )
-    else if scratch.cutByDeadline then incompleteChance(control, scratch.lossTainted, scratch.index)
-    else
-      ChanceNodeResult(
-        SearchOutcome.Exact(scratch.acc, control.workUsed),
-        lossTainted = scratch.lossTainted,
-        rollsProcessed = scratch.index
-      )
-
-  /** Writes a finished or bounded chance node to the table; an [[SearchOutcome.Incomplete]] node is never stored. */
-  private def storeChanceNode(key: Long, res: ChanceNodeResult): Unit =
-    tt.foreach: table =>
-      res.outcome match
-        case SearchOutcome.Exact(value, _) =>
-          table.store(key, value, TTBound.Exact, config.searchDepth - 1, res.lossTainted)
-        case SearchOutcome.UpperBound(value, _) if !config.exactOnlyMode =>
-          table.store(key, value, TTBound.UpperBound, config.searchDepth - 1, res.lossTainted)
-        case SearchOutcome.LowerBound(value, _) if !config.exactOnlyMode =>
-          table.store(key, value, TTBound.LowerBound, config.searchDepth - 1, res.lossTainted)
-        case _ => ()
-
-  /** The reply list for one roll: the one a probing phase already generated, or a fresh generation when none ran. */
-  private def repliesFor(
-      control: SearchControl,
-      cached: Array[List[List[Move]]],
-      index: Int,
-      rolled: GameState
-  ): List[List[Move]] =
-    val stored = cached(index)
-    if stored ne null then stored // scalafix:ok(DisableSyntax.null)
-    else legalReplies(control, rolled)
-
-  /** Every legal reply to `rolled`, generated through the invocation's shared rules budget when it has one.
-    *
-    * With a budget the generation is `BudgetedRules.turnPaths`, whose canonical order is the one
-    * `TurnGenerator.generateAllLegalTurnPaths` produces, so a budgeted and an unbudgeted search expand identical trees
-    * until the budget runs out. Exhaustion yields an empty list **and** a cancelled control: every caller re-reads
-    * `control.isCancelled` before treating an empty list as a forced pass.
-    */
-  private def legalReplies(control: SearchControl, rolled: GameState): List[List[Move]] =
-    control.budget match
-      case Some(budget) =>
-        BudgetedRules.turnPaths(rolled, budget) match
-          case BudgetedRules.Outcome.Complete(paths, _) => paths
-          case BudgetedRules.Outcome.Incomplete(_)      => Nil
-      case None => TurnGenerator.generateAllLegalTurnPaths(rolled)
-
-  /** Mutable state of one depth-2 chance-node expansion: the reply lists the probing phase generated, the Star2
-    * per-roll ceilings, the weighted accumulator of the Star1 roll loop, and the three ways that loop can stop.
-    */
-  final private class ChanceNodeScratch:
-    private val totalRolls = DiceRolls.byWeightDescending.length
-
-    val replies: Array[List[List[Move]]] = new Array[List[List[Move]]](totalRolls)
-    val remainingCeiling: Array[Double]  = new Array[Double](totalRolls + 1)
-
-    var lossTainted   = false
-    var cutByDeadline = false
-    var cutByStar1    = false
-    var cutByStar2    = false
-
-    var acc             = 0.0
-    var processedWeight = 0
-
-    /** Index of the next roll the Star1 loop will expand, and therefore also the count of rolls processed. */
-    var index = 0
-
-  /** Depth-3 continuation after one root candidate: opponent chance/MIN, then our chance/MAX, then the leaf model. */
-  private def depthThreeChanceNodeValue(
-      oppToMove: GameState,
-      myColor: Color,
-      control: SearchControl,
-      alpha: Double
-  ): ChanceNodeResult =
-    val result = recursiveChanceNode(
-      oppToMove,
-      SearchContext(
-        myColor,
-        pliesRemaining = config.searchDepth - 1,
-        maximizing = false,
-        control,
-        alpha,
-        beta = Double.PositiveInfinity
-      )
-    )
-    val outcome =
-      if result.aborted then SearchOutcome.Incomplete(control.workUsed)
-      else
-        result.bound match
-          case TTBound.Exact      => SearchOutcome.Exact(result.value, control.workUsed)
-          case TTBound.UpperBound => SearchOutcome.UpperBound(result.value, control.workUsed)
-          case TTBound.LowerBound => SearchOutcome.LowerBound(result.value, control.workUsed)
-    ChanceNodeResult(
-      outcome,
-      lossTainted = result.lossTainted,
-      rollsProcessed = result.rollsProcessed,
-      probePruned = result.probePruned,
-      fromTT = result.fromTT
-    )
-
-  /** Recursive chance node used by depth 3.
-    *
-    * [[SearchContext.pliesRemaining]] counts decision plies below this chance node. The outer invocation has two
-    * (opponent MIN, our MAX); recursive invocations have one. A role salt separates MAX continuations from MIN
-    * continuations in the TT: the same board at the same nominal depth has the opposite value perspective in those two
-    * roles.
-    */
-  private def recursiveChanceNode(toMove: GameState, ctx: SearchContext): RecursiveNodeResult =
-    // The control is read before the table: an already-cancelled invocation must not be rescued by a cache hit.
-    if ctx.control.isCancelled then RecursiveNodeResult.aborted
+  private def recursiveChanceNode(toMove: GameState, ctx: SearchContext): ChanceNodeResult =
+    if ctx.control.isCancelled then ChanceNodeResult.incomplete(ctx.control)
     else
       val key = transpositionKey(toMove, ctx.maximizing)
-      val hit = ttRecursiveHit(key, ctx)
+      val hit = ttHit(key, ctx)
       if hit.isDefined then hit.get
       else
-        val result = computeRecursiveChanceNode(toMove, ctx)
-        if !result.aborted then storeRecursiveNode(key, ctx.pliesRemaining, result)
-        result
+        val expanded =
+          ChanceNode.expand(toMove, ctx.bounds, ctx.control, ctx.alpha, ctx.beta, new NodePolicy(toMove, ctx))
+        storeNode(key, ctx.pliesRemaining, expanded)
+        ChanceNodeResult(
+          expanded.outcome,
+          expanded.lossTainted,
+          expanded.classes,
+          expanded.classesResolved,
+          expanded.probePruned
+        )
 
-  /** A stored value that already answers this node: an exact entry at the same depth, or a fail-soft bound that the
-    * node's own window has already been driven past.
+  /** A stored value that already answers this node: an exact entry at the same depth, or — outside
+    * [[ExpectimaxConfig.exactOnlyMode]] — a fail-soft bound the node's own window has already been driven past.
     *
-    * One closure, not a chain of them: this runs once per reply of every decision node in the tree.
+    * Strict inequalities, matching the Star1/Star2 cutoffs: a root candidate whose stored bound exactly ties alpha may
+    * still equal the best and must reach the random tie-break, not vanish into the table (#69). One closure, not a
+    * chain of them: this runs once per reply of every decision node in the tree.
     */
-  private def ttRecursiveHit(key: Long, ctx: SearchContext): Option[RecursiveNodeResult] =
+  private def ttHit(key: Long, ctx: SearchContext): Option[ChanceNodeResult] =
     tt.flatMap: table =>
       table
         .probe(key)
         .flatMap: entry =>
           if entry.depth != ctx.pliesRemaining then None
-          else if entry.bound == TTBound.Exact || reusableBound(entry, ctx) then
-            Some(RecursiveNodeResult(entry.value, entry.bound, entry.lossTainted, fromTT = true))
+          else if entry.bound == TTBound.Exact then
+            Some(ChanceNodeResult.fromTable(SearchOutcome.Exact(entry.value, ctx.control.workUsed), entry.lossTainted))
+          else if !config.exactOnlyMode && boundSettlesWindow(entry, ctx) then
+            val outcome =
+              if entry.bound == TTBound.UpperBound then SearchOutcome.UpperBound(entry.value, ctx.control.workUsed)
+              else SearchOutcome.LowerBound(entry.value, ctx.control.workUsed)
+            Some(ChanceNodeResult.fromTable(outcome, entry.lossTainted))
           else None
-
-  /** Whether a stored non-exact bound already settles this node's window. [[ExpectimaxConfig.exactOnlyMode]] refuses
-    * every fail-soft bound, so it short-circuits before the entry is even examined.
-    */
-  private def reusableBound(entry: TTEntry, ctx: SearchContext): Boolean =
-    !config.exactOnlyMode && boundSettlesWindow(entry, ctx)
 
   /** Whether the stored bound points the right way for this node's window and has been driven past it. */
   private def boundSettlesWindow(entry: TTEntry, ctx: SearchContext): Boolean =
@@ -955,540 +653,312 @@ final class ExpectimaxSearch(
       case TTBound.LowerBound => entry.value > ctx.beta
       case TTBound.Exact      => false
 
-  private def storeRecursiveNode(key: Long, pliesRemaining: Int, result: RecursiveNodeResult): Unit =
+  /** Writes a finished or bounded node to the table; an [[SearchOutcome.Incomplete]] node is never stored. */
+  private def storeNode(key: Long, pliesRemaining: Int, result: ChanceNode.Result): Unit =
     tt.foreach: table =>
-      if result.bound == TTBound.Exact || !config.exactOnlyMode then
-        table.store(key, result.value, result.bound, pliesRemaining, result.lossTainted)
+      result.outcome match
+        case SearchOutcome.Exact(value, _) =>
+          table.store(key, value, TTBound.Exact, pliesRemaining, result.lossTainted)
+        case SearchOutcome.UpperBound(value, _) if !config.exactOnlyMode =>
+          table.store(key, value, TTBound.UpperBound, pliesRemaining, result.lossTainted)
+        case SearchOutcome.LowerBound(value, _) if !config.exactOnlyMode =>
+          table.store(key, value, TTBound.LowerBound, pliesRemaining, result.lossTainted)
+        case _ => ()
 
-  /** Expands the node for real: Star2 probing (only when this node's own side of the window is finite), the probe-sum
-    * cutoff, then the roll loop.
+  /** This search's side of the shared chance node: reply generation through the canonical turn-state visitor, the
+    * terminal and forced-pass cases, the batched leaf layer one ply above the evaluator, Star2 probes by the
+    * material-best reply, and the fail-soft decision node deeper in the tree.
+    *
+    * One instance serves one node; the replies generated for the probe phase are kept per class so the roll loop never
+    * generates them twice, and a probe's exact value is reused by the decision node for the reply it searched.
     */
-  private def computeRecursiveChanceNode(toMove: GameState, ctx: SearchContext): RecursiveNodeResult =
-    val scratch = new RecursiveNodeScratch(ctx)
-    if scratch.useStar2 then probeStar2Rolls(scratch, toMove, ctx)
-    if scratch.aborted then RecursiveNodeResult.aborted
-    else
-      scratch.accumulateStar2Bounds()
-      val star2Cut = star2Cutoff(scratch, ctx)
-      if star2Cut.isDefined then star2Cut.get
+  final private class NodePolicy(toMove: GameState, ctx: SearchContext) extends ChanceNode.Policy:
+    private val bounds  = ctx.bounds
+    private val myColor = ctx.myColor
+    private val leafPly = ctx.pliesRemaining == 1
+    private val classes = ActiveDicePartitioner.partitionsFor(toMove).length
+    private val replies = Array.fill[ChanceNode.Replies](classes)(PendingReplies)
+
+    /** The reply the probe searched for each class (or [[NoProbe]]) and the exact value it found, reused by the
+      * decision node rather than searched twice.
+      */
+    private val probeReply = Array.fill(classes)(NoProbe)
+    private val probeValue = new Array[ChanceNode.Value](classes)
+
+    /** A class whose mover captures the king: a win for MAX, a loss for MIN — tainted, because the loss is ours. */
+    private val terminal =
+      ChanceNode.Value.exact(bounds.terminalFor(toMove.activeColor), lossTainted = !ctx.maximizing)
+
+    /** One ply above the evaluator only the mover's own king capture is terminal, so a MAX node cannot score below the
+      * evaluator's floor and a MIN node cannot score above its ceiling; deeper nodes can reach either sentinel.
+      */
+    def lowestValue: Double  = if ctx.maximizing && leafPly then bounds.minNonTerminal else bounds.terminalLoss
+    def highestValue: Double = if !ctx.maximizing && leafPly then bounds.maxNonTerminal else bounds.terminalWin
+
+    /** The class's replies, generated once. [[InterruptedReplies]] means the shared budget ran out inside the
+      * generation, which leaves the control cancelled; the caller answers `Incomplete`, never a forced pass.
+      */
+    private def repliesAt(index: Int, rolled: GameState): ChanceNode.Replies =
+      val cached = replies(index)
+      if cached ne PendingReplies then cached
       else
-        expandRecursiveRolls(scratch, toMove, ctx)
-        if scratch.result.isDefined then scratch.result.get
-        else
-          RecursiveNodeResult(scratch.acc, TTBound.Exact, scratch.lossTainted, rollsProcessed = scratch.rollsProcessed)
+        val generated = ChanceNode.Replies.generate(rolled, ctx.control) match
+          case Some(fresh) => fresh
+          case None        => InterruptedReplies
+        replies(index) = generated
+        generated
 
-  /** Star2 probing phase: bound every roll by searching only its material-best reply. */
-  private def probeStar2Rolls(scratch: RecursiveNodeScratch, toMove: GameState, ctx: SearchContext): Unit =
-    if ctx.pliesRemaining == 1 then probeLeafRolls(scratch, toMove, ctx)
-    else probeInnerRolls(scratch, toMove, ctx)
-
-  /** Probing one ply above the leaves: every probe is a single position, so all of them are scored in one batch. */
-  private def probeLeafRolls(scratch: RecursiveNodeScratch, toMove: GameState, ctx: SearchContext): Unit =
-    val rolls        = DiceRolls.byWeightDescending
-    val probeStates  = List.newBuilder[GameState]
-    val stateIndices = Array.fill(rolls.length)(Star2Probes.LostRoll)
-    var stateCount   = 0
-    var i            = 0
-    while i < rolls.length && !scratch.aborted do
-      if ctx.control.isCancelled then scratch.aborted = true
+    override def probe(rolled: IArray[GameState]): Option[Array[ChanceNode.Value]] =
+      val values = new Array[ChanceNode.Value](classes)
+      if !generateAll(rolled) then Some(Array.fill(classes)(ChanceNode.Value.incomplete(ctx.control)))
       else
-        val rolled  = toMove.withDicePool(rolls(i)._1)
-        val replies = legalReplies(ctx.control, rolled)
-        if ctx.control.isCancelled then scratch.aborted = true
+        if leafPly then leafProbes(rolled, values) else innerProbes(rolled, values)
+        Some(values)
+
+    /** Generates every class's replies up front, since probing needs the material-best reply of each. */
+    private def generateAll(rolled: IArray[GameState]): Boolean =
+      var index    = 0
+      var complete = true
+      while index < classes && complete do
+        if ctx.control.isCancelled || (repliesAt(index, rolled(index)) eq InterruptedReplies) then complete = false
+        index += 1
+      complete
+
+    /** Probing one ply above the evaluator: every probe is a single position — the material-best reply, or the forced
+      * pass — so all of them are scored in one batch. A pass is exact; a reply bounds its class in the role's
+      * direction.
+      */
+    private def leafProbes(rolled: IArray[GameState], values: Array[ChanceNode.Value]): Unit =
+      val leaves    = scala.collection.mutable.ArrayBuffer.empty[GameState]
+      val leafIndex = Array.fill(classes)(NoProbe)
+      var index     = 0
+      while index < classes do
+        val current = replies(index)
+        if current.capturesKing then values(index) = terminal
         else
-          scratch.replies(i) = replies
-          terminalDecisionValue(rolled, replies, ctx.maximizing) match
-            case Some(value) => scratch.probeNodes(i) = Some(RecursiveNodeResult.exact(value, !ctx.maximizing))
-            case None        =>
-              probeStates += probeLeafState(scratch, i, toMove, rolled, replies, ctx)
-              stateIndices(i) = stateCount
-              stateCount += 1
-          i += 1
-    if !scratch.aborted then scoreLeafProbes(scratch, probeStates.result().toArray, stateIndices, ctx.myColor)
+          leafIndex(index) = leaves.length
+          leaves += (if current.isForcedPass then rolled(index).endTurn()
+                     else current.states(probeIndex(current.states)))
+        index += 1
+      if leaves.nonEmpty then
+        val leafArray = leaves.toArray
+        val scores    = probeScoreMap(leafArray, myColor)
+        index = 0
+        while index < classes do
+          val leaf = leafIndex(index)
+          if leaf != NoProbe then
+            val score = scores(leafKey(leafArray(leaf))).toDouble
+            val work  = ctx.control.workUsed
+            values(index) =
+              if replies(index).isForcedPass then ChanceNode.Value.exact(score, workUsed = work)
+              else if ctx.maximizing then ChanceNode.Value(SearchOutcome.LowerBound(score, work))
+              else ChanceNode.Value(SearchOutcome.UpperBound(score, work))
+          index += 1
 
-  /** The single state that bounds one roll, recording the probing path so the decision node can reuse the probe's exact
-    * value instead of searching that reply a second time.
-    */
-  private def probeLeafState(
-      scratch: RecursiveNodeScratch,
-      index: Int,
-      toMove: GameState,
-      rolled: GameState,
-      replies: List[List[Move]],
-      ctx: SearchContext
-  ): GameState =
-    if replies.isEmpty then toMove.endTurn()
-    else
-      val path = selectProbePath(rolled, replies, ctx.myColor, ctx.maximizing)
-      scratch.probePaths(index) = Some(path)
-      applyTurn(rolled, path)
+    /** Probing deeper in the tree: each probe is itself a chance node, searched with an open window and therefore exact
+      * — a forced pass settles its class outright, a reply's value is kept for the decision node.
+      */
+    private def innerProbes(rolled: IArray[GameState], values: Array[ChanceNode.Value]): Unit =
+      var index       = 0
+      var interrupted = false
+      while index < classes do
+        val current = replies(index)
+        val value   =
+          if interrupted then ChanceNode.Value.incomplete(ctx.control)
+          else if current.capturesKing then terminal
+          else if ctx.control.isCancelled then ChanceNode.Value.incomplete(ctx.control)
+          else if current.isForcedPass then toValue(recursiveChanceNode(rolled(index).endTurn(), ctx.childOpen))
+          else
+            val reply = probeIndex(current.states)
+            val found = toValue(recursiveChanceNode(current.states(reply), ctx.childOpen))
+            found.outcome match
+              case SearchOutcome.Exact(value, work) =>
+                // One reply's exact value bounds the class in the role's direction; the decision node reuses it.
+                probeReply(index) = reply
+                probeValue(index) = found
+                val bound =
+                  if ctx.maximizing then SearchOutcome.LowerBound(value, work)
+                  else SearchOutcome.UpperBound(value, work)
+                ChanceNode.Value(bound, found.lossTainted)
+              case _ => found
+        if value.outcome.isIncomplete then interrupted = true
+        values(index) = value
+        index += 1
 
-  private def scoreLeafProbes(
-      scratch: RecursiveNodeScratch,
-      rawProbeStates: Array[GameState],
-      stateIndices: Array[Int],
-      myColor: Color
-  ): Unit =
-    if rawProbeStates.nonEmpty then
-      val scores = probeScoreMap(rawProbeStates, myColor)
-      var k      = 0
-      while k < stateIndices.length do
-        val idx = stateIndices(k)
-        if idx >= 0 then
-          scratch.probeNodes(k) = Some(RecursiveNodeResult.exact(scores(leafKey(rawProbeStates(idx))).toDouble))
+    /** The reply whose resulting position is best for the mover by the material proxy: the first such reply in
+      * canonical order, so a budgeted and an unbudgeted search probe the same line.
+      */
+    private def probeIndex(states: Array[GameState]): Int =
+      var best      = 0
+      var bestScore = Evaluator.evaluateMaterial(states(0), myColor)
+      var index     = 1
+      while index < states.length do
+        val score = Evaluator.evaluateMaterial(states(index), myColor)
+        if (ctx.maximizing && score > bestScore) || (!ctx.maximizing && score < bestScore) then
+          best = index
+          bestScore = score
+        index += 1
+      best
+
+    def decide(rolled: GameState, index: Int, alpha: Double, beta: Double): ChanceNode.Value =
+      val current = repliesAt(index, rolled)
+      if current eq InterruptedReplies then ChanceNode.Value.incomplete(ctx.control)
+      else if current.capturesKing then terminal
+      else if current.isForcedPass then
+        if leafPly then ChanceNode.Value.exact(evalOne(rolled.endTurn(), myColor), workUsed = ctx.control.workUsed)
+        else toValue(recursiveChanceNode(rolled.endTurn(), ctx.childWithWindow(alpha, beta)))
+      else if leafPly then leafDecisionValue(current.states)
+      else searchDecisionNode(current.states, alpha, beta, probeReply(index), index)
+
+    /** The mover's best reply by the leaf evaluator, scored in one batch.
+      *
+      * Leaves are **deduplicated by position** before scoring. Dice Chess turns are 1–3 micro-moves, and reordering
+      * independent micro-moves reaches the same board — measured at ~78% duplicate leaves per chance node, i.e. only
+      * about a fifth of the generated replies are distinct positions. Since the value taken here is a minimum or a
+      * maximum, which over a multiset equals the same over its distinct elements, dropping duplicates is exact: the
+      * returned value is unchanged, only the evaluator does less work. This matters because the evaluator is the
+      * search's dominant cost (a trained model behind a JNI call), while the deduplication is a hash per leaf. The
+      * replies array is consumed in place; nothing reads it after the leaf layer has scored it.
+      */
+    private def leafDecisionValue(states: Array[GameState]): ChanceNode.Value =
+      val scores = evalBatch(distinctLeaves(states), myColor)
+      var value  = if ctx.maximizing then Int.MinValue else Int.MaxValue
+      var index  = 0
+      while index < scores.length do
+        value = if ctx.maximizing then math.max(value, scores(index)) else math.min(value, scores(index))
+        index += 1
+      ChanceNode.Value.exact(value.toDouble, workUsed = ctx.control.workUsed)
+
+    /** The full decision node: replies in material order, each searched under the node's tightening window, folded
+      * fail-soft into an exact best or a bound. The reply the probe already searched to an exact value is reused.
+      */
+    private def searchDecisionNode(
+        states: Array[GameState],
+        alpha: Double,
+        beta: Double,
+        probedReply: Int,
+        index: Int
+    ): ChanceNode.Value =
+      val ordered = orderedReplies(states)
+      val node    = new DecisionNodeScratch(alpha, beta)
+      var k       = 0
+      while k < ordered.length && node.result.isEmpty do
+        val reply = ordered(k)
+        val child =
+          if reply == probedReply then probeValue(index)
+          else toValue(recursiveChanceNode(states(reply), ctx.childWithWindow(node.localAlpha, node.localBeta)))
+        foldDecisionChild(node, child)
         k += 1
+      node.value
 
-  /** Probing deeper in the tree: each probe is itself a chance node, searched with an open window. */
-  private def probeInnerRolls(scratch: RecursiveNodeScratch, toMove: GameState, ctx: SearchContext): Unit =
-    val rolls = DiceRolls.byWeightDescending
-    var i     = 0
-    while i < rolls.length && !scratch.aborted do
-      if ctx.control.isCancelled then scratch.aborted = true
-      else
-        val rolled  = toMove.withDicePool(rolls(i)._1)
-        val replies = legalReplies(ctx.control, rolled)
-        if ctx.control.isCancelled then scratch.aborted = true
-        else
-          scratch.replies(i) = replies
-          terminalDecisionValue(rolled, replies, ctx.maximizing) match
-            case Some(value) => scratch.probeNodes(i) = Some(RecursiveNodeResult.exact(value, !ctx.maximizing))
-            case None        => probeInnerRoll(scratch, i, toMove, rolled, replies, ctx)
-          i += 1
+    /** Reply indices ordered best-first for this node's role by the same material proxy the probing phase uses — a
+      * stable order, since equal scores keep canonical order. One packed `Long` per reply and one primitive sort: this
+      * runs once per class of every inner chance node.
+      */
+    private def orderedReplies(states: Array[GameState]): Array[Int] =
+      val keys  = new Array[Long](states.length)
+      var index = 0
+      while index < states.length do
+        val score = Evaluator.evaluateMaterial(states(index), myColor).toLong
+        val rank  =
+          math.max(-Int.MaxValue.toLong, math.min(Int.MaxValue.toLong, if ctx.maximizing then -score else score))
+        keys(index) = (rank << 32) | index.toLong
+        index += 1
+      java.util.Arrays.sort(keys)
+      val ordered = new Array[Int](states.length)
+      index = 0
+      while index < ordered.length do
+        ordered(index) = (keys(index) & 0xffffffffL).toInt
+        index += 1
+      ordered
 
-  /** Probes one non-terminal roll with an open window. A bound pointing the wrong way for this node's role cannot bound
-    * the Star2 sum, so it degrades to the role's own worst case instead.
-    */
-  private def probeInnerRoll(
-      scratch: RecursiveNodeScratch,
-      index: Int,
-      toMove: GameState,
-      rolled: GameState,
-      replies: List[List[Move]],
-      ctx: SearchContext
-  ): Unit =
-    val (afterTurn, path) =
-      if replies.isEmpty then toMove.endTurn() -> None
-      else
-        val selected = selectProbePath(rolled, replies, ctx.myColor, ctx.maximizing)
-        applyTurn(rolled, selected) -> Some(selected)
-    scratch.probePaths(index) = path
-    val probed = recursiveChanceNode(afterTurn, ctx.childOpen)
-    if probed.aborted then scratch.aborted = true
-    else if probeBoundIsSound(probed.bound, ctx.maximizing) then scratch.probeNodes(index) = Some(probed)
-    else scratch.probeNodes(index) = Some(unusableProbeBound(ctx.maximizing))
-
-  /** The role's own worst case, standing in for a probe whose bound cannot bound the Star2 sum. */
-  private def unusableProbeBound(maximizing: Boolean): RecursiveNodeResult =
-    if maximizing then RecursiveNodeResult(LossValue, TTBound.LowerBound, lossTainted = false)
-    else RecursiveNodeResult(WinValue, TTBound.UpperBound, lossTainted = false)
-
-  /** The whole node settled by its Star2 probe sum, before a single roll is expanded. */
-  private def star2Cutoff(scratch: RecursiveNodeScratch, ctx: SearchContext): Option[RecursiveNodeResult] =
-    if !scratch.useStar2 then None
-    else
-      val star2Value = scratch.star2Sum
-      if !ctx.maximizing && star2Value < ctx.alpha then Some(probeCut(scratch, star2Value, TTBound.UpperBound))
-      else if ctx.maximizing && star2Value > ctx.beta then Some(probeCut(scratch, star2Value, TTBound.LowerBound))
-      else None
-
-  private def probeCut(scratch: RecursiveNodeScratch, value: Double, bound: TTBound): RecursiveNodeResult =
-    RecursiveNodeResult(value, bound, scratch.probeLossTainted, rollsProcessed = 0, probePruned = true)
-
-  /** The node's roll loop: fold each roll's exact value into the expectation, stopping at the first window cutoff, the
-    * first aborted child, or the deadline.
-    */
-  private def expandRecursiveRolls(scratch: RecursiveNodeScratch, toMove: GameState, ctx: SearchContext): Unit =
-    val rolls = DiceRolls.byWeightDescending
-    while scratch.rollsProcessed < rolls.length && scratch.result.isEmpty do
-      val index = scratch.rollsProcessed
-      windowCut(scratch, ctx, index) match
-        case Some(cut)                       => scratch.result = Some(cut)
-        case None if ctx.control.isCancelled => scratch.result = Some(RecursiveNodeResult.aborted)
-        case None                            => expandOneRecursiveRoll(scratch, toMove, ctx, index)
-
-  /** The Star1 window cutoff for the roll at `index`, taken before any of that roll's work is paid for. */
-  private def windowCut(scratch: RecursiveNodeScratch, ctx: SearchContext, index: Int): Option[RecursiveNodeResult] =
-    val upperBound = scratch.acc + scratch.remainingUpper(index)
-    val lowerBound = scratch.acc + scratch.remainingLower(index)
-    if upperBound < ctx.alpha then Some(scratch.boundResult(upperBound, TTBound.UpperBound))
-    else if lowerBound > ctx.beta then Some(scratch.boundResult(lowerBound, TTBound.LowerBound))
-    else None
-
-  /** Searches one roll's decision node inside the window that roll's own probability implies.
-    *
-    * The roll's index and probability go into `scratch` rather than into a per-roll value object: this is the hottest
-    * loop in the depth-3 tree (56 rolls under every one of hundreds of replies), and one object per roll measured as a
-    * real JMH regression against one object per node.
-    */
-  private def expandOneRecursiveRoll(
-      scratch: RecursiveNodeScratch,
-      toMove: GameState,
-      ctx: SearchContext,
-      index: Int
-  ): Unit =
-    val (roll, weight) = DiceRolls.byWeightDescending(index)
-    val rolled         = toMove.withDicePool(roll)
-    val replies        = repliesFor(ctx.control, scratch.replies, index, rolled)
-    // An exhausted budget returns no replies; that is a cancellation, not a forced pass (see legalReplies).
-    if ctx.control.isCancelled then scratch.result = Some(RecursiveNodeResult.aborted)
-    else
-      scratch.rollProbability = weight.toDouble / DiceRolls.totalOrderedRolls
-      // A decision node at the leaf ply never reads its window — terminal shortcut, forced pass and leaf batch all
-      // ignore it, and `searchDecisionNode` is unreachable there — so the transform and its context are skipped on
-      // the tree's hottest edge (56 rolls under every reply of every node above).
-      val childCtx =
-        if ctx.pliesRemaining == 1 then ctx
-        else ctx.withWindow(childAlpha(scratch, ctx), childBeta(scratch, ctx))
-      val child = recursiveDecisionNode(
-        rolled,
-        replies,
-        childCtx,
-        scratch.probePathAt(index),
-        scratch.probeNodeAt(index)
-      )
-      if child.aborted then scratch.result = Some(child)
-      else
-        scratch.lossTainted ||= child.lossTainted
-        foldRecursiveChild(scratch, ctx, rolled, replies, child)
-
-  /** The alpha the child must beat for the current roll to still matter to the parent's window, mapped through that
-    * roll's own probability. [[clampScore]] keeps the transformed window inside the range Star bounds are stated in.
-    */
-  private def childAlpha(scratch: RecursiveNodeScratch, ctx: SearchContext): Double =
-    if ctx.alpha == Double.NegativeInfinity then ctx.alpha
-    else clampScore((ctx.alpha - scratch.acc - scratch.remainingAfterCurrentUpper) / scratch.rollProbability)
-
-  /** The beta counterpart of [[childAlpha]]. */
-  private def childBeta(scratch: RecursiveNodeScratch, ctx: SearchContext): Double =
-    if ctx.beta == Double.PositiveInfinity then ctx.beta
-    else clampScore((ctx.beta - scratch.acc - scratch.remainingAfterCurrentLower) / scratch.rollProbability)
-
-  /** Folds the current roll's child result into the node: a bound that already settles the parent's window ends the
-    * loop; anything else must reach an exact value before it can join the expectation.
-    */
-  private def foldRecursiveChild(
-      scratch: RecursiveNodeScratch,
-      ctx: SearchContext,
-      rolled: GameState,
-      replies: List[List[Move]],
-      child: RecursiveNodeResult
-  ): Unit =
-    val combined      = scratch.acc + scratch.rollProbability * child.value
-    val combinedUpper = combined + scratch.remainingAfterCurrentUpper
-    val combinedLower = combined + scratch.remainingAfterCurrentLower
-    if child.bound == TTBound.UpperBound && combinedUpper < ctx.alpha then
-      scratch.result = Some(scratch.boundResult(combinedUpper, TTBound.UpperBound))
-    else if child.bound == TTBound.LowerBound && combinedLower > ctx.beta then
-      scratch.result = Some(scratch.boundResult(combinedLower, TTBound.LowerBound))
-    else accumulateExactChild(scratch, ctx, rolled, replies, child)
-
-  /** Re-searches a still-bounded child with an open window, then folds its exact value into the expectation.
-    *
-    * At the depths [[ExpectimaxConfig]] allows, the re-search is unreachable from a node that ran no probing phase, so
-    * [[RecursiveNodeScratch.probePathAt]]'s guard is dead code here — see its Scaladoc for why, and why it is written
-    * anyway.
-    */
-  private def accumulateExactChild(
-      scratch: RecursiveNodeScratch,
-      ctx: SearchContext,
-      rolled: GameState,
-      replies: List[List[Move]],
-      child: RecursiveNodeResult
-  ): Unit =
-    val index      = scratch.rollsProcessed
-    val exactChild =
-      if child.bound == TTBound.Exact then child
-      else
-        recursiveDecisionNode(
-          rolled,
-          replies,
-          ctx.openWindow,
-          scratch.probePathAt(index),
-          scratch.probeNodeAt(index)
-        )
-    if exactChild.aborted then scratch.result = Some(exactChild)
-    else
-      scratch.acc += scratch.rollProbability * exactChild.value
-      scratch.lossTainted ||= exactChild.lossTainted
-      scratch.rollsProcessed += 1
-
-  /** One roll's decision node: the terminal shortcut, the forced pass, the leaf layer, or a full reply search. */
-  private def recursiveDecisionNode(
-      rolled: GameState,
-      replies: List[List[Move]],
-      ctx: SearchContext,
-      probePath: Option[List[Move]],
-      probeNode: Option[RecursiveNodeResult]
-  ): RecursiveNodeResult =
-    terminalDecisionValue(rolled, replies, ctx.maximizing) match
-      case Some(value)                     => RecursiveNodeResult.exact(value, lossTainted = !ctx.maximizing)
-      case None if replies.isEmpty         => passedDecisionValue(rolled, ctx)
-      case None if ctx.pliesRemaining == 1 => leafDecisionValue(rolled, replies, ctx.myColor, ctx.maximizing)
-      case None                            => searchDecisionNode(rolled, replies, ctx, probePath, probeNode)
-
-  /** No legal turn for this roll, so the side to move passes and the value comes from the layer below. */
-  private def passedDecisionValue(rolled: GameState, ctx: SearchContext): RecursiveNodeResult =
-    if ctx.pliesRemaining == 1 then RecursiveNodeResult.exact(evalOne(rolled.endTurn(), ctx.myColor))
-    else recursiveChanceNode(rolled.endTurn(), ctx.child)
-
-  /** The full decision node: replies in material order, each searched under the node's tightening window, folded
-    * fail-soft into an exact best or a bound.
-    */
-  private def searchDecisionNode(
-      rolled: GameState,
-      replies: List[List[Move]],
-      ctx: SearchContext,
-      probePath: Option[List[Move]],
-      probeNode: Option[RecursiveNodeResult]
-  ): RecursiveNodeResult =
-    val ordered = orderedReplies(rolled, replies, ctx)
-    val node    = new DecisionNodeScratch(ctx)
-    while ordered.hasNext && node.result.isEmpty do
-      val (path, afterTurn, _) = ordered.next()
-      val probe                = reusableProbe(probePath, probeNode, path)
-      val child                =
-        if probe.isDefined then probe.get
-        else recursiveChanceNode(afterTurn, ctx.childWithWindow(node.localAlpha, node.localBeta))
-      foldDecisionChild(node, ctx, child)
-    decisionNodeResult(node, ctx)
-
-  /** The replies ordered best-first for this node's role by the same material proxy the probing phase uses. Returned as
-    * an iterator so the loop stays linear — indexing a `List` once per reply would make the node quadratic.
-    */
-  private def orderedReplies(
-      rolled: GameState,
-      replies: List[List[Move]],
-      ctx: SearchContext
-  ): Iterator[(List[Move], GameState, Int)] =
-    replies
-      .map: path =>
-        val state = applyTurn(rolled, path)
-        val score = Evaluator.evaluateMaterial(state, ctx.myColor)
-        (path, state, if ctx.maximizing then -score else score)
-      .sortBy(_._3)
-      .iterator
-
-  /** The Star2 probe already searched this exact reply to an exact value: reuse it rather than search it twice. */
-  private def reusableProbe(
-      probePath: Option[List[Move]],
-      probeNode: Option[RecursiveNodeResult],
-      path: List[Move]
-  ): Option[RecursiveNodeResult] =
-    if probePath.contains(path) && probeNode.exists(node => !node.aborted && node.bound == TTBound.Exact) then probeNode
-    else None
-
-  private def foldDecisionChild(node: DecisionNodeScratch, ctx: SearchContext, child: RecursiveNodeResult): Unit =
-    if child.aborted then node.result = Some(child)
-    else
+    private def foldDecisionChild(node: DecisionNodeScratch, child: ChanceNode.Value): Unit =
       node.lossTainted ||= child.lossTainted
-      child.bound match
-        case TTBound.Exact      => foldExactChild(node, ctx, child)
-        case TTBound.UpperBound => foldUpperBoundChild(node, ctx, child)
-        case TTBound.LowerBound => foldLowerBoundChild(node, ctx, child)
+      child.outcome match
+        case SearchOutcome.Exact(value, _)      => foldExactChild(node, value)
+        case SearchOutcome.UpperBound(value, _) =>
+          // An upper bound is a usable value only for the maximizing role; for the minimizing role it settles the node.
+          if ctx.maximizing then node.boundBest = math.max(node.boundBest, value)
+          else node.cutoff(SearchOutcome.UpperBound(value, ctx.control.workUsed))
+        case SearchOutcome.LowerBound(value, _) =>
+          // A lower bound is a usable value only for the minimizing role; for the maximizing role it settles the node.
+          if ctx.maximizing then node.cutoff(SearchOutcome.LowerBound(value, ctx.control.workUsed))
+          else node.boundBest = math.min(node.boundBest, value)
+        case SearchOutcome.Incomplete(_) => node.result = Some(child)
 
-  /** An exact child advances this node's own best value and its window; crossing the caller's bound ends the node. */
-  private def foldExactChild(node: DecisionNodeScratch, ctx: SearchContext, child: RecursiveNodeResult): Unit =
-    node.hasExact = true
-    if ctx.maximizing then
-      node.exactBest = math.max(node.exactBest, child.value)
-      node.localAlpha = math.max(node.localAlpha, node.exactBest)
-      if node.exactBest > ctx.beta then node.cutoff(node.exactBest, TTBound.LowerBound)
-    else
-      node.exactBest = math.min(node.exactBest, child.value)
-      node.localBeta = math.min(node.localBeta, node.exactBest)
-      if node.exactBest < ctx.alpha then node.cutoff(node.exactBest, TTBound.UpperBound)
+    /** An exact child advances this node's own best value and its window; crossing the caller's bound ends the node. */
+    private def foldExactChild(node: DecisionNodeScratch, value: Double): Unit =
+      node.hasExact = true
+      if ctx.maximizing then
+        node.exactBest = math.max(node.exactBest, value)
+        node.localAlpha = math.max(node.localAlpha, node.exactBest)
+        if node.exactBest > node.beta then node.cutoff(SearchOutcome.LowerBound(node.exactBest, ctx.control.workUsed))
+      else
+        node.exactBest = math.min(node.exactBest, value)
+        node.localBeta = math.min(node.localBeta, node.exactBest)
+        if node.exactBest < node.alpha then node.cutoff(SearchOutcome.UpperBound(node.exactBest, ctx.control.workUsed))
 
-  /** An upper bound is a usable value only for the maximizing role; for the minimizing role it settles the node. */
-  private def foldUpperBoundChild(node: DecisionNodeScratch, ctx: SearchContext, child: RecursiveNodeResult): Unit =
-    if ctx.maximizing then node.boundBest = math.max(node.boundBest, child.value)
-    else node.cutoff(child.value, TTBound.UpperBound)
-
-  /** A lower bound is a usable value only for the minimizing role; for the maximizing role it settles the node. */
-  private def foldLowerBoundChild(node: DecisionNodeScratch, ctx: SearchContext, child: RecursiveNodeResult): Unit =
-    if ctx.maximizing then node.cutoff(child.value, TTBound.LowerBound)
-    else node.boundBest = math.min(node.boundBest, child.value)
-
-  private def decisionNodeResult(node: DecisionNodeScratch, ctx: SearchContext): RecursiveNodeResult =
-    if node.result.isDefined then node.result.get
-    else if node.hasExact then RecursiveNodeResult.exact(node.exactBest, node.lossTainted)
-    else if ctx.maximizing then RecursiveNodeResult(node.boundBest, TTBound.UpperBound, node.lossTainted)
-    else RecursiveNodeResult(node.boundBest, TTBound.LowerBound, node.lossTainted)
-
-  /** Mutable state of one depth-3 recursive chance node: the Star2 probe metadata (allocated only when this node's own
-    * side of the window is finite), the weighted accumulator of the roll loop, and the bound or abort that ended it.
-    */
-  final private class RecursiveNodeScratch(ctx: SearchContext):
-    private val totalRolls = DiceRolls.byWeightDescending.length
-    private val maximizing = ctx.maximizing
-
-    /** Whether a Star2 probing phase runs here at all, and therefore whether the probe arrays are real. */
-    val useStar2: Boolean = ctx.boundedForRole
-
-    val replies: Array[List[List[Move]]] = new Array[List[List[Move]]](totalRolls)
-
-    val probePaths: Array[Option[List[Move]]] =
-      if useStar2 then Array.fill[Option[List[Move]]](totalRolls)(None) else EmptyProbePaths
-
-    val probeNodes: Array[Option[RecursiveNodeResult]] =
-      if useStar2 then Array.fill[Option[RecursiveNodeResult]](totalRolls)(None) else EmptyProbeNodes
-
-    /** One roll's probing path, or `None` when this node ran no probing phase.
-      *
-      * The guard is what makes the accessor worth having: without a probing phase [[probePaths]] is the shared empty
-      * array, so an unguarded read at any index throws. Both readers go through here so they cannot drift apart — the
-      * per-roll search and the open-window re-search used to disagree about the guard, and only one of them was right.
-      *
-      * At `searchDepth` 2 or 3 — all [[ExpectimaxConfig]] admits — the re-search cannot actually reach a node with no
-      * probing phase, so that reader's guard is dead code today. A one-ply chance node never re-searches at all: its
-      * decision nodes are terminal, forced passes or leaf batches, every one of which returns an exact value. A two-ply
-      * chance node is always the MIN root of [[depthThreeChanceNodeValue]], whose beta is `+∞`, so [[useStar2]] can
-      * only be false when its alpha is `-∞` too — a fully open window, and an open window yields exact values all the
-      * way down (its first reply is searched with the same open window, which sets `hasExact`, and no cutoff can fire
-      * against an infinite bound). The guard is here so that raising the depth cap or rearranging the window plumbing
-      * cannot turn that argument into an `ArrayIndexOutOfBoundsException`.
+    /** Mutable fail-soft state of one decision node: the window as it tightens, the best exact and best bounded child
+      * seen so far, and the cutoff or abort that ended the reply loop.
       */
-    def probePathAt(index: Int): Option[List[Move]] = if useStar2 then probePaths(index) else None
+    final private class DecisionNodeScratch(val alpha: Double, val beta: Double):
+      var localAlpha  = alpha
+      var localBeta   = beta
+      var exactBest   = if ctx.maximizing then bounds.terminalLoss else bounds.terminalWin
+      var boundBest   = if ctx.maximizing then bounds.terminalLoss else bounds.terminalWin
+      var hasExact    = false
+      var lossTainted = false
 
-    /** [[probePathAt]] for the probed child's result. */
-    def probeNodeAt(index: Int): Option[RecursiveNodeResult] = if useStar2 then probeNodes(index) else None
+      var result: Option[ChanceNode.Value] = None
 
-    private val star2Bound: Array[Double] =
-      if useStar2 then new Array[Double](totalRolls + 1) else EmptyStar2Bounds
+      def cutoff(outcome: SearchOutcome[Double]): Unit = result = Some(ChanceNode.Value(outcome, lossTainted))
 
-    var aborted     = false
-    var lossTainted = false
-    var acc         = 0.0
+      /** The node's value once the reply loop has stopped: the cutoff, the best exact child, or the bound the children
+        * prove together.
+        *
+        * The best exact child is the node's exact value only when no bounded child could still beat it. A MAX node
+        * whose exact best is 50 and whose other reply came back as "at most 80" (it failed low against the caller's
+        * alpha, which was above 50) is worth somewhere in `[50, 80]` — an upper bound of 80, not an exact 50. Reporting
+        * it exact would let the chance node above fold a too-low value into an expectation it then treats as complete.
+        */
+      def value: ChanceNode.Value =
+        if result.isDefined then result.get
+        else if hasExact && (if ctx.maximizing then boundBest <= exactBest else boundBest >= exactBest) then
+          ChanceNode.Value.exact(exactBest, lossTainted, ctx.control.workUsed)
+        else if ctx.maximizing then
+          ChanceNode.Value(SearchOutcome.UpperBound(math.max(exactBest, boundBest), ctx.control.workUsed), lossTainted)
+        else
+          ChanceNode.Value(SearchOutcome.LowerBound(math.min(exactBest, boundBest), ctx.control.workUsed), lossTainted)
 
-    /** Doubles as the index of the next roll: the loop advances it only once a roll's exact value has been folded into
-      * [[acc]], so the count and the index can never diverge.
-      */
-    var rollsProcessed = 0
-
-    /** Probability of the roll currently being expanded, set once per iteration of the roll loop. */
-    var rollProbability = 0.0
-
-    var result: Option[RecursiveNodeResult] = None
-
-    /** Accumulates the probe values into suffix expectations — the bound the roll loop uses at every boundary. A no-op
-      * without a probing phase, which is also when [[star2Bound]] is the shared empty array.
-      */
-    def accumulateStar2Bounds(): Unit =
-      if useStar2 then
-        val rolls = DiceRolls.byWeightDescending
-        var i     = totalRolls - 1
-        while i >= 0 do
-          val probability = rolls(i)._2.toDouble / DiceRolls.totalOrderedRolls
-          star2Bound(i) = star2Bound(i + 1) + probability * probeNodes(i).get.value
-          i -= 1
-
-    /** The probe-bounded expectation of the whole node. Only meaningful when [[useStar2]]. */
-    def star2Sum: Double = star2Bound(0)
-
-    /** The most the unprocessed rolls from `from` on could still contribute. */
-    def remainingUpper(from: Int): Double =
-      if useStar2 && !maximizing then star2Bound(from) else RemainingProbabilityByRollIndex(from) * WinValue
-
-    /** The least the unprocessed rolls from `from` on could still contribute. */
-    def remainingLower(from: Int): Double =
-      if useStar2 && maximizing then star2Bound(from) else RemainingProbabilityByRollIndex(from) * LossValue
-
-    /** [[remainingUpper]] for everything strictly after the roll currently being expanded. */
-    def remainingAfterCurrentUpper: Double = remainingUpper(rollsProcessed + 1)
-
-    /** [[remainingLower]] for everything strictly after the roll currently being expanded. */
-    def remainingAfterCurrentLower: Double = remainingLower(rollsProcessed + 1)
-
-    def boundResult(value: Double, bound: TTBound): RecursiveNodeResult =
-      RecursiveNodeResult(value, bound, lossTainted, rollsProcessed = rollsProcessed)
-
-    def probeLossTainted: Boolean = probeNodes.iterator.flatten.exists(_.lossTainted)
-
-  /** Mutable fail-soft state of one decision node: the window as it tightens, the best exact and best bounded child
-    * seen so far, and the cutoff that ended the reply loop.
-    */
-  final private class DecisionNodeScratch(ctx: SearchContext):
-    var localAlpha  = ctx.alpha
-    var localBeta   = ctx.beta
-    var exactBest   = if ctx.maximizing then LossValue else WinValue
-    var boundBest   = if ctx.maximizing then LossValue else WinValue
-    var hasExact    = false
-    var lossTainted = false
-
-    var result: Option[RecursiveNodeResult] = None
-
-    def cutoff(value: Double, bound: TTBound): Unit =
-      result = Some(RecursiveNodeResult(value, bound, lossTainted))
-
-  private def leafDecisionValue(
-      rolled: GameState,
-      replies: List[List[Move]],
-      myColor: Color,
-      maximizing: Boolean
-  ): RecursiveNodeResult =
-    val leaves = distinctLeaves(replies.iterator.map(reply => applyTurn(rolled, reply)).toArray)
-    val scores = evalBatch(leaves, myColor)
-    var value  = if maximizing then Int.MinValue else Int.MaxValue
-    var i      = 0
-    while i < scores.length do
-      if maximizing then value = math.max(value, scores(i)) else value = math.min(value, scores(i))
-      i += 1
-    RecursiveNodeResult.exact(value.toDouble)
-
-  private def terminalDecisionValue(
-      rolled: GameState,
-      replies: List[List[Move]],
-      maximizing: Boolean
-  ): Option[Double] =
-    if replies.exists(reply => capturesEnemyKing(rolled, reply)) then Some(if maximizing then WinValue else LossValue)
-    else None
-
-  private def selectProbePath(
-      rolled: GameState,
-      replies: List[List[Move]],
-      myColor: Color,
-      maximizing: Boolean
-  ): List[Move] =
-    if maximizing then replies.maxBy(path => Evaluator.evaluateMaterial(applyTurn(rolled, path), myColor))
-    else replies.minBy(path => Evaluator.evaluateMaterial(applyTurn(rolled, path), myColor))
-
-  private def probeBoundIsSound(bound: TTBound, maximizing: Boolean): Boolean =
-    bound == TTBound.Exact || (if maximizing then bound == TTBound.LowerBound else bound == TTBound.UpperBound)
-
-  private def clampScore(value: Double): Double = math.max(LossValue, math.min(WinValue, value))
+  private def toValue(result: ChanceNodeResult): ChanceNode.Value = ChanceNode.Value(result.outcome, result.lossTainted)
 
   private def transpositionKey(state: GameState, maximizing: Boolean): Long =
     if maximizing then state.zobristHash ^ MaxChanceKeySalt else state.zobristHash
 
-  /** The opponent picks the reply that is worst for us. A reply capturing our king is worst of all ([[LossValue]]);
-    * otherwise the resulting leaves are scored in one batch and the minimum is taken.
-    *
-    * Leaves are **deduplicated by position** before scoring. Dice Chess turns are 1–3 micro-moves, and reordering
-    * independent micro-moves reaches the same board — measured at ~78% duplicate leaves per chance node, i.e. only
-    * about a fifth of the generated replies are distinct positions. Since the value taken here is a minimum, and the
-    * minimum over a multiset equals the minimum over its distinct elements, dropping duplicates is exact: the returned
-    * value is unchanged, only the evaluator does less work. This matters because the evaluator is the search's dominant
-    * cost (a trained model behind a JNI call), while the deduplication is a hash per leaf.
+  /** One batched evaluation of the distinct probe leaves, keyed so each class can look its own (possibly duplicated)
+    * leaf back up.
     */
-  private def opponentMinValue(rolled: GameState, replies: List[List[Move]], myColor: Color): Double =
-    if replies.exists(reply => capturesEnemyKing(rolled, reply)) then LossValue
-    else
-      val leaves = distinctLeaves(replies.iterator.map(reply => applyTurn(rolled, reply)).toArray)
-      val scores = evalBatch(leaves, myColor)
-      var min    = Int.MaxValue
-      var i      = 0
-      while i < scores.length do
-        if scores(i) < min then min = scores(i)
-        i += 1
-      min.toDouble
+  private def probeScoreMap(
+      rawProbeStates: Array[GameState],
+      myColor: Color
+  ): scala.collection.mutable.HashMap[LeafKey, Int] =
+    val distinctProbeStates = distinctLeaves(rawProbeStates)
+    val probeScores         = evalBatch(distinctProbeStates, myColor)
+    val scoreMap            = new scala.collection.mutable.HashMap[LeafKey, Int](distinctProbeStates.length * 2, 0.75)
+    var m                   = 0
+    while m < distinctProbeStates.length do
+      scoreMap.put(leafKey(distinctProbeStates(m)), probeScores(m))
+      m += 1
+    scoreMap
 
   /** The distinct positions among `leaves`, in first-seen order.
     *
-    * **Mutates `leaves`**, compacting the distinct entries into its front. That is safe only because the caller builds
-    * the array immediately before the call and never looks at it again, and it is worth the sharper contract on a path
-    * that runs once per dice roll per candidate: the obvious version — write into a second full-length array, then
-    * slice — allocates an extra array the size of the whole reply list every time, and with ~78% duplicates that array
-    * is discarded almost immediately. Compaction is safe in place because the write index never overtakes the read
-    * index (`count <= i` throughout), so no unread element is ever overwritten.
+    * **Mutates `leaves`**, compacting the distinct entries into its front. That is safe only because every caller owns
+    * the array and never looks at it again, and it is worth the sharper contract on a path that runs once per dice
+    * class per candidate: the obvious version — write into a second full-length array, then slice — allocates an extra
+    * array the size of the whole reply list every time, and with ~78% duplicates that array is discarded almost
+    * immediately. Compaction is safe in place because the write index never overtakes the read index (`count <= i`
+    * throughout), so no unread element is ever overwritten.
     *
     * Returns `leaves` itself when nothing was duplicated, so the no-op case allocates nothing at all.
     */
@@ -1587,96 +1057,68 @@ final class ExpectimaxSearch(
   private def evalOne(state: GameState, color: Color): Double =
     evalBatch(Array(state), color)(0).toDouble
 
-/** One root candidate's chance-node result: the [[SearchOutcome]] the root ranks, prunes or abandons on, plus the
-  * telemetry [[RootSearchStats]] reports. An [[SearchOutcome.Incomplete]] outcome carries no expectation at all, so a
-  * cancelled candidate cannot be ranked by construction (#496).
+/** One chance node's result as the search machinery passes it up: the [[SearchOutcome]] a parent folds, ranks, prunes
+  * or abandons on, the loss taint [[RootRescore]] respects, and the telemetry [[RootSearchStats]] reports. An
+  * [[SearchOutcome.Incomplete]] outcome carries no expectation at all, so a cancelled node cannot be ranked by
+  * construction (#496).
+  *
+  * @param classes
+  *   how many partition classes the node had (`0` for a table hit, which expanded nothing)
+  * @param classesResolved
+  *   how many of them contributed a value before the node finished or was cut
+  * @param probePruned
+  *   whether the Star2 probe sum settled the node before any class was expanded
+  * @param fromTT
+  *   true when the result came from the transposition table rather than an expansion. The root counts such candidates
+  *   in ttHits/ttCutoffs, never in candidatesCompleted/cutoffs: a TT-resolved candidate did zero chance-node work, and
+  *   folding it into the expansion counters would corrupt the effective-width telemetry that RootSearchStats exists to
+  *   measure (#494).
   */
 final private case class ChanceNodeResult(
     outcome: SearchOutcome[Double],
     lossTainted: Boolean,
-    rollsProcessed: Int,
-    probePruned: Boolean = false,
-    // True when the result came from the transposition table rather than an expansion. The caller counts such
-    // candidates in ttHits/ttCutoffs, never in candidatesCompleted/cutoffs: a TT-resolved candidate did zero
-    // chance-node work, and folding it into the expansion counters would corrupt the effective-width telemetry
-    // that RootSearchStats exists to measure (#494).
-    fromTT: Boolean = false
-)
-
-final private case class RecursiveNodeResult(
-    value: Double,
-    bound: TTBound,
-    lossTainted: Boolean,
-    aborted: Boolean = false,
-    rollsProcessed: Int = 0,
+    classes: Int = 0,
+    classesResolved: Int = 0,
     probePruned: Boolean = false,
     fromTT: Boolean = false
 )
 
-private object RecursiveNodeResult:
-  def exact(value: Double, lossTainted: Boolean = false): RecursiveNodeResult =
-    RecursiveNodeResult(value, TTBound.Exact, lossTainted)
+private object ChanceNodeResult:
+  /** A node the control cancelled: no value, only the work consumed so far. */
+  def incomplete(control: SearchControl): ChanceNodeResult =
+    ChanceNodeResult(SearchOutcome.Incomplete(control.workUsed), lossTainted = false)
 
-  val aborted: RecursiveNodeResult =
-    RecursiveNodeResult(0.0, TTBound.Exact, lossTainted = false, aborted = true)
+  def fromTable(outcome: SearchOutcome[Double], lossTainted: Boolean): ChanceNodeResult =
+    ChanceNodeResult(outcome, lossTainted, fromTT = true)
 
-/** Everything a depth-3 node needs about *where* it sits — role, remaining plies, control and window — carried as one
-  * value so descending the tree is a single explicit transformation rather than ten positional arguments.
+/** Everything a chance node needs about *where* it sits — utility scale, remaining plies, role, control and window —
+  * carried as one value so descending the tree is a single explicit transformation rather than ten positional
+  * arguments. The two combinators are the only ways the tree moves: [[childWithWindow]] goes one ply down with the
+  * roles swapped under a decision node's window, [[childOpen]] does the same with no window for a Star2 probe.
   *
-  * The combinators are the only ways the tree moves: [[child]] and [[childWithWindow]] go one ply down with the roles
-  * swapped, [[childOpen]] does the same for a Star2 probe, and [[withWindow]]/[[openWindow]] re-enter the same node
-  * under a different window. A node that reuses its own context down the recursion allocates nothing.
-  *
+  * @param bounds
+  *   the utility scale, whose `perspective` is the root mover every value is stated for
   * @param pliesRemaining
   *   decision plies still below the current chance node
   * @param maximizing
   *   whether the side to move at the node below is us (MAX) or the opponent (MIN)
   */
 final private case class SearchContext(
-    myColor: Color,
+    bounds: UtilityBounds,
     pliesRemaining: Int,
     maximizing: Boolean,
     control: SearchControl,
     alpha: Double,
     beta: Double
 ):
-  /** The same node under a different window — the per-roll windows of a chance node, and its re-searches. */
-  def withWindow(newAlpha: Double, newBeta: Double): SearchContext = copy(alpha = newAlpha, beta = newBeta)
-
-  /** The same node with no window, so its value comes back exact rather than as a fail-soft bound. */
-  def openWindow: SearchContext = withWindow(Double.NegativeInfinity, Double.PositiveInfinity)
-
-  /** One ply down with the roles swapped, carrying this node's window unchanged. */
-  def child: SearchContext = copy(pliesRemaining = pliesRemaining - 1, maximizing = !maximizing)
+  def myColor: Color = bounds.perspective
 
   /** One ply down with the roles swapped and the window a decision node has tightened. */
   def childWithWindow(newAlpha: Double, newBeta: Double): SearchContext =
     copy(pliesRemaining = pliesRemaining - 1, maximizing = !maximizing, alpha = newAlpha, beta = newBeta)
 
   /** One ply down with the roles swapped and no window — what a Star2 probe searches with. */
-  def childOpen: SearchContext =
-    copy(
-      pliesRemaining = pliesRemaining - 1,
-      maximizing = !maximizing,
-      alpha = Double.NegativeInfinity,
-      beta = Double.PositiveInfinity
-    )
-
-  /** Whether this node's own side of the window is finite, which is what makes a Star2 probing phase worthwhile: a MAX
-    * node can only be cut from above, a MIN node only from below.
-    */
-  def boundedForRole: Boolean =
-    if maximizing then beta < Double.PositiveInfinity else alpha > Double.NegativeInfinity
-
-/** The probe leaves of one Star2 phase: one state per roll that has one, in first-seen order, plus the index into
-  * `states` for every roll — [[Star2Probes.LostRoll]] for a roll that loses our king outright and therefore needs no
-  * evaluation at all.
-  */
-final private class Star2Probes(val states: Array[GameState], val rollIndices: Array[Int])
-
-private object Star2Probes:
-  /** Sentinel `rollIndices` entry: this roll has no probe leaf because some reply to it captures our king. */
-  val LostRoll: Int = -1
+  def childOpen: SearchContext = childWithWindow(Double.NegativeInfinity, Double.PositiveInfinity)
 
 object ExpectimaxSearch:
 
@@ -1729,20 +1171,14 @@ object ExpectimaxSearch:
     */
   private val MaxChanceKeySalt: Long = 0x9e3779b97f4a7c15L
 
-  /** Suffix probability mass for [[DiceRolls.byWeightDescending]], indexed by the first unprocessed roll. */
-  private val RemainingProbabilityByRollIndex: Array[Double] =
-    val rolls  = DiceRolls.byWeightDescending
-    val suffix = new Array[Double](rolls.length + 1)
-    var i      = rolls.length - 1
-    while i >= 0 do
-      suffix(i) = suffix(i + 1) + rolls(i)._2.toDouble / DiceRolls.totalOrderedRolls
-      i -= 1
-    suffix
+  /** Per-class reply slots of a [[NodePolicy]] start here and move to a generated list, or to [[InterruptedReplies]]
+    * when the shared budget ran out inside the generation.
+    */
+  private val PendingReplies: ChanceNode.Replies     = new ChanceNode.Replies(Array.empty, capturesKing = false)
+  private val InterruptedReplies: ChanceNode.Replies = new ChanceNode.Replies(Array.empty, capturesKing = false)
 
-  /** Shared empty probe storage keeps chance nodes with an infinite window allocation-free for Star2 metadata. */
-  private val EmptyProbePaths: Array[Option[List[Move]]]          = Array.empty
-  private val EmptyProbeNodes: Array[Option[RecursiveNodeResult]] = Array.empty
-  private val EmptyStar2Bounds: Array[Double]                     = Array.empty
+  /** "No reply was probed for this class" in a [[NodePolicy]]'s per-class probe index. */
+  private val NoProbe: Int = -1
 
   /** The utility scale the recursive tree reasons on, declared for `perspective` (the root mover): the terminal
     * sentinels [[LossValue]] and [[WinValue]] strictly dominate the non-terminal range `[-UpperScoreBound,

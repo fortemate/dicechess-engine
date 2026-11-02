@@ -71,11 +71,12 @@ Before expanding chance nodes, all legal paths are scored using a fast batched p
 
 ### 3. Recursive Chance Nodes & Leaf Deduplication
 
-For each weighted dice roll in a chance node:
-1. All legal opponent reply paths are generated under the rolled dice pool.
-2. If any reply captures our king, that roll immediately yields `LossValue` ($-10^9$) — below any evaluator's scale so the opponent always chooses it and we rank that line last.
-3. At depth 2, the resulting positions are leaves. At depth 3, each result recursively enters our next chance/MAX layer.
-4. Leaf positions are **deduplicated in-place** using `LeafKey` before evaluation.
+Every chance node — the root candidate's at depth 2, and every inner one at depth 3 — is the shared [`ChanceNode`](/dicechess-engine/architecture/search/16-weighted-chance-node-search/) over the promotion-aware dice classes of `ActiveDicePartitioner` (1 to 56 classes whose weights sum to 216), run under this search's own policy. For each class:
+1. All legal reply paths are generated under the class's retained dice through the canonical turn-state visitor (`ChanceNode.Replies.generate`), on the invocation's shared work budget when it has one.
+2. If any reply captures the mover's opponent's king, the class is terminal: `LossValue` ($-10^9$) when it is our king — below any evaluator's scale so the opponent always chooses it and we rank that line last — and `WinValue` when it is theirs.
+3. A class with dice but no legal turn is a forced pass, valued at the position after `endTurn()` with its full weight.
+4. One ply above the evaluator the resulting positions are leaves. Deeper, each result recursively enters the next chance/decision layer.
+5. Leaf positions are **deduplicated in-place** using `LeafKey` before evaluation.
 
 :::note[Leaf Deduplication vs Transposition Tables]
 Dice Chess turns consist of 1–3 micro-moves. Independent micro-moves played in different orders often reach identical board states (~78% duplicate leaves per chance node). Because the opponent minimizes over leaves ($\min(S) = \min(\text{distinct}(S))$), duplicate boards can be dropped with zero loss of precision.
@@ -89,11 +90,11 @@ The distinct leaf states under a roll are scored in a single call to `evalBatch(
 
 ### 5. Star Pruning (Star1 & Star2 Probing)
 
-To avoid expanding full chance-node subtrees that cannot affect the enclosing decision window, `ExpectimaxSearch` uses two levels of star pruning:
-- **Star1 Pruning**: As weighted dice rolls are processed in weight-descending order, upper and lower bounds on the remaining expectation are maintained. A node fails low when its strict upper bound is below $\alpha$, or fails high when its strict lower bound is above $\beta$.
-- **Star2 Probing**: MIN chance nodes probe one opponent reply per roll for a tighter upper bound; MAX chance nodes probe one of our replies for a tighter lower bound. Leaf probes remain batched. At depth 3, recursive probe results and TT entries are reused when the full node is expanded.
+To avoid expanding full chance-node subtrees that cannot affect the enclosing decision window, the shared chance node applies two levels of star pruning on bounds that are proven rather than assumed:
+- **Star1 Pruning**: As dice classes are processed in weight-descending order, upper and lower bounds on the remaining expectation are maintained from the policy's declared value range. A node fails low when its strict upper bound is below $\alpha$, or fails high when its strict lower bound is above $\beta$.
+- **Star2 Probing**: MIN chance nodes probe one opponent reply per class for a tighter upper bound; MAX chance nodes probe one of our replies for a tighter lower bound. Leaf probes remain batched; a forced pass or a terminal class is probed exactly and never expanded again. At depth 3, recursive probe results and TT entries are reused when the full node is expanded. A probe is always a **legal reply**: the static value of passing is never used as a bound for a roll that admits a legal turn, because a mandatory move can be worse for the mover than standing still.
 
-The recursive bounds use `LossValue` as the safe lower limit and `WinValue = 10001` as the upper limit. `WinValue` is one point above the documented leaf-model ceiling, so a future king capture always dominates a non-terminal evaluation without widening the Star window to `Int.MaxValue`. Strict cutoffs preserve equal-valued candidates for the root's random tie-break.
+The recursive bounds use `LossValue` as the safe lower limit and `WinValue = 10001` as the upper limit, tightened one ply above the evaluator to the leaf range where only the mover's own king capture is terminal. `WinValue` is one point above the documented leaf-model ceiling, so a future king capture always dominates a non-terminal evaluation without widening the Star window to `Int.MaxValue`. Strict cutoffs preserve equal-valued candidates for the root's random tie-break, and because every expectation is accumulated as an integer-weighted sum divided by 216 once, two candidates with the same rational value produce the same `Double` and both reach that tie-break.
 
 ### 6. Transposition Table
 
@@ -123,7 +124,7 @@ Star1, Star2, and TT upper-bound checks all use this candidate-specific bound ra
 - **Fine-grained checks**: The control is consulted **between dice rolls at every recursive chance node**, immediately after every reply generation, and **before every transposition-table probe** — not merely between root candidates. A work budget is also handed to every nested reply generation (`BudgetedRules.turnPaths`), so exhaustion inside a subtree cancels the invocation deterministically, without a clock.
 - **Explicit outcomes**: Every root candidate's chance node produces a `SearchOutcome[Double]`. Only `Exact` is ranked; `UpperBound` records a Star or table cutoff; `Incomplete` carries no value at all, so a cancelled candidate cannot be ranked, blended or cached by construction.
 - **Anytime contract**: Truncated candidates (cut mid-expansion) are abandoned and discarded rather than compared against completed candidates. If the control cancels before even one candidate completes, the search falls back to the pre-ranker's top pick; an immediate king capture is taken before any control check, and a forced pass is `None`.
-- **Telemetry sink (`RootSearchStats`)**: An optional `statsSink` receives search diagnostics per move (`legalTurns`, `candidatesSelected`, `candidatesCompleted`, `candidatesAbandoned`, `cutoffs`, `rollsSaved`, `probeCutoffs`), reporting cutoff telemetry and truncation by the deadline or the budget.
+- **Telemetry sink (`RootSearchStats`)**: An optional `statsSink` receives search diagnostics per move (`legalTurns`, `candidatesSelected`, `candidatesCompleted`, `candidatesAbandoned`, `cutoffs`, `rollsSaved`, `probeCutoffs`), reporting cutoff telemetry and truncation by the deadline or the budget. `rollsSaved` counts the dice **classes** a cutoff left unexpanded, which is at most 56 per candidate and fewer when the opponent's pieces retain fewer dice.
 
 ---
 
@@ -216,4 +217,5 @@ Star1/Star2, Zobrist/TT, and the first configurable depth increase are implement
 - [ONNX Model Integration](/dicechess-engine/architecture/search/07-onnx-integration/) — `OnnxExpectimaxSearch` combining learned value models with Expectimax lookahead
 - [Time Management](/dicechess-engine/architecture/search/05-time-management/) — Per-turn time budgets and deadline checking
 - [Bounded Search Outcomes & Cooperative Cancellation](/dicechess-engine/architecture/search/15-search-outcomes-and-cancellation/) — `SearchOutcome`, `SearchControl` and `UtilityBounds`
+- [Weighted Chance-Node Search](/dicechess-engine/architecture/search/16-weighted-chance-node-search/) — the shared `ChanceNode` both depths run on
 - [Search Roadmap & Evaluation](/dicechess-engine/architecture/search/03-search-roadmap/) — Implemented search capabilities, remaining work and evaluation protocol
