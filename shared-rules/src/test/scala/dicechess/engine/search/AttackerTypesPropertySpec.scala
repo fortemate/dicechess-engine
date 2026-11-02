@@ -65,8 +65,8 @@ class AttackerTypesPropertySpec extends ScalaCheckSuite:
       AttackerTypes.count(mask) == distinct && distinct <= attackers.count
     }
 
-  property("rollsShowingAnyOf matches an exhaustive enumeration of the 216 ordered rolls for all 64 type subsets"):
-    forAll(Gen.choose(0, 63)) { (typeMask: Int) =>
+  test("rollsShowingAnyOf matches an exhaustive enumeration of the 216 ordered rolls for all 64 type subsets"):
+    for typeMask <- 0 to 63 do
       var served = 0
       for
         d1 <- 1 to 6
@@ -76,12 +76,9 @@ class AttackerTypesPropertySpec extends ScalaCheckSuite:
         val faces = (1 << (d1 - 1)) | (1 << (d2 - 1)) | (1 << (d3 - 1))
         if (faces & typeMask) != 0 then served += 1
       val k = Integer.bitCount(typeMask)
-      (AttackerTypes.availableRolls(typeMask) == served) :| s"mask=$typeMask k=$k enumerated=$served" &&
-      (DiceRolls.rollsShowingAnyOf(k) == served) :| s"k=$k" &&
-      (AttackerTypes.availabilityProbability(
-        typeMask
-      ) == served.toDouble / DiceRolls.totalOrderedRolls) :| "probability"
-    }
+      assertEquals(AttackerTypes.availableRolls(typeMask), served, s"mask=$typeMask k=$k")
+      assertEquals(DiceRolls.rollsShowingAnyOf(k), served, s"k=$k")
+      assertEquals(AttackerTypes.availabilityProbability(typeMask), served.toDouble / DiceRolls.totalOrderedRolls)
 
   property("availability is monotone in k and bounded by 0 and 216"):
     forAll(Gen.choose(0, 5)) { (k: Int) =>

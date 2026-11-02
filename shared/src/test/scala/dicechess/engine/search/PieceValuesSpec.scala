@@ -29,8 +29,6 @@ class PieceValuesSpec extends ScalaCheckSuite:
       k <- price
     yield PieceValues(p, n, b, r, q, k)
 
-  private val maskGen: Gen[Int] = Gen.choose(0, 63)
-
   test("the canonical table reproduces MaterialValues, type by type"):
     val canonical = PieceValues.Canonical
     assertEquals(canonical.of(PieceType.Pawn), MaterialValues.Pawn)
@@ -91,11 +89,13 @@ class PieceValuesSpec extends ScalaCheckSuite:
     assertNotEquals(table, same.copy(king = 7))
 
   property("minimum equals the fold over the prices of the present types, for arbitrary tables and all masks"):
-    forAll(tableGen, maskGen) { (table: PieceValues, mask: Int) =>
-      val present  = PieceType.all.filter(pt => AttackerTypes.contains(mask, pt)).map(table.of)
-      val expected = present.minOption
-      (table.minimum(mask) == expected) :| s"table=$table mask=$mask expected=$expected" &&
-      (table.minimumOrElse(mask, empty = Int.MaxValue) == expected.getOrElse(Int.MaxValue)) :| "sentinel form"
+    forAll(tableGen) { (table: PieceValues) =>
+      (0 to 63).forall { mask =>
+        val present  = PieceType.all.filter(pt => AttackerTypes.contains(mask, pt)).map(table.of)
+        val expected = present.minOption
+        table.minimum(mask) == expected &&
+        table.minimumOrElse(mask, empty = Int.MaxValue) == expected.getOrElse(Int.MaxValue)
+      } :| s"table=$table"
     }
 
   property("minimumOn over a random square set agrees with minimum over AttackerTypes.mask"):
