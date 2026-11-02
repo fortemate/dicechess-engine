@@ -733,12 +733,10 @@ final class ExpectimaxSearch(
       val leafIndex = Array.fill(classes)(NoProbe)
       var index     = 0
       while index < classes do
-        val current = replies(index)
-        if current.capturesKing then values(index) = terminal
+        if replies(index).capturesKing then values(index) = terminal
         else
           leafIndex(index) = leaves.length
-          leaves += (if current.isForcedPass then rolled(index).endTurn()
-                     else current.states(probeIndex(current.states)))
+          leaves += probeLeaf(index, rolled(index))
         index += 1
       if leaves.nonEmpty then
         val leafArray = leaves.toArray
@@ -748,44 +746,54 @@ final class ExpectimaxSearch(
         index = 0
         while index < classes do
           val leaf = leafIndex(index)
-          if leaf != NoProbe then
-            val score = scores(leafKey(leafArray(leaf))).toDouble
-            val work  = ctx.control.workUsed
-            values(index) =
-              if replies(index).isForcedPass then ChanceNode.Value.exact(score, workUsed = work)
-              else if ctx.maximizing then ChanceNode.Value(SearchOutcome.LowerBound(score, work))
-              else ChanceNode.Value(SearchOutcome.UpperBound(score, work))
+          if leaf != NoProbe then values(index) = leafProbeValue(index, scores(leafKey(leafArray(leaf))).toDouble)
           index += 1
 
+    /** The single position that probes a non-terminal class one ply above the evaluator. */
+    private def probeLeaf(index: Int, rolled: GameState): GameState =
+      val current = replies(index)
+      if current.isForcedPass then rolled.endTurn() else current.states(probeIndex(current.states))
+
+    /** A scored leaf probe as the class's value: exact for a forced pass, a bound in the role's direction otherwise. */
+    private def leafProbeValue(index: Int, score: Double): ChanceNode.Value =
+      val work = ctx.control.workUsed
+      if replies(index).isForcedPass then ChanceNode.Value.exact(score, workUsed = work)
+      else if ctx.maximizing then ChanceNode.Value(SearchOutcome.LowerBound(score, work))
+      else ChanceNode.Value(SearchOutcome.UpperBound(score, work))
+
     /** Probing deeper in the tree: each probe is itself a chance node, searched with an open window and therefore exact
-      * — a forced pass settles its class outright, a reply's value is kept for the decision node.
+      * — a forced pass settles its class outright, a reply's value is kept for the decision node. The first interrupted
+      * probe marks every later class interrupted too, so the mechanism cancels the node.
       */
     private def innerProbes(rolled: IArray[GameState], values: Array[ChanceNode.Value]): Unit =
       var index       = 0
       var interrupted = false
       while index < classes do
-        val current = replies(index)
-        val value   =
-          if interrupted then ChanceNode.Value.incomplete(ctx.control)
-          else if current.capturesKing then terminal
-          else if ctx.control.isCancelled then ChanceNode.Value.incomplete(ctx.control)
-          else if current.isForcedPass then toValue(recursiveChanceNode(rolled(index).endTurn(), ctx.childOpen))
-          else
-            val reply = probeIndex(current.states)
-            val found = toValue(recursiveChanceNode(current.states(reply), ctx.childOpen))
-            found.outcome match
-              case SearchOutcome.Exact(value, work) =>
-                // One reply's exact value bounds the class in the role's direction; the decision node reuses it.
-                probeReply(index) = reply
-                probeValue(index) = found
-                val bound =
-                  if ctx.maximizing then SearchOutcome.LowerBound(value, work)
-                  else SearchOutcome.UpperBound(value, work)
-                ChanceNode.Value(bound, found.lossTainted)
-              case _ => found
-        if value.outcome.isIncomplete then interrupted = true
+        val value = if interrupted then ChanceNode.Value.incomplete(ctx.control) else innerProbe(index, rolled(index))
+        interrupted ||= value.outcome.isIncomplete
         values(index) = value
         index += 1
+
+    /** One class's inner probe: terminal, cancelled, a forced pass searched exactly, or the material-best reply's exact
+      * value reported as the role's bound and remembered for the decision node.
+      */
+    private def innerProbe(index: Int, rolled: GameState): ChanceNode.Value =
+      val current = replies(index)
+      if current.capturesKing then terminal
+      else if ctx.control.isCancelled then ChanceNode.Value.incomplete(ctx.control)
+      else if current.isForcedPass then toValue(recursiveChanceNode(rolled.endTurn(), ctx.childOpen))
+      else
+        val reply = probeIndex(current.states)
+        val found = toValue(recursiveChanceNode(current.states(reply), ctx.childOpen))
+        found.outcome match
+          case SearchOutcome.Exact(value, work) =>
+            // One reply's exact value bounds the class in the role's direction; the decision node reuses it.
+            probeReply(index) = reply
+            probeValue(index) = found
+            val bound =
+              if ctx.maximizing then SearchOutcome.LowerBound(value, work) else SearchOutcome.UpperBound(value, work)
+            ChanceNode.Value(bound, found.lossTainted)
+          case _ => found
 
     /** The reply whose resulting position is best for the mover by the material proxy: the first such reply in
       * canonical order, so a budgeted and an unbudgeted search probe the same line.
