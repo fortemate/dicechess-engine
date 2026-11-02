@@ -17,6 +17,7 @@ package dicechess.engine
   * | [[GreedySearch]]                              | Picks the turn path with the highest material score; prefers short wins   |
   * | [[RandomSearch]]                              | Selects a uniformly random legal path; useful as a baseline / test bot    |
   * | [[Evaluator]]                                 | Pure material-balance evaluator used by all current bot strategies        |
+  * | [[EvaluationCache]]                           | Invocation-local exact memoization of deterministic Scala evaluations     |
   * | [[SearchScoring]]                             | Shared scoring helper: scores a path and handles king-capture termination |
   *
   * ## Turn Model
