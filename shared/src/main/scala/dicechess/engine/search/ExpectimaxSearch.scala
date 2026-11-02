@@ -715,14 +715,17 @@ final class ExpectimaxSearch(
         if leafPly then leafProbes(rolled, values) else innerProbes(rolled, values)
         Some(values)
 
-    /** Generates every class's replies up front, since probing needs the material-best reply of each. */
+    /** Generates every class's replies up front, since probing needs the material-best reply of each. The control is
+      * re-read after the last generation too: a deadline that passed inside it must not be followed by the probe batch,
+      * which is indivisible and bypasses [[decide]].
+      */
     private def generateAll(rolled: IArray[GameState]): Boolean =
       var index    = 0
       var complete = true
       while index < classes && complete do
         if ctx.control.isCancelled || (repliesAt(index, rolled(index)) eq InterruptedReplies) then complete = false
         index += 1
-      complete
+      complete && !ctx.control.isCancelled
 
     /** Probing one ply above the evaluator: every probe is a single position — the material-best reply, or the forced
       * pass — so all of them are scored in one batch. A pass is exact; a reply bounds its class in the role's
