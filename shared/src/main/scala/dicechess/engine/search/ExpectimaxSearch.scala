@@ -742,7 +742,9 @@ final class ExpectimaxSearch(
         index += 1
       if leaves.nonEmpty then
         val leafArray = leaves.toArray
-        val scores    = probeScoreMap(leafArray, myColor)
+        // Scored on a copy: deduplication compacts its input in place, and the per-class lookup below still indexes
+        // the original order, so two classes probing the same position would otherwise read each other's leaf.
+        val scores = probeScoreMap(leafArray.clone(), myColor)
         index = 0
         while index < classes do
           val leaf = leafIndex(index)
@@ -802,7 +804,9 @@ final class ExpectimaxSearch(
 
     def decide(rolled: GameState, index: Int, alpha: Double, beta: Double): ChanceNode.Value =
       val current = repliesAt(index, rolled)
-      if current eq InterruptedReplies then ChanceNode.Value.incomplete(ctx.control)
+      // Reply generation is atomic and can be long; a deadline that passed inside it must not be followed by an
+      // evaluator batch, so the control is re-read before any evaluation (the budget case is the interrupted list).
+      if (current eq InterruptedReplies) || ctx.control.isCancelled then ChanceNode.Value.incomplete(ctx.control)
       else if current.capturesKing then terminal
       else if current.isForcedPass then
         if leafPly then ChanceNode.Value.exact(evalOne(rolled.endTurn(), myColor), workUsed = ctx.control.workUsed)
@@ -936,7 +940,7 @@ final class ExpectimaxSearch(
     if maximizing then state.zobristHash ^ MaxChanceKeySalt else state.zobristHash
 
   /** One batched evaluation of the distinct probe leaves, keyed so each class can look its own (possibly duplicated)
-    * leaf back up.
+    * leaf back up. Consumes `rawProbeStates` (see [[distinctLeaves]]): callers that index it afterwards pass a copy.
     */
   private def probeScoreMap(
       rawProbeStates: Array[GameState],

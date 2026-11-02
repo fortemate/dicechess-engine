@@ -420,6 +420,39 @@ class ExpectimaxSearchSpec extends FunSuite:
       assertEquals(stats.map(_.probeCutoffs), Some(1), s"seed $seed")
       assertEquals(stats.map(_.candidatesAbandoned), Some(0), s"seed $seed")
 
+  test("depth 2 Star pruning matches the exhaustive per-candidate search under a position-sensitive leaf"):
+    // The probe batch deduplicates its leaves before scoring and the per-class lookup must still read each class's
+    // own leaf; a misassigned Star2 bound under a position-sensitive evaluator would be unsound, and for some
+    // candidate order the wide search would prune a candidate the exhaustive search scores best. Classes rarely share
+    // a probe leaf (different dice consumed give different boards or clocks), so this is a parity guard over every
+    // candidate order rather than a reproduction of one misassignment.
+    val squareSensitive: (Array[GameState], Color) => Array[Int] = (states, color) =>
+      states.map: s =>
+        val black = s.blackPieces.value
+        val king  = java.lang.Long.numberOfTrailingZeros((s.kings & s.blackPieces).value)
+        val other = java.lang.Long.numberOfTrailingZeros(black & ~s.kings.value)
+        Evaluator.evaluateMaterial(s, color) + king * 37 + (if other < 64 then other * 53 else 0)
+    val targets    = List(('d', 1), ('d', 2), ('e', 2), ('f', 1))
+    val exhaustive = targets.map: target =>
+      ExpectimaxSearch(squareSensitive, ExpectimaxConfig(candidateLimit = 1), preRank = prefers(target))
+        .findBestMove(rootRescorePosition, Random(0))
+        .getOrElse(fail(s"no turn for target $target"))
+    val bestScore = exhaustive.map(_.score).max
+    val bestTurns = exhaustive.filter(_.score == bestScore).map(candidate => uci(candidate.moves))
+    for order <- targets.permutations do
+      val ranked: (Array[GameState], Color) => Array[Int] = (states, _) =>
+        states.map: s =>
+          order.indexWhere((file, rank) =>
+            s.mailbox.get(Square(file, rank)).exists(_.pieceType == PieceType.King)
+          ) match
+            case -1       => -10
+            case position => targets.length - position
+      val wide = ExpectimaxSearch(squareSensitive, ExpectimaxConfig(candidateLimit = 4), preRank = ranked)
+        .findBestMove(rootRescorePosition, Random(0))
+        .getOrElse(fail("no turn from the wide search"))
+      assertEquals(wide.score, bestScore, s"order $order")
+      assert(bestTurns.contains(uci(wide.moves)), s"order $order: ${uci(wide.moves)} is not among $bestTurns")
+
   test("Star1 pruning reduces processed rolls and records cutoffs in RootSearchStats"):
     // Position where candidate 0 achieves a strong score and subsequent candidates are provably worse.
     val state = parse("1r4k1/p4ppp/8/8/8/8/5PPP/R5K1 w - - 0 1").withDicePool(List(2, 2, 4))
