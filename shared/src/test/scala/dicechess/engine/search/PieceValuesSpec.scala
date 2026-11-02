@@ -85,8 +85,10 @@ class PieceValuesSpec extends ScalaCheckSuite:
     assertEquals(PieceValues.Canonical.minimumOn(state, defenders, empty = 0), 100)
 
   test("equality is structural and derives CanEqual"):
-    assert(PieceValues(1, 2, 3, 4, 5, 6) == PieceValues(1, 2, 3, 4, 5, 6))
-    assert(PieceValues(1, 2, 3, 4, 5, 6) != PieceValues(1, 2, 3, 4, 5, 7))
+    val table = PieceValues(1, 2, 3, 4, 5, 6)
+    val same  = PieceValues(pawn = 1, knight = 2, bishop = 3, rook = 4, queen = 5, king = 6)
+    assertEquals(table, same)
+    assertNotEquals(table, same.copy(king = 7))
 
   property("minimum equals the fold over the prices of the present types, for arbitrary tables and all masks"):
     forAll(tableGen, maskGen) { (table: PieceValues, mask: Int) =>

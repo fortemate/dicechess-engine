@@ -126,10 +126,9 @@ final case class PieceValues(pawn: Int, knight: Int, bishop: Int, rook: Int, que
     var found                                                                 = false
     var best                                                                  = empty
     inline def consider(inline pieceType: PieceType, inline price: Int): Unit =
-      if AttackerTypes.contains(typeMask, pieceType) then
-        if !found || price < best then
-          best = price
-          found = true
+      if AttackerTypes.contains(typeMask, pieceType) && (!found || price < best) then
+        best = price
+        found = true
     consider(PieceType.Pawn, pawn)
     consider(PieceType.Knight, knight)
     consider(PieceType.Bishop, bishop)
