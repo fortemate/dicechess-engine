@@ -234,10 +234,15 @@ class ExpectimaxSearchSpec extends FunSuite:
     val alpha      = ExpectimaxSearch.transformedRootAlpha(tiedFinal, rescore, weight)
     assert(alpha <= tiedSearch, s"a mathematically tied candidate must survive strict pruning: alpha=$alpha")
 
-  test("without rootRescore inferior candidates are pruned by Star pruning"):
+  test("without rootRescore Star pruning removes the inferior candidate and leaves the exact ties to the tie-break"):
+    // d1, e2 and f1 tie exactly under material scoring (see rootRescorePosition), so all three must complete and reach
+    // the seeded random tie-break; only the loss-tainted d2 is strictly inferior and may be pruned. Before the shared
+    // chance node accumulated integer-weighted sums, the per-roll probability products rounded the Star2 probe sum of
+    // a tied candidate a few ULPs below alpha, and two of the three ties vanished into a bound that was never proven.
     val outcomes: Set[Option[String]] =
       (0 to 30).map(seed => search().findBestMove(rootRescorePosition, Random(seed)).map(s => uci(s.moves))).toSet
-    assertEquals(outcomes, Set(Option("e1d1")))
+    assert(outcomes.subsetOf(Set(Option("e1d1"), Option("e1e2"), Option("e1f1"))), s"d2 must never win: $outcomes")
+    assert(outcomes.size > 1, s"exact ties must reach the random tie-break, got $outcomes")
 
   test("without rootRescore tied candidates break ties randomly"):
     val equalBatch: (Array[GameState], Color) => Array[Int] = (states, _) => states.map(_ => 0)
@@ -263,7 +268,8 @@ class ExpectimaxSearchSpec extends FunSuite:
   // ---- Root telemetry (statsSink, #494) ----
 
   test("statsSink reports full width when no deadline applies"):
-    // rootRescorePosition offers four king steps: e1d1 completes (1), e1d2 is probe-pruned by Star2, e1e2 and e1f1 are pruned by Star1.
+    // rootRescorePosition offers four king steps: e1d1, e1e2 and e1f1 tie exactly and all complete (3); e1d2 is
+    // probe-pruned by Star2 before any of its ten dice classes (Black retains only king and bishop dice) is expanded.
     var stats = Option.empty[RootSearchStats]
     val bot   = ExpectimaxSearch(materialBatch, statsSink = s => stats = Some(s))
     assert(bot.findBestMove(rootRescorePosition, Random(0)).isDefined)
@@ -273,10 +279,10 @@ class ExpectimaxSearchSpec extends FunSuite:
         RootSearchStats(
           legalTurns = 4,
           candidatesSelected = 4,
-          candidatesCompleted = 1,
+          candidatesCompleted = 3,
           candidatesAbandoned = 0,
-          cutoffs = 3,
-          rollsSaved = 156,
+          cutoffs = 1,
+          rollsSaved = 10,
           probeCutoffs = 1
         )
       )
@@ -361,10 +367,10 @@ class ExpectimaxSearchSpec extends FunSuite:
         RootSearchStats(
           legalTurns = 4,
           candidatesSelected = 4,
-          candidatesCompleted = 1,
+          candidatesCompleted = 3,
           candidatesAbandoned = 0,
-          cutoffs = 3,
-          rollsSaved = 156,
+          cutoffs = 1,
+          rollsSaved = 10,
           probeCutoffs = 1
         )
       )
@@ -377,17 +383,15 @@ class ExpectimaxSearchSpec extends FunSuite:
     // then the clock stops the next — so `results` is non-empty and the normal ranking path runs, unlike the
     // pre-rank fallback.
     //
-    // Made deterministic by an evaluator that is FREE for the first candidate's 56 rolls and expensive after: the
-    // first candidate therefore completes no matter how slow the machine is, and the second cannot survive three
-    // rolls. Time is burned by spinning rather than sleeping because this suite also runs on the Scala.js and Wasm
-    // runners, where `Thread.sleep` does not exist.
-    val budgetMs      = 500L
-    val burnPerCallMs = 200L
-    val freeCalls     = DiceRolls.weighted.length // exactly one candidate's worth of leaf evaluations
-    var calls         = 0
+    // Made deterministic by an evaluator that is FREE for the first candidate's subtree (the king on d1, which the
+    // material pre-rank lists first) and expensive everywhere else: the first candidate therefore completes no matter
+    // how slow the machine is, and the second cannot survive three evaluator calls. Time is burned by spinning rather
+    // than sleeping because this suite also runs on the Scala.js and Wasm runners, where `Thread.sleep` does not exist.
+    val budgetMs                                                = 500L
+    val burnPerCallMs                                           = 200L
     val slowAfterFirst: (Array[GameState], Color) => Array[Int] = (states, color) =>
-      calls += 1
-      if calls > freeCalls then
+      val firstCandidate = states.forall(s => s.mailbox.get(Square('d', 1)).exists(_.pieceType == PieceType.King))
+      if !firstCandidate then
         val until = System.nanoTime() + burnPerCallMs * 1_000_000L
         while System.nanoTime() < until do ()
       materialBatch(states, color)
@@ -411,10 +415,43 @@ class ExpectimaxSearchSpec extends FunSuite:
       val untimed   = timedBot.findBestMove(rootRescorePosition, Random(seed)).map(s => uci(s.moves))
       val reference = search().findBestMove(rootRescorePosition, Random(seed)).map(s => uci(s.moves))
       assertEquals(untimed, reference, s"seed $seed")
-      assertEquals(stats.map(_.candidatesCompleted), Some(1), s"seed $seed")
-      assertEquals(stats.map(_.cutoffs), Some(3), s"seed $seed")
+      assertEquals(stats.map(_.candidatesCompleted), Some(3), s"seed $seed")
+      assertEquals(stats.map(_.cutoffs), Some(1), s"seed $seed")
       assertEquals(stats.map(_.probeCutoffs), Some(1), s"seed $seed")
       assertEquals(stats.map(_.candidatesAbandoned), Some(0), s"seed $seed")
+
+  test("depth 2 Star pruning matches the exhaustive per-candidate search under a position-sensitive leaf"):
+    // The probe batch deduplicates its leaves before scoring and the per-class lookup must still read each class's
+    // own leaf; a misassigned Star2 bound under a position-sensitive evaluator would be unsound, and for some
+    // candidate order the wide search would prune a candidate the exhaustive search scores best. Classes rarely share
+    // a probe leaf (different dice consumed give different boards or clocks), so this is a parity guard over every
+    // candidate order rather than a reproduction of one misassignment.
+    val squareSensitive: (Array[GameState], Color) => Array[Int] = (states, color) =>
+      states.map: s =>
+        val black = s.blackPieces.value
+        val king  = java.lang.Long.numberOfTrailingZeros((s.kings & s.blackPieces).value)
+        val other = java.lang.Long.numberOfTrailingZeros(black & ~s.kings.value)
+        Evaluator.evaluateMaterial(s, color) + king * 37 + (if other < 64 then other * 53 else 0)
+    val targets    = List(('d', 1), ('d', 2), ('e', 2), ('f', 1))
+    val exhaustive = targets.map: target =>
+      ExpectimaxSearch(squareSensitive, ExpectimaxConfig(candidateLimit = 1), preRank = prefers(target))
+        .findBestMove(rootRescorePosition, Random(0))
+        .getOrElse(fail(s"no turn for target $target"))
+    val bestScore = exhaustive.map(_.score).max
+    val bestTurns = exhaustive.filter(_.score == bestScore).map(candidate => uci(candidate.moves))
+    for order <- targets.permutations do
+      val ranked: (Array[GameState], Color) => Array[Int] = (states, _) =>
+        states.map: s =>
+          order.indexWhere((file, rank) =>
+            s.mailbox.get(Square(file, rank)).exists(_.pieceType == PieceType.King)
+          ) match
+            case -1       => -10
+            case position => targets.length - position
+      val wide = ExpectimaxSearch(squareSensitive, ExpectimaxConfig(candidateLimit = 4), preRank = ranked)
+        .findBestMove(rootRescorePosition, Random(0))
+        .getOrElse(fail("no turn from the wide search"))
+      assertEquals(wide.score, bestScore, s"order $order")
+      assert(bestTurns.contains(uci(wide.moves)), s"order $order: ${uci(wide.moves)} is not among $bestTurns")
 
   test("Star1 pruning reduces processed rolls and records cutoffs in RootSearchStats"):
     // Position where candidate 0 achieves a strong score and subsequent candidates are provably worse.

@@ -141,4 +141,5 @@ The strict en-passant eligibility of [#419](https://github.com/fortemate/diceche
 - [Shared Traversal & Search Contracts](/dicechess-engine/architecture/search/14-traversal-and-search-contracts/) — the reviewed design this page implements
 - [Budgeted rules queries](/dicechess-engine/architecture/rules-budgets/) — the `Budget` and `Outcome` the control shares with the rules layer
 - [Expectimax Search Engine](/dicechess-engine/architecture/search/06-expectimax-search/) — the search that adopts these contracts
+- [Weighted Chance-Node Search](/dicechess-engine/architecture/search/16-weighted-chance-node-search/) — the shared chance node that reports its results as `SearchOutcome`
 - [Time Management](/dicechess-engine/architecture/search/05-time-management/) — turning a clock into a deadline
