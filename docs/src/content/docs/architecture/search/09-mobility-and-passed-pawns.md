@@ -65,6 +65,93 @@ object PassedPawns:
 - **Perspective:** Evaluated from the explicit `color` argument, independent of
   active color and dice pool.
 
+### Reusing detection with consumer-owned rank bonuses
+
+`PassedPawns` is the canonical detector in the engine artifact, not the rules-only
+artifact. Reuse `bitboard(state, color)` instead of maintaining a second front-span
+detector. Its four existing methods retain their behavior and signatures.
+
+Only **opposing pawns strictly ahead** on the same or neighboring files matter.
+Friendly pawns, opposing non-pawn pieces, and opposing pawns on the same rank or
+behind do not disqualify a pawn. Doubled pawns are considered individually and can
+both be passed. A passed pawn can still have its movement blocked; detection does
+not test legal moves, king safety, dice availability, or a clear promotion path.
+
+Keep the consumer's bonus table and evaluation weights. The following adapter is
+also a compiled example in `PassedPawns` Scaladoc and is exercised against an
+independent reference in `PassedPawnsContractSpec`:
+
+```scala
+import dicechess.engine.domain.*
+import dicechess.engine.search.PassedPawns
+
+def passedPawnBonus(state: GameState, color: Color, bonusByAdvancement: IArray[Int]): Int =
+  var p     = PassedPawns.bitboard(state, color).value
+  var score = 0
+  while p != 0L do
+    val square = java.lang.Long.numberOfTrailingZeros(p)
+    val rank   = square / 8 + 1
+    val adv    = if color.isWhite then rank - 1 else 8 - rank
+    score += bonusByAdvancement(adv)
+    p &= p - 1L
+  score
+```
+
+For pawns on board ranks 2–7, `adv` is 1–6 from either color's perspective.
+Provide at least seven entries: index 0 is unused, and entries 1–6 contain the
+caller's existing bonuses. For a six-entry table indexed 0–5, use `adv - 1` instead.
+If the existing table uses absolute board ranks or another convention, translate
+the index explicitly. Synthetic positions with pawns on promotion/back ranks need
+a separately defined caller policy; the 1–6 adapter assumes ordinary unpromoted
+pawn ranks.
+
+The loop uses primitive `Long` operations without allocating a collection or an
+iterator per pawn. Allocate the immutable table once outside evaluation. A
+caller-owned `Int => Int` may replace the `IArray[Int]` parameter with the same
+lookup expression; reuse that function outside the loop as well.
+Retain the original accumulation type, overflow handling, own/opponent signs,
+weight multiplication, rounding and normalization order. The `Int` example
+assumes the caller's scores fit in `Int`; it supplies no default bonuses or weights.
+`maxRank` and `countAndMaxRank` summarize a set and cannot replace a sum of
+individual rank bonuses when there are multiple passed pawns.
+
+### Qualification and downstream adoption checklist
+
+The existing fixtures in `PassedPawnsSpec` remain in place.
+`PassedPawnsContractSpec` compares exact pawn sets and all four public methods
+against an independent mailbox scan of every candidate and every possible
+opposing blocker. It exhausts single opposing-pawn pairs across files a–h and
+ranks 2–7 for both colors, and covers mixed boards, doubled pawns, friendly and
+non-pawn blockers, explicit perspective, active-color/dice independence and exact
+set mapping under `Symmetry.colorFlip` and `Symmetry.horizontalMirror`.
+Adapter checks include arbitrary signed, non-monotone tables and weights,
+every advancement index, doubled pawns and the empty set.
+
+For the later downstream integration:
+
+- [ ] Pin an engine version containing the qualified contract; retain the current
+  evaluator configuration, table values, scale and weights in the consumer.
+- [ ] Compare the old detector's exact square set with `PassedPawns.bitboard`
+  on public/synthetic fixtures and the consumer's private fixtures in its own
+  repository. Include both perspectives, edge files, doubled pawns and blockers.
+- [ ] Compare per-pawn indices, unweighted sums and final weighted scores using
+  the current consumer parameters and arithmetic. Do not replace a per-pawn sum
+  with the maximum advancement.
+- [ ] Report any detector or scoring discrepancy explicitly. Obtain a separate
+  compatibility decision for semantic changes before replacing the old path.
+- [ ] Replace only local detection, remove its obsolete masks, and keep bonus
+  lookup and weighting in the consumer. Verify active-color/dice independence
+  and color-flip score parity with the consumer's rank convention.
+- [ ] Run the consumer's correctness gates. If its evaluation hot path changes,
+  record reproducible fixed-work JMH measurements including work counts and
+  allocations. Keep timed-search and playing-strength research separate.
+
+This qualification adds tests and examples without changing detector code,
+serving defaults, feature schemas, or downstream evaluators. It does not establish
+parity with a particular consumer implementation; that comparison belongs to
+the adoption task. Keep private parameters, artifacts and experiment verdicts in
+the consumer's private records.
+
 ## Versioned Feature Contracts
 
 ### 1. `kcp-mobility-27-v1`
