@@ -25,6 +25,27 @@ object DiceRolls:
   /** Number of ordered 3d6 outcomes — the denominator for turning a multiset weight into a probability. */
   val totalOrderedRolls: Int = 216
 
+  /** The number of ordered rolls that show at least one of `distinctTypes` given piece types: `216 - (6 - k)^3`.
+    *
+    * A roll misses every one of the `k` types only when each of its three dice shows one of the other `6 - k` faces,
+    * which happens in `(6 - k)^3` ordered rolls; the complement is the exact numerator over [[totalOrderedRolls]].
+    * `k = 0` gives `0` (nothing to roll for) and `k = 6` gives `216` (some die must serve). Integer-exact, so a
+    * consumer can keep the number as a weight out of 216 instead of a floating-point probability (#395).
+    *
+    * @param distinctTypes
+    *   `k` in `0..6`, typically [[AttackerTypes.count]] of a type mask
+    */
+  def rollsShowingAnyOf(distinctTypes: Int): Int =
+    require(distinctTypes >= 0 && distinctTypes <= 6, s"distinctTypes must be in 0..6, got $distinctTypes")
+    val missing = 6 - distinctTypes
+    totalOrderedRolls - missing * missing * missing
+
+  /** [[rollsShowingAnyOf]] divided by [[totalOrderedRolls]]: the probability in `[0.0, 1.0]` that a single roll lets at
+    * least one of `distinctTypes` piece types move.
+    */
+  def probabilityOfAnyOf(distinctTypes: Int): Double =
+    rollsShowingAnyOf(distinctTypes).toDouble / totalOrderedRolls
+
   /** The 56 distinct sorted dice multisets paired with their occurrence weight among the 216 ordered rolls.
     *
     * Enumerated directly in non-decreasing order (`d1 <= d2 <= d3`), which yields each sorted multiset exactly once;
