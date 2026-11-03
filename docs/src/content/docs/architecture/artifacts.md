@@ -41,9 +41,13 @@ one.
 - `dicechess.engine.movegen` — `MoveGenerator`, pawn generation, leaper attacks and magic bitboards,
   `LegalMovesFilter`, `Dfen` helpers, `Perft`.
 - `dicechess.engine.search`, **rules half of the split package** — `TurnGenerator` (every legal turn
-  as a micro-move path), `DiceRolls`, `KingCaptureProbability` with its scratch board. These are
-  rules-level: the probability that a roll allows a king capture is a property of the position and
-  the dice, not of any bot.
+  as a micro-move path, plus shared-prefix `forEachLegalTurnState`), `BudgetedRules` (work-bounded
+  `turnPaths`, `visitTurnStates`, `foldTurnStates`, `kingCaptureRolls`, `kingCapturePath`),
+  `DiceRolls` (including `rollsShowingAnyOf` / `probabilityOfAnyOf`), `ActiveDicePartitioner` and
+  `CompactRoll` (promotion-aware dice equivalence classes), `AttackerTypes` (exact 6-bit attacking
+  piece-type masks and single-roll availability), and `KingCaptureProbability` with its scratch board.
+  These are rules-level: legal turn transitions, roll equivalence, and capture availability are
+  properties of the position and the dice, not of any bot.
 
 **External dependencies:** none. The POM declares `org.scala-lang:scala3-library_3` and nothing
 else outside test scope; the publish pipeline refuses to ship the jar otherwise
@@ -67,14 +71,17 @@ harmless but unnecessary.
 **Packages**
 
 - `dicechess.engine.search`, **engine half of the split package** — `SearchAlgorithm`,
-  `BotRegistry`, `Evaluator`, the built-in bots (`RandomSearch`, `GreedySearch`, `GreedySearchV2`,
-  `AggressiveSearch`, `CheckmateAwareSearch`, `ExpectimaxSearch`, `MonteCarloSearch`,
-  `TimeBudgetedSearch`), `TimeManager` and `TimePolicy`, `TranspositionTable`, the opening book
-  (`OpeningBook`, `OpeningBookParser`, `OpeningBookBot`), `DrawOfferLogic`, `MonteCarloEquity`, the
-  evaluation terms (`MaterialValues`, `PieceMobility`, `PieceSafety`, `PieceDiversity`,
-  `PassedPawns`) and the feature extractors (`KcpFeatures`, `KcpMobilityFeatures`,
-  `KcpMobilityPawnsFeatures`, `RawBoardFeatures`, `RichFeatures`, `RichPdiFeatures`,
-  `OnnxFeatures`).
+  `ControlledSearch`, `SearchControl`, `SearchOutcome`, `UtilityBounds`, `ChanceNode`,
+  `BotRegistry`, `Evaluator`, `EvaluationCache`, the built-in bots (`RandomSearch`, `GreedySearch`,
+  `GreedySearchV2`, `AggressiveSearch`, `CheckmateAwareSearch`, `ExpectimaxSearch`,
+  `MonteCarloSearch`, `TimeBudgetedSearch`), `TimeManager` and `TimePolicy`, `TranspositionTable`,
+  the opening book (`OpeningBook`, `OpeningBookParser`, `OpeningBookBot`), `DrawOfferLogic`,
+  `MonteCarloEquity`, the evaluation terms (`MaterialValues`, `PieceValues`, `PieceMobility`,
+  `PieceSafety`, `PieceDiversity`, `PassedPawns`) and the feature extractors (`KcpFeatures`,
+  `KcpMobilityFeatures`, `KcpMobilityPawnsFeatures`, `RawBoardFeatures`, `RichFeatures`,
+  `RichPdiFeatures`, `OnnxFeatures`). See the
+  [Staged Downstream Adoption Guide](/dicechess-engine/architecture/search/18-staged-downstream-adoption/)
+  for minimum versions and wave-by-wave consumer migration recipes.
 - `dicechess.engine.search`, JVM only — `OnnxEvalSearch` and `OnnxExpectimaxSearch`, the two
   classes that import `ai.onnxruntime`.
 - `dicechess.engine.jvmapi` — `JvmApi`, the Java/Kotlin facade documented in the
