@@ -86,19 +86,24 @@ package dicechess.engine
   *   (acc :+ (path, afterState, isKingCapture), true)
   * }
   *
-  * val (_, firstAfterTurn, isWin) = folded match
-  *   case BudgetedRules.Outcome.Complete(res, _) => res.value.head
-  *   case BudgetedRules.Outcome.Incomplete(used) => sys.error(s"exhausted after $used")
+  * val firstCandidateOpt = folded match
+  *   case BudgetedRules.Outcome.Complete(res, _) =>
+  *     if res.value.isEmpty then None else Some(res.value.head)
+  *   case BudgetedRules.Outcome.Incomplete(_) => None
+  * val (_, firstAfterTurn, isWin) = firstCandidateOpt.get
   * assert(!isWin && firstAfterTurn.activeColor == mover.opponent && firstAfterTurn.flags.isDicePoolEmpty)
   *
-  * val rootStatic = cache(firstAfterTurn, mover)
-  * val policy     = new ChanceNode.Policy:
+  * val rootStaticOutcome =
+  *   if control.isCancelled then SearchOutcome.Incomplete(control.workUsed)
+  *   else SearchOutcome.Exact(cache(firstAfterTurn, mover), control.workUsed)
+  * val policy = new ChanceNode.Policy:
   *   def lowestValue: Double  = bounds.terminalLoss
   *   def highestValue: Double = bounds.maxNonTerminal
   *   def decide(rolled: GameState, classIndex: Int, alpha: Double, beta: Double): ChanceNode.Value =
   *     ChanceNode.Replies.generate(rolled, control) match
   *       case None                                  => ChanceNode.Value.incomplete(control)
   *       case Some(replies) if replies.capturesKing => ChanceNode.Value.exact(bounds.terminalLoss, lossTainted = true)
+  *       case Some(_) if control.isCancelled        => ChanceNode.Value.incomplete(control)
   *       case Some(replies) if replies.isForcedPass =>
   *         ChanceNode.Value.exact(cache(rolled.endTurn(), mover).toDouble, workUsed = control.workUsed)
   *       case Some(replies) =>
@@ -113,7 +118,7 @@ package dicechess.engine
   *   Double.PositiveInfinity,
   *   policy
   * )
-  * assert(chanceResult.outcome.isExact && rootStatic >= 0 && Random(0).nextInt(1) == 0)
+  * assert(chanceResult.outcome.isExact && rootStaticOutcome.valueOption.exists(_ >= 0) && Random(0).nextInt(1) == 0)
   * ```
   */
 package object search

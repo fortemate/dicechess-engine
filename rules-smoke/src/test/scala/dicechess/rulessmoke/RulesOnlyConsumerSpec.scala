@@ -54,11 +54,9 @@ class RulesOnlyConsumerSpec extends FunSuite:
 
     val f7   = FenParser.parse("8/8/8/2k5/8/1N6/2P5/K7 w - - 0 1 NPP").toOption.get
     val mask = AttackerTypes.mask(f7, Square('c', 5), Color.White)
-    assert(AttackerTypes.contains(mask, PieceType.Knight))
-    assertEquals(
-      AttackerTypes.availableRolls(mask),
-      DiceRolls.rollsShowingAnyOf(AttackerTypes.count(mask))
-    )
+    assertEquals(mask, AttackerTypes.bit(PieceType.Knight))
+    assertEquals(AttackerTypes.availableRolls(mask), 216 - 5 * 5 * 5)
+    assertEquals(DiceRolls.rollsShowingAnyOf(1), 216 - 5 * 5 * 5)
     assert(!MoveGenerator.allAttackers(f7, Square('c', 5), Color.White).isEmpty)
 
   test("no search algorithm, evaluator, feature extractor or ONNX runtime is on the classpath"):
