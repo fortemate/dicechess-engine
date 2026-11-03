@@ -82,13 +82,24 @@ class CrossPlatformQualificationSuite extends FunSuite:
         case other => fail(s"$id expected Complete, got $other")
 
   test("F1, F2, F3, F5, F6: promotion retention, 3-step shared prefix, castling 2-dice filter, and inherited EP"):
-    // F1: king-only ADEP has 4 classes summing to 216 and CompactRoll.Empty transitions via endTurn()
+    // F1: king-only ADEP has 4 classes summing to 216 and CompactRoll.Empty transitions via endTurn() in ExpectimaxSearch
     val f1      = parse("4k3/8/8/8/8/8/8/4K3 w - - 0 1")
     val f1Parts = ActiveDicePartitioner.partitionsFor(f1)
     assertEquals(f1Parts.length, 4)
     assertEquals(f1Parts.map(_.weight).toList.sorted, List(1, 15, 75, 125))
     assertEquals(f1Parts.map(_.weight).sum, DiceRolls.totalOrderedRolls)
     assert(f1Parts.exists(_.roll == CompactRoll.Empty))
+    val f1Evaluated = Vector.newBuilder[GameState]
+    val f1Search    = ExpectimaxSearch(
+      (states, color) => { f1Evaluated ++= states; states.map(Evaluator.evaluateMaterial(_, color)) },
+      ExpectimaxConfig(candidateLimit = 1, searchDepth = 2)
+    )
+    val f1Move = f1Search.findBestMove(parse("4k3/8/8/8/8/8/8/4K3 w - - 0 1 K"), SearchControl.Unbounded, new Random(1))
+    assert(f1Move.isDefined)
+    assert(
+      f1Evaluated.result().exists(s => s.activeColor == Color.White && s.flags.halfMoveClock == 1),
+      "ExpectimaxSearch must transition Black's CompactRoll.Empty forced-pass class back to White"
+    )
 
     // F2: rank-7 pawn promotes to knight and moves twice more in the same turn (3 micro-moves)
     val f2        = parse("k7/4P3/8/8/8/8/8/4K3 w - - 0 1 PNN")
@@ -188,6 +199,10 @@ class CrossPlatformQualificationSuite extends FunSuite:
       policy
     )
     assert(exactWide.outcome.isExact)
+    val expectedF9 = ChanceNodeOracle.expectationOver56(f9PostTurn, bounds, Evaluator.evaluateMaterial)
+    exactWide.outcome match
+      case SearchOutcome.Exact(value, _) => assertEqualsDouble(value, expectedF9, 1e-9)
+      case other                         => fail(s"F9 expected Exact, got $other")
 
     // F10: ExpectimaxSearch under Budget(0) falls back to top pre-ranked legal turn without throwing
     val f10     = parse("r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 2 3 NBP")

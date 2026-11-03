@@ -44,11 +44,18 @@ public final class JvmApiSmokeCheck {
 
 		// Epic #390 synthetic fixtures (F2 promotion + knight moves, F4 forced pass, F6 inherited en-passant) via JvmApi
 		List<JvmApi.Turn> f2Turns = JvmApi.legalTurns(JvmApi.parseDfen("k7/4P3/8/8/8/8/8/4K3 w - - 0 1 PNN"));
-		require(!f2Turns.isEmpty() && f2Turns.get(0).uci().size() == 3, "F2 must emit 3-step promotion + knight turns");
+		require(
+				f2Turns.stream().anyMatch(turn -> turn.uci().size() == 3 && "e7e8n".equals(turn.uci().get(0))),
+				"F2 must emit a 3-step turn that starts with the e7e8n knight promotion"
+		);
 		List<JvmApi.Turn> f4Turns = JvmApi.legalTurns(JvmApi.parseDfen("4k3/8/8/8/8/p7/P7/R3K3 w - - 0 1 PPP"));
 		require(f4Turns.isEmpty(), "F4 blocked pawn roll must be a forced pass (0 legal turns)");
 		List<JvmApi.Turn> f6Turns = JvmApi.legalTurns(JvmApi.parseDfen("4k3/8/8/3pP3/8/8/8/R3K3 w Q d6 0 1 RP"));
 		require(!f6Turns.isEmpty(), "F6 inherited en-passant fixture must emit legal turns");
+		require(
+				f6Turns.stream().anyMatch(turn -> turn.uci().contains("e5d6")),
+				"F6 must emit at least one turn containing the inherited e5d6 en-passant capture"
+		);
 
 		try {
 			JvmApi.parseDfen("not a dfen");
