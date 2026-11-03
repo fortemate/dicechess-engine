@@ -98,7 +98,7 @@ The recursive bounds use `LossValue` as the safe lower limit and `WinValue = 100
 
 ### 6. Transposition Table
 
-An optional `TranspositionTable` caches exact values and fail-soft upper/lower bounds with their remaining depth. Depth-3 inner MAX chance nodes use a role-salted key so the same board cannot collide with a MIN continuation evaluated from the opposite perspective. Deadline-aborted partial nodes are never stored.
+An optional `TranspositionTable` caches exact values and fail-soft upper/lower bounds with their remaining depth. Depth-3 inner MAX chance nodes use a role-salted key so the same board cannot collide with a MIN continuation evaluated from the opposite perspective. Deadline-aborted partial nodes (`SearchOutcome.Incomplete`) are never stored, and `SearchControl.isCancelled` is consulted before probing so an expired invocation never progresses on a warm hit. See [Invocation-local Evaluation Cache](/dicechess-engine/architecture/search/evaluation-cache/#ownership-boundary-evaluationcache-vs-transpositiontable-397) for the ownership and key-identity boundary between `TranspositionTable` and `EvaluationCache`.
 
 ### 7. Root Rescoring (`RootRescore`)
 
@@ -218,4 +218,5 @@ Star1/Star2, Zobrist/TT, and the first configurable depth increase are implement
 - [Time Management](/dicechess-engine/architecture/search/05-time-management/) — Per-turn time budgets and deadline checking
 - [Bounded Search Outcomes & Cooperative Cancellation](/dicechess-engine/architecture/search/15-search-outcomes-and-cancellation/) — `SearchOutcome`, `SearchControl` and `UtilityBounds`
 - [Weighted Chance-Node Search](/dicechess-engine/architecture/search/16-weighted-chance-node-search/) — the shared `ChanceNode` both depths run on
+- [Invocation-local Evaluation Cache](/dicechess-engine/architecture/search/evaluation-cache/) — exact static-evaluation memoization and its boundary with `TranspositionTable`
 - [Search Roadmap & Evaluation](/dicechess-engine/architecture/search/03-search-roadmap/) — Implemented search capabilities, remaining work and evaluation protocol

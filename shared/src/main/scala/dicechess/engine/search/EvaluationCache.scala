@@ -23,7 +23,7 @@ import scala.collection.mutable
   *
   * Memory grows with the number of unique evaluated state/perspective pairs in the invocation; hashing and comparing
   * full states includes walking the mailbox. Callers control the candidate/work bound. There is no eviction or reuse
-  * across invocations. This is an exact evaluation cache, separate from search transposition-table bounds.
+  * across invocations. This is an exact evaluation cache, separate from [[TranspositionTable]] search bounds (#397).
   *
   * Pass [[apply]] to [[SearchScoring.scorePath]] so replay, `endTurn()` and the original mover's perspective remain
   * owned by that helper. Immediate king capture bypasses the evaluator and this cache entirely:
