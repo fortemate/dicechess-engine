@@ -57,9 +57,9 @@ Adopt one wave per pull request in the downstream repository so that any score, 
      - When `isKingCapture == true`, `afterState` is the state immediately after the capturing micro-move (`endTurn()` is **not** called, `afterState.activeColor == state.activeColor`).
      - When `isKingCapture == false`, `afterState` already has `endTurn()` applied **once** (`afterState.activeColor == state.activeColor.opponent`, `dicePool == Nil`). **Never call `.endTurn()` a second time** on `afterState`.
 2. **`SearchOutcome` and `SearchControl` (`#393`)**:
-   - Thread a per-invocation `SearchControl(budget, deadlineNanos, clockNanos)` through root candidate loops, chance nodes, and nested `BudgetedRules` calls.
-   - Check `control.isCancelled` **before** every `EvaluationCache` or `TranspositionTable` lookup so an already-expired invocation returns `SearchOutcome.Incomplete` deterministically.
-   - Preserve the 4-tier root fallback order in the consumer's root adapter:
+   - Thread a per-invocation `SearchControl(budget, deadlineNanos, clockNanos)` through root candidate loops, chance nodes, and nested `BudgetedRules` reply calls (`ChanceNode.Replies.generate(rolled, control)`).
+   - Check `control.isCancelled` **before** every `EvaluationCache` or `TranspositionTable` lookup so an already-expired or budget-exhausted invocation returns `SearchOutcome.Incomplete` deterministically.
+   - Enumerate root legal turns (`TurnGenerator.forEachLegalTurnState`) independently of the cancellable search budget so the 4-tier `ControlledSearch` root fallback order always holds even when `control` is already cancelled or `Budget(0)` is exhausted at entry:
      1. Immediate root king capture (`SearchScoring.TerminalWinScore`).
      2. Best completed (`SearchOutcome.Exact`) root candidate (with seeded `Random` tie-breaking).
      3. Pre-ranker top choice or first canonical legal turn when zero candidates completed.

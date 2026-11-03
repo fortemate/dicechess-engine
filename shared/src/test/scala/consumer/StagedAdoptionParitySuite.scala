@@ -118,6 +118,14 @@ class StagedAdoptionParitySuite extends FunSuite:
       completed += ScoredSequence(path, cache(afterTurn, mover))
     completed.result()
 
+  private def unbudgetedRootCandidates(state: GameState): Vector[(List[Move], GameState, Boolean)] =
+    val b = Vector.newBuilder[(List[Move], GameState, Boolean)]
+    TurnGenerator.forEachLegalTurnState(state) { (moves, len, afterState, isKingCapture) =>
+      b += ((moves.take(len).toList, afterState, isKingCapture))
+      true
+    }
+    b.result()
+
   private def selectFromFoldedCandidates(
       candidates: Vector[(List[Move], GameState, Boolean)],
       mover: Color,
@@ -143,7 +151,8 @@ class StagedAdoptionParitySuite extends FunSuite:
           Some((chosen, count, cache))
 
   /** Adopted (Wave 1 + Wave 2) consumer root selector using `BudgetedRules.foldTurnStates`, `EvaluationCache`, and
-    * `SearchControl`, preserving path multiplicity and RNG consumption.
+    * `SearchControl`, falling back to unbudgeted root legal-turn enumeration if the traversal budget expires so the
+    * 4-tier `ControlledSearch` root fallback contract always holds.
     */
   private def adoptedRootSelect(
       state: GameState,
@@ -157,10 +166,10 @@ class StagedAdoptionParitySuite extends FunSuite:
       (acc, path, afterState, isKingCapture) =>
         (acc :+ (path, afterState, isKingCapture), true)
     }
-    folded match
-      case BudgetedRules.Outcome.Incomplete(_)    => None
-      case BudgetedRules.Outcome.Complete(res, _) =>
-        selectFromFoldedCandidates(res.value, state.activeColor, cache, control, rng)
+    val candidates = folded match
+      case BudgetedRules.Outcome.Complete(res, _) => res.value
+      case BudgetedRules.Outcome.Incomplete(_)    => unbudgetedRootCandidates(state)
+    selectFromFoldedCandidates(candidates, state.activeColor, cache, control, rng)
 
   test(
     "Wave 1 & Wave 2: adopted visitor + EvaluationCache matches legacy replay on score, path, multiplicity and RNG under unbounded and finite fixed-work budgets"
@@ -183,16 +192,19 @@ class StagedAdoptionParitySuite extends FunSuite:
       assertEquals(adoptedRes.map(t => (t._1, t._2)), legacyRes, s"mismatch on $dfen seed $seed")
       assertEquals(adoptedRng.nextLong(), legacyRng.nextLong(), s"RNG state diverged on $dfen seed $seed")
 
-    // Verify deterministic budget boundary behaviour: 0, 1, exact - 1, and exact micro-move budget on F8
-    val f8        = parse("4k3/8/8/8/8/8/P6P/4K3 w - - 0 1 PP")
-    val exactUsed =
+    // Verify deterministic budget boundary behaviour: 0, 1, exact - 1 fall back to first canonical turn with 0 evals; exact matches legacy
+    val f8            = parse("4k3/8/8/8/8/8/P6P/4K3 w - - 0 1 PP")
+    val canonicalHead = TurnGenerator.generateAllLegalTurnPaths(f8).head
+    val exactUsed     =
       BudgetedRules.visitTurnStates(f8, new BudgetedRules.Budget(Long.MaxValue))((_, _, _, _) => true) match
         case BudgetedRules.Outcome.Complete(_, used) => used
         case other                                   => fail(s"expected Complete, got $other")
     assert(exactUsed > 1L)
     for limit <- List(0L, 1L, exactUsed - 1L) do
       val tightControl = SearchControl.withBudget(new BudgetedRules.Budget(limit))
-      assertEquals(adoptedRootSelect(f8, syntheticEvaluator.evaluate, tightControl, new Random(1)), None)
+      val fallback     = adoptedRootSelect(f8, syntheticEvaluator.evaluate, tightControl, new Random(1)).get
+      assertEquals(fallback._1, ScoredSequence(canonicalHead, 0))
+      assertEquals(fallback._3.evaluatorCalls, 0L)
     val exactControl = SearchControl.withBudget(new BudgetedRules.Budget(exactUsed))
     assertEquals(
       adoptedRootSelect(f8, syntheticEvaluator.evaluate, exactControl, new Random(7)).map(t => (t._1, t._2)),
@@ -231,30 +243,36 @@ class StagedAdoptionParitySuite extends FunSuite:
     assert(sawCapture)
 
   test("Wave 2: root fallback priority under exhausted budget and mid-candidate deadline cancellation (F4, F7, F10)"):
-    val f4         = parse("4k3/8/8/8/8/p7/P7/R3K3 w - - 0 1 PPP")
-    val f7         = parse("8/8/8/2k5/8/1N6/2P5/K7 w - - 0 1 NPP")
-    val f10        = parse("r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 2 3 NBP")
-    val zeroBudget = SearchControl.withBudget(new BudgetedRules.Budget(0L))
-    val expired    = SearchControl.untilDeadline(deadlineNanos = 0L, clockNanos = () => 1L)
+    val f4               = parse("4k3/8/8/8/8/p7/P7/R3K3 w - - 0 1 PPP")
+    val f7               = parse("8/8/8/2k5/8/1N6/2P5/K7 w - - 0 1 NPP")
+    val f10              = parse("r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 2 3 NBP")
+    val canonicalF10Head = TurnGenerator.generateAllLegalTurnPaths(f10).head
 
-    // Exhausted finite budget (Budget(0)) exercises the BudgetedRules.Outcome.Incomplete branch
-    assertEquals(adoptedRootSelect(f10, syntheticEvaluator.evaluate, zeroBudget, new Random(1)), None)
+    for mkCancelled <- List(
+        () => SearchControl.withBudget(new BudgetedRules.Budget(0L)),
+        () => SearchControl.untilDeadline(deadlineNanos = 0L, clockNanos = () => 1L)
+      )
+    do
+      // Priority 4: forced pass returns None
+      assertEquals(adoptedRootSelect(f4, syntheticEvaluator.evaluate, mkCancelled(), new Random(1)), None)
 
-    // Priority 4: forced pass returns None
-    assertEquals(adoptedRootSelect(f4, syntheticEvaluator.evaluate, expired, new Random(1)), None)
+      // Priority 1: immediate king capture wins even when budget or deadline is already exhausted at entry
+      val winRes = adoptedRootSelect(f7, syntheticEvaluator.evaluate, mkCancelled(), new Random(1))
+      assertEquals(winRes.map(_._1.score), Some(SearchScoring.TerminalWinScore))
+      assertEquals(winRes.map(_._3.evaluatorCalls), Some(0L))
 
-    // Priority 1: immediate king capture wins even when deadline is already expired
-    val winRes = adoptedRootSelect(f7, syntheticEvaluator.evaluate, expired, new Random(1))
-    assertEquals(winRes.map(_._1.score), Some(SearchScoring.TerminalWinScore))
-    assertEquals(winRes.map(_._3.evaluatorCalls), Some(0L))
+      // Priority 3: exhausted before first candidate evaluation falls back to first canonical turn without touching cache
+      val fallbackRes = adoptedRootSelect(f10, syntheticEvaluator.evaluate, mkCancelled(), new Random(1)).get
+      assertEquals(fallbackRes._1.moves, canonicalF10Head)
+      assertEquals(fallbackRes._1.score, 0)
+      assertEquals(fallbackRes._3.evaluatorCalls, 0L)
 
-    // Priority 3: expired before first candidate evaluation falls back to first canonical turn without touching cache
-    val fallbackRes = adoptedRootSelect(f10, syntheticEvaluator.evaluate, expired, new Random(1)).get
-    assertEquals(fallbackRes._1.moves, TurnGenerator.generateAllLegalTurnPaths(f10).head)
-    assertEquals(fallbackRes._1.score, 0)
-    assertEquals(fallbackRes._3.evaluatorCalls, 0L)
-
-    // Priority 2: clock expires after 3 candidates; only completed candidates are ranked and warm hits are not read after cancellation
+    // Priority 2: clock expires after 3 candidates; only completed candidates are ranked
+    val firstThree = TurnGenerator.generateAllLegalTurnPaths(f10).take(3)
+    val expected   = firstThree.map { p =>
+      (p, syntheticEvaluator.evaluate(p.foldLeft(f10)(_.makeMove(_)).endTurn(), f10.activeColor))
+    }
+    val bestScore   = expected.map(_._2).max
     var clockReads  = 0
     val stepControl = SearchControl.untilDeadline(
       deadlineNanos = 4L,
@@ -265,11 +283,6 @@ class StagedAdoptionParitySuite extends FunSuite:
     )
     val partialRes = adoptedRootSelect(f10, syntheticEvaluator.evaluate, stepControl, new Random(1)).get
     assertEquals(partialRes._3.evaluatorCalls, 3L)
-    val firstThree = TurnGenerator.generateAllLegalTurnPaths(f10).take(3)
-    val expected   = firstThree.map { p =>
-      (p, syntheticEvaluator.evaluate(p.foldLeft(f10)(_.makeMove(_)).endTurn(), f10.activeColor))
-    }
-    val bestScore = expected.map(_._2).max
     assertEquals(partialRes._1.score, bestScore)
     assert(
       expected.contains((partialRes._1.moves, bestScore)),
@@ -364,7 +377,7 @@ class StagedAdoptionParitySuite extends FunSuite:
     val sequential = tasks.map { case (dfen, seed) =>
       val state   = parse(dfen)
       val rng     = new Random(seed)
-      val control = SearchControl.withBudget(new BudgetedRules.Budget(16_384L))
+      val control = SearchControl.withBudget(new BudgetedRules.Budget(1_000_000L))
       val res     = adoptedRootSelect(state, syntheticEvaluator.evaluate, control, rng).map(t => (t._1, t._2))
       (dfen, seed, res, rng.nextLong())
     }
@@ -374,7 +387,7 @@ class StagedAdoptionParitySuite extends FunSuite:
         Future {
           val state   = parse(dfen)
           val rng     = new Random(seed)
-          val control = SearchControl.withBudget(new BudgetedRules.Budget(16_384L))
+          val control = SearchControl.withBudget(new BudgetedRules.Budget(1_000_000L))
           val res     = adoptedRootSelect(state, syntheticEvaluator.evaluate, control, rng).map(t => (t._1, t._2))
           (dfen, seed, res, rng.nextLong())
         }
