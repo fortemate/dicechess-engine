@@ -41,8 +41,19 @@ package dicechess.engine
   * ## Scoring
   *
   * [[SearchScoring.scorePath]] assigns [[SearchScoring.TerminalWinScore]] (`Int.MaxValue`) to any path that captures
-  * the opponent's King, and falls back to [[Evaluator.evaluateMaterial]] for non-terminal paths. ## Staged Consumer
-  * Composition Example (#398)
+  * the opponent's King, and falls back to [[Evaluator.evaluateMaterial]] for non-terminal paths.
+  *
+  * ## Ownership & Cancellation Boundaries (#398, #399)
+  *
+  *   - [[BudgetedRules.Budget]], [[SearchControl]], [[EvaluationCache]], and visitor `Array[Move]` buffers are
+  *     **single-invocation, single-thread** objects.
+  *   - [[ActiveDicePartitioner]] tables ([[CompactRoll]], [[DiceRolls]]) are immutable and shared across invocations.
+  *   - [[SearchControl.isCancelled]] is cooperative and checked at yield points (including before [[EvaluationCache]]
+  *     and [[TranspositionTable]] lookups), never preempting inside a single move-generation or evaluator call.
+  *   - [[UtilityBounds]] enforces strict terminal-over-heuristic dominance across [[ChanceNode]], [[ExpectimaxSearch]],
+  *     [[MonteCarloSearch]], and [[MonteCarloEquity]].
+  *
+  * ## Staged Consumer Composition Example (#398)
   *
   * ```scala
   * import dicechess.engine.domain.*
