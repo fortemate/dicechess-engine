@@ -27,6 +27,10 @@ class BudgetedRulesBenchmark:
     BudgetedRules.turnPaths(state, new BudgetedRules.Budget(workLimit))
 
   @Benchmark
+  def visitTurnStates(): BudgetedRules.Outcome[BudgetedRules.TurnVisitSummary] =
+    BudgetedRules.visitTurnStates(state, new BudgetedRules.Budget(workLimit))((_, _, _, _) => true)
+
+  @Benchmark
   def captureRolls(): BudgetedRules.Outcome[Int] =
     BudgetedRules.kingCaptureRolls(state, Color.Black, new BudgetedRules.Budget(workLimit))
 

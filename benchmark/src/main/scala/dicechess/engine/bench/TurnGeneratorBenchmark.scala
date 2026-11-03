@@ -45,3 +45,29 @@ class TurnGeneratorBenchmark:
       count += len
     }
     count
+
+  /** Baseline manual replay: `generateAllLegalTurnPaths` + `foldLeft` + `endTurn()` on non-capturing turns. */
+  @Benchmark
+  def replayAllLegalTurnPaths(blackhole: Blackhole): Int =
+    var count = 0
+    val paths = TurnGenerator.generateAllLegalTurnPaths(state)
+    var rem   = paths
+    while rem.nonEmpty do
+      val path       = rem.head
+      val beforeLast = path.init.foldLeft(state)(_.makeMove(_))
+      val isWin      = beforeLast.isKingCapture(path.last)
+      val afterState = if isWin then beforeLast.makeMove(path.last) else beforeLast.makeMove(path.last).endTurn()
+      blackhole.consume(afterState)
+      count += 1
+      rem = rem.tail
+    count
+
+  /** Shared-prefix canonical state visitor (#392): reuses 2-slot intra-turn prefix cache without allocating
+    * `List[Move]`.
+    */
+  @Benchmark
+  def forEachLegalTurnState(blackhole: Blackhole): Int =
+    TurnGenerator.forEachLegalTurnState(state) { (_, _, afterState, _) =>
+      blackhole.consume(afterState)
+      true
+    }
