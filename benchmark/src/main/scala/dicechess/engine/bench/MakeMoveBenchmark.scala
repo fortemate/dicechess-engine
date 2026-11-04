@@ -81,6 +81,8 @@ class EndTurnInput:
 /** Result construction has one endTurn per normal path and no endTurn for a terminal path. */
 @State(Scope.Thread)
 class TurnFinalizationInput:
+  @Param(Array("normal", "king-capture"))
+  var fixture: String = uninitialized
   @Param(Array("white", "black"))
   var color: String = uninitialized
   @Param(Array("none", "stale", "mixed"))
@@ -88,10 +90,14 @@ class TurnFinalizationInput:
   var state: GameState = uninitialized
   @Setup(Level.Trial)
   def setup(): Unit =
-    state = EndTurnFixtures.state(color, targets, List(1, 1, 6))
+    require(fixture == "normal" || fixture == "king-capture", s"Unsupported fixture: $fixture")
+    state = EndTurnFixtures.state(color, targets, List(1, 1, 6), kingCapture = fixture == "king-capture")
     val expected = TurnGenerator.generateAllLegalTurnPaths(state)
     var index    = 0
+    var normal   = 0
+    var terminal = 0
     TurnGenerator.forEachLegalTurnState(state) { (moves, length, result, capture) =>
+      if capture then terminal += 1 else normal += 1
       val path = moves.take(length).toList
       require(path == expected(index))
       val raw       = path.foldLeft(state)((position, move) => position.makeMove(move))
@@ -101,12 +107,16 @@ class TurnFinalizationInput:
       true
     }
     require(index == expected.length && index > 0)
+    require(normal > 0, "every fixture must exercise normal turn finalization")
+    require(if fixture == "king-capture" then terminal > 0 else terminal == 0)
 
 private object EndTurnFixtures:
-  def state(color: String, targets: String, dice: List[Int]): GameState =
+  def state(color: String, targets: String, dice: List[Int], kingCapture: Boolean = false): GameState =
     require(color == "white" || color == "black", s"Unsupported color: $color")
     require(Set("none", "stale", "mixed").contains(targets), s"Unsupported targets: $targets")
-    val base      = BenchmarkPositions.parse("r3k2r/8/8/3pP3/3Pp3/8/8/R3K2R w KQkq - 37 12")
+    val fen = if kingCapture then "r6r/8/8/3pP3/3Pp3/8/4k3/R3K2R w KQkq - 37 12"
+    else "r3k2r/8/8/3pP3/3Pp3/8/8/R3K2R w KQkq - 37 12"
+    val base      = BenchmarkPositions.parse(fen)
     val mover     = if color == "white" then Color.White else Color.Black
     val stale     = Square('d', if mover.isWhite then 6 else 3)
     val surviving = Square('d', if mover.isWhite then 3 else 6)
