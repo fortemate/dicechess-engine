@@ -438,7 +438,19 @@ case class GameState(
     *
     * Toggles the active color to the opponent, increments the full-move number if the current player is Black, and
     * clears any stale en-passant targets left by the player whose turn is starting. Must be called manually by the
-    * orchestrator after applying a sequence of micro-moves.
+    * orchestrator after applying a sequence of micro-moves. Cleanup and finalization construct one immutable state;
+    * [[clearEnPassant]] remains independently callable. Packed EP file flags keep their existing value, while the full
+    * target bitboard is cleaned and its removed-square keys are XORed from the derived hash.
+    *
+    * ```scala
+    * import dicechess.engine.domain.*
+    *
+    * val state = FenParser.parse("4k3/8/8/3pP3/8/8/8/4K3 w - d6 7 12").toOption.get.withDicePool(List(1, 2))
+    * val next  = state.endTurn()
+    * assert(next.activeColor == Color.Black && next.dicePool.isEmpty && next.fullMoveNumber == 12)
+    * assert(next.enPassant.isEmpty)
+    * assert(next.zobristHash == next.copy(zobristKey = 0L).zobristHash)
+    * ```
     *
     * @return
     *   a new [[dicechess.engine.domain.GameState]] with the active color flipped, EP targets cleaned, and full-move
@@ -448,12 +460,19 @@ case class GameState(
     val nextColor    = flags.activeColor.opponent
     val nextFullMove = if flags.activeColor.isBlack then fullMoveNumber + 1 else fullMoveNumber
 
-    val cleanedState = clearEnPassant(nextColor)
-    var key          = cleanedState.zobristHash ^ Zobrist.ActiveColorKey
-    key ^= Zobrist.dicePoolKey(cleanedState.flags) ^ Zobrist.dicePoolKey(0, 0, 0)
+    // Only the incoming side's old targets expire: White created rank 3, Black rank 6. Other targets survive.
+    val staleRankMask = 0xffL << (if nextColor.isWhite then 16 else 40)
+    val remainingEp   = Bitboard(enPassant.value & ~staleRankMask)
+    var stale         = enPassant.value & staleRankMask
+    var key           = zobristHash ^ Zobrist.ActiveColorKey
+    key ^= Zobrist.dicePoolKey(flags) ^ Zobrist.dicePoolKey(0, 0, 0)
+    while stale != 0L do
+      key ^= Zobrist.EnPassantTable(java.lang.Long.numberOfTrailingZeros(stale))
+      stale &= stale - 1
 
-    cleanedState.copy(
-      flags = cleanedState.flags.withActiveColor(nextColor).withDicePool(Nil),
+    copy(
+      flags = flags.withActiveColor(nextColor).withDicePool(Nil),
+      enPassant = remainingEp,
       fullMoveNumber = nextFullMove,
       zobristKey = key
     )
