@@ -94,7 +94,9 @@ object TurnGenerator:
     *     Nil`, `fullMoveNumber` incremented if Black moved).
     *   - `isKingCapture`: `true` if this path ends with capturing the opponent King
     *
-    * The callback returns `true` to continue traversal, or `false` to stop early.
+    * The callback returns `true` to continue traversal, or `false` to stop early. Discovery buffers packed paths before
+    * replay; the replay cache retains at most two intermediate boards. Use [[SharedTraversal]] explicitly when several
+    * dice classes share one board or terminal discovery should stop early.
     *
     * @note
     *   The `moves` array passed to the callback is mutable and reused across invocations. Callers must copy elements if
@@ -110,9 +112,15 @@ object TurnGenerator:
   def forEachLegalTurnState(state: GameState)(
       f: (Array[Move], Int, GameState, Boolean) => Boolean
   ): Int =
-    new SharedTraversal(state).visitFlags(state.flags)(f) match
-      case BudgetedRules.Outcome.Complete(summary, _) => summary.emittedPaths
-      case BudgetedRules.Outcome.Incomplete(_)        => 0 // no cancellation source on this unbounded invocation
+    val initialEligible = computeEligibleEpPawns(state)
+    val moves           = MoveGenerator.generateMoves(state, initialEligible)
+    if moves.isEmpty then 0
+    else
+      val ctx         = new TurnGenContext()
+      val currentPath = new Array[Move](3)
+      generatePathsSinglePass(state, currentPath, 0, 0, ctx, initialEligible, moves)
+      val (emitted, _) = replayTurnStates(state, ctx)(f)
+      emitted
 
   /** Work actually performed by one [[SharedTraversal]], cumulative across its classes. `generated` counts per-piece
     * geometry calls on cache misses, `examined` counts class-specific candidate edges (including rejected castling),
@@ -244,7 +252,7 @@ object TurnGenerator:
         while slot < 3 && !stopped && live do
           val face = if slot == 0 then flags.diceSlot1 else if slot == 1 then flags.diceSlot2 else flags.diceSlot3
           val bit  = 1 << face
-          if face != 0 && (seen & bit) == 0 then
+          if face >= 1 && face <= 6 && (seen & bit) == 0 then
             seen |= bit
             if discoverFace(prefix, flags, depth, consumed, face) then found = true
           slot += 1

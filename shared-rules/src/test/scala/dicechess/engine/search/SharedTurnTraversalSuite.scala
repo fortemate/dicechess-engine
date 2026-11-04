@@ -352,6 +352,30 @@ class SharedTurnTraversalSuite extends FunSuite:
 
   private def parse(fen: String): GameState = FenParser.parse(fen).toOption.get
 
+  test("unsupported packed die faces preserve the legacy paths of the remaining valid dice"):
+    for
+      fen  <- List("4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1", "8/8/8/8/8/4k3/4R3/4K3 w - - 0 1")
+      dice <- List(List(7), List(7, 7, 1), List(7, 6), List(6, 7), List(7, 4, 6), List(4, 7, 6), List(4, 6, 7))
+    do
+      val initial    = parse(fen)
+      val rolled     = initial.withDicePool(dice)
+      val expected   = exhaustive(rolled).map(result(rolled, _))
+      val standalone = List.newBuilder[Entry]
+      val count      = TurnGenerator.forEachLegalTurnState(rolled) { (moves, length, state, capture) =>
+        standalone += entry(moves.take(length).toList, state, capture)
+        true
+      }
+      assertEquals(count, expected.size)
+      assertEquals(standalone.result(), expected)
+      val shared  = List.newBuilder[Entry]
+      val outcome = new TurnGenerator.SharedTraversal(initial).visitFlags(rolled.flags) {
+        (moves, length, state, capture) =>
+          shared += entry(moves.take(length).toList, state, capture)
+          true
+      }
+      assertComplete(outcome, expected.size, stopped = false)
+      assertEquals(shared.result(), expected)
+
   private def pool(dice: Int*): CompactRoll = CompactRoll.fromSortedList(dice.toList)
 
   private def entry(path: List[Move], state: GameState, capture: Boolean): Entry =

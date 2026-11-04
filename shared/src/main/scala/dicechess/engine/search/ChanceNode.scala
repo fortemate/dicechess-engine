@@ -252,13 +252,15 @@ object ChanceNode:
     private val traversal = new TurnGenerator.SharedTraversal(afterTurn, control.budget, () => control.isCancelled)
 
     def generate(rolled: GameState): Option[Replies] =
-      val collector = new ReplyCollector
-      traversal.visitFlags(rolled.flags)(collector.visit) match
-        case BudgetedRules.Outcome.Incomplete(_)  => None
-        case BudgetedRules.Outcome.Complete(_, _) =>
-          if collector.captured then Some(Replies.KingCapture)
-          else if collector.isEmpty then Some(Replies.ForcedPass)
-          else Some(new Replies(collector.result(), capturesKing = false))
+      if rolled.flags.isDicePoolEmpty && !control.isCancelled then Some(Replies.ForcedPass)
+      else
+        val collector = new ReplyCollector
+        traversal.visitFlags(rolled.flags)(collector.visit) match
+          case BudgetedRules.Outcome.Incomplete(_)  => None
+          case BudgetedRules.Outcome.Complete(_, _) =>
+            if collector.captured then Some(Replies.KingCapture)
+            else if collector.isEmpty then Some(Replies.ForcedPass)
+            else Some(new Replies(collector.result(), capturesKing = false))
 
   /** Expands the chance node at `afterTurn` in partition order. See the object documentation for the contract. */
   def expand(
