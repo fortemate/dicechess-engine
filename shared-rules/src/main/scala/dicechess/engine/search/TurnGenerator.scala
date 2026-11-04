@@ -262,10 +262,11 @@ object TurnGenerator:
       private inline def discoverFace(prefix: Prefix, flags: GameFlags, depth: Int, consumed: Int, face: Int): Boolean =
         var found = false
         var moves = geometry(prefix, face)
-        while moves.nonEmpty && !stopped && live do
-          val move = moves.head
-          if admit() && discoverMove(prefix, flags, depth, consumed, move) then found = true
-          moves = moves.tail
+        while moves.nonEmpty && !stopped do
+          if admit() then
+            if discoverMove(prefix, flags, depth, consumed, moves.head) then found = true
+            moves = moves.tail
+          else moves = Nil
         found
 
       private inline def discoverMove(
