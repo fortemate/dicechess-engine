@@ -342,7 +342,8 @@ private object Position:
     }
   }
 
-  private[engine] inline def computeMoveZobristKey(
+  // Keep this body separate: inlining it makes makeMove exceed Scala 3.10's coverage tree-size limit.
+  private[engine] def computeMoveZobristKey(
       state: GameState,
       mv: Move,
       mover: Piece,

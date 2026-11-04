@@ -7,6 +7,7 @@ import dicechess.engine.search.{
   ActiveDicePartitioner,
   AttackerTypes,
   BudgetedRules,
+  CompactRoll,
   DiceRolls,
   KingCaptureProbability,
   TurnGenerator
@@ -21,6 +22,27 @@ class RulesOnlyConsumerSpec extends FunSuite:
 
   private def absent(className: String): Unit =
     intercept[ClassNotFoundException](Class.forName(className))
+
+  test("shared traversal compiles and runs as an external rules-only consumer (#442)"):
+    val initial   = FenParser.parse("4k3/8/8/8/8/8/8/4K3 w - - 0 1").toOption.get
+    val budget    = new BudgetedRules.Budget(1_000L)
+    val traversal = new TurnGenerator.SharedTraversal(initial, Some(budget))
+    val roll      = CompactRoll.fromSortedList(List(6))
+    var count     = 0
+    traversal.visit(roll) { (moves, length, afterTurn, capturesKing) =>
+      assertEquals(length, 1)
+      assertEquals(afterTurn, initial.makeMove(moves(0)).endTurn())
+      assert(!capturesKing)
+      count += 1
+      true
+    } match
+      case BudgetedRules.Outcome.Complete(summary, used) =>
+        assertEquals(summary.emittedPaths, count)
+        assert(!summary.stoppedEarly)
+        assertEquals(used, budget.used)
+      case other => fail(s"rules-only traversal did not finish: $other")
+    assert(count > 0)
+    assert(traversal.work.generated > 0L)
 
   test("parses, enumerates legal turns, applies a turn and serialises DFEN"):
     val state = FenParser.parse(FenParser.InitialPosition).toOption.get.withDicePool(List(1, 2, 1))

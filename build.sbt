@@ -2,6 +2,8 @@ import sbt.{given, *}
 import org.scalajs.linker.interface.{ESVersion, ModuleSplitStyle}
 import scala.jdk.CollectionConverters.*
 
+val ScalaV = "3.10.0"
+
 // =============================================================================
 // Project Metadata & Publishing Settings
 // =============================================================================
@@ -10,8 +12,8 @@ ThisBuild / organizationName     := "Fortemate"
 ThisBuild / organizationHomepage := Some(uri("https://fortemate.com"))
 ThisBuild / homepage             := Some(uri("https://fortemate.com"))
 ThisBuild / startYear            := Some(2026)
-ThisBuild / version              := "0.17.1-SNAPSHOT"
-ThisBuild / scalaVersion         := "3.10.0"
+ThisBuild / version              := "0.17.2-SNAPSHOT"
+ThisBuild / scalaVersion         := ScalaV
 
 ThisBuild / description   := "Cross-platform high-performance Dice Chess engine, move generator, and AI search."
 ThisBuild / licenses      := List(License("AGPL-3.0-only", uri("https://www.gnu.org/licenses/agpl-3.0.txt")))
@@ -41,12 +43,11 @@ ThisBuild / developers := List(
 // GPG key is imported by the CI step and unlocked via PGP_PASSPHRASE (sbt-pgp reads this).
 // Local publishing (publishM2, publishLocal) bypasses signing and needs no env vars.
 
-val ScalaV       = "3.8.4"
 val OnnxRuntimeV = "1.31.1"
 // Previous release of com.fortemate:dicechess-rules_3 that the current rules row must stay binary
 // compatible with (#246). release.yaml moves it to the version it has just released; keep the
 // literal on this one line so that sed finds it.
-val RulesMimaBaseline = "0.17.0"
+val RulesMimaBaseline = "0.17.1"
 
 // Fails the build when a coverage run produced no instrumentation metadata (#531).
 lazy val assertRulesBinaryCompatible =
@@ -230,7 +231,261 @@ lazy val rules = (projectMatrix in file("shared-rules"))
       // a libraryDependency: sbt drops a dependency on the project's own module id, and an ad-hoc retrieve
       // keeps the baseline off the compile classpath and out of the published POM. An intentional break is
       // accepted with a ProblemFilters.exclude entry in rulesMimaFilters, each with the issue that justifies it.
-      rulesMimaFilters            := Seq.empty,
+      // Scala 3.10 refines boxed-primitive generic signatures (scala/scala3#25944) and adds
+      // type parameters to synthetic copy defaults. JVM descriptors are unchanged. Accept only
+      // the reviewed members and exact old/new signatures against this baseline; retire on the next release.
+      rulesMimaFilters := {
+        import com.typesafe.tools.mima.core.{IncompatibleSignatureProblem, Problem, ProblemFilters}
+        def signatureChange(member: String, previous: String, current: String): Problem => Boolean = {
+          val keep = ProblemFilters.exclude[IncompatibleSignatureProblem](member)
+          problem =>
+            problem match {
+              case IncompatibleSignatureProblem(oldMethod, newMethod)
+                  if oldMethod.signature.toString == previous && newMethod.signature.toString == current =>
+                keep(problem)
+              case _ => true
+            }
+        }
+        if (RulesMimaBaseline == "0.17.1")
+          Seq(
+            signatureChange(
+              "dicechess.engine.domain.GameFlags#package#GameFlags.given_CanEqual_GameFlags_GameFlags()scala.CanEqual",
+              "()Lscala/CanEqual<Ljava/lang/Object;Ljava/lang/Object;>;",
+              "()Lscala/CanEqual<Ljava/lang/Integer;Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.GameFlags#package#GameFlags.fromList(Int,Int,Int,scala.collection.immutable.List,Int)Int",
+              "(IIILscala/collection/immutable/List<Ljava/lang/Object;>;I)I",
+              "(IIILscala/collection/immutable/List<Ljava/lang/Integer;>;I)I"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.GameFlags#package#GameFlags.dicePool(Int)scala.collection.immutable.List",
+              "(I)Lscala/collection/immutable/List<Ljava/lang/Object;>;",
+              "(I)Lscala/collection/immutable/List<Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.GameFlags#package#GameFlags.addDie(Int,Int)scala.util.Either",
+              "(II)Lscala/util/Either<Ljava/lang/String;Ljava/lang/Object;>;",
+              "(II)Lscala/util/Either<Ljava/lang/String;Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.GameFlags#package#GameFlags.withDicePool(Int,scala.collection.immutable.List)Int",
+              "(ILscala/collection/immutable/List<Ljava/lang/Object;>;)I",
+              "(ILscala/collection/immutable/List<Ljava/lang/Integer;>;)I"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.GameState.withDicePool(scala.collection.immutable.List)dicechess.engine.domain.GameState",
+              "(Lscala/collection/immutable/List<Ljava/lang/Object;>;)Ldicechess/engine/domain/GameState;",
+              "(Lscala/collection/immutable/List<Ljava/lang/Integer;>;)Ldicechess/engine/domain/GameState;"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.Models#package#Bitboard.given_CanEqual_Bitboard_Bitboard()scala.CanEqual",
+              "()Lscala/CanEqual<Ljava/lang/Object;Ljava/lang/Object;>;",
+              "()Lscala/CanEqual<Ljava/lang/Long;Ljava/lang/Long;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.Models#package#Color.given_CanEqual_Color_Color()scala.CanEqual",
+              "()Lscala/CanEqual<Ljava/lang/Object;Ljava/lang/Object;>;",
+              "()Lscala/CanEqual<Ljava/lang/Integer;Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.Models#package#MicroMove.given_CanEqual_MicroMove_MicroMove()scala.CanEqual",
+              "()Lscala/CanEqual<Ljava/lang/Object;Ljava/lang/Object;>;",
+              "()Lscala/CanEqual<Ljava/lang/Integer;Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.Models#package#MicroMove.apply(Int,Int,scala.Option)Int",
+              "(IILscala/Option<Ljava/lang/Object;>;)I",
+              "(IILscala/Option<Ljava/lang/Integer;>;)I"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.Models#package#MicroMove.apply$default$3()scala.Option",
+              "()Lscala/Option<Ljava/lang/Object;>;",
+              "()Lscala/Option<Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.Models#package#MicroMove.promotion(Int)scala.Option",
+              "(I)Lscala/Option<Ljava/lang/Object;>;",
+              "(I)Lscala/Option<Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.Models#package#Piece.given_CanEqual_Piece_Piece()scala.CanEqual",
+              "()Lscala/CanEqual<Ljava/lang/Object;Ljava/lang/Object;>;",
+              "()Lscala/CanEqual<Ljava/lang/Integer;Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.Models#package#PieceType.given_CanEqual_PieceType_PieceType()scala.CanEqual",
+              "()Lscala/CanEqual<Ljava/lang/Object;Ljava/lang/Object;>;",
+              "()Lscala/CanEqual<Ljava/lang/Integer;Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.Models#package#PieceType.all()scala.collection.immutable.List",
+              "()Lscala/collection/immutable/List<Ljava/lang/Object;>;",
+              "()Lscala/collection/immutable/List<Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.Models#package#PieceType.fromDice(Int)scala.Option",
+              "(I)Lscala/Option<Ljava/lang/Object;>;",
+              "(I)Lscala/Option<Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.Models#package#Square.given_CanEqual_Square_Square()scala.CanEqual",
+              "()Lscala/CanEqual<Ljava/lang/Object;Ljava/lang/Object;>;",
+              "()Lscala/CanEqual<Ljava/lang/Integer;Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.Models#package#Square.fromNotation(java.lang.String)scala.Option",
+              "(Ljava/lang/String;)Lscala/Option<Ljava/lang/Object;>;",
+              "(Ljava/lang/String;)Lscala/Option<Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.Move#package#Move.promotionPieceType(Int)scala.Option",
+              "(I)Lscala/Option<Ljava/lang/Object;>;",
+              "(I)Lscala/Option<Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.Turn.this(Int,scala.collection.immutable.List)Unit",
+              "(ILscala/collection/immutable/List<Ljava/lang/Object;>;)V",
+              "(ILscala/collection/immutable/List<Ljava/lang/Integer;>;)V"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.Turn.microMoves()scala.collection.immutable.List",
+              "()Lscala/collection/immutable/List<Ljava/lang/Object;>;",
+              "()Lscala/collection/immutable/List<Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.Turn.copy(Int,scala.collection.immutable.List)dicechess.engine.domain.Turn",
+              "(ILscala/collection/immutable/List<Ljava/lang/Object;>;)Ldicechess/engine/domain/Turn;",
+              "(ILscala/collection/immutable/List<Ljava/lang/Integer;>;)Ldicechess/engine/domain/Turn;"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.Turn.copy$default$2()scala.collection.immutable.List",
+              "()Lscala/collection/immutable/List<Ljava/lang/Object;>;",
+              "()Lscala/collection/immutable/List<Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.Turn._2()scala.collection.immutable.List",
+              "()Lscala/collection/immutable/List<Ljava/lang/Object;>;",
+              "()Lscala/collection/immutable/List<Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.domain.Turn.apply(Int,scala.collection.immutable.List)dicechess.engine.domain.Turn",
+              "(ILscala/collection/immutable/List<Ljava/lang/Object;>;)Ldicechess/engine/domain/Turn;",
+              "(ILscala/collection/immutable/List<Ljava/lang/Integer;>;)Ldicechess/engine/domain/Turn;"
+            ),
+            signatureChange(
+              "dicechess.engine.movegen.LegalMovesFilter.filterMaximalMoves(dicechess.engine.domain.GameState)scala.collection.immutable.List",
+              "(Ldicechess/engine/domain/GameState;)Lscala/collection/immutable/List<Ljava/lang/Object;>;",
+              "(Ldicechess/engine/domain/GameState;)Lscala/collection/immutable/List<Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.movegen.MoveGenerator.generateMoves(dicechess.engine.domain.GameState,Long)scala.collection.immutable.List",
+              "(Ldicechess/engine/domain/GameState;J)Lscala/collection/immutable/List<Ljava/lang/Object;>;",
+              "(Ldicechess/engine/domain/GameState;J)Lscala/collection/immutable/List<Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.movegen.MoveGenerator.generateMoves(dicechess.engine.domain.GameState)scala.collection.immutable.List",
+              "(Ldicechess/engine/domain/GameState;)Lscala/collection/immutable/List<Ljava/lang/Object;>;",
+              "(Ldicechess/engine/domain/GameState;)Lscala/collection/immutable/List<Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.movegen.MoveGenerator.generateAllMoves(dicechess.engine.domain.GameState)scala.collection.immutable.List",
+              "(Ldicechess/engine/domain/GameState;)Lscala/collection/immutable/List<Ljava/lang/Object;>;",
+              "(Ldicechess/engine/domain/GameState;)Lscala/collection/immutable/List<Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.movegen.Perft.divide(dicechess.engine.domain.GameState,Int)scala.collection.immutable.Map",
+              "(Ldicechess/engine/domain/GameState;I)Lscala/collection/immutable/Map<Ljava/lang/String;Ljava/lang/Object;>;",
+              "(Ldicechess/engine/domain/GameState;I)Lscala/collection/immutable/Map<Ljava/lang/String;Ljava/lang/Long;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.search.BudgetedRules.visitTurnStates(dicechess.engine.domain.GameState,dicechess.engine.search.BudgetedRules#Budget,scala.Function4)dicechess.engine.search.BudgetedRules#Outcome",
+              "(Ldicechess/engine/domain/GameState;Ldicechess/engine/search/BudgetedRules$Budget;Lscala/Function4<[ILjava/lang/Object;Ldicechess/engine/domain/GameState;Ljava/lang/Object;Ljava/lang/Object;>;)Ldicechess/engine/search/BudgetedRules$Outcome<Ldicechess/engine/search/BudgetedRules$TurnVisitSummary;>;",
+              "(Ldicechess/engine/domain/GameState;Ldicechess/engine/search/BudgetedRules$Budget;Lscala/Function4<[ILjava/lang/Integer;Ldicechess/engine/domain/GameState;Ljava/lang/Boolean;Ljava/lang/Boolean;>;)Ldicechess/engine/search/BudgetedRules$Outcome<Ldicechess/engine/search/BudgetedRules$TurnVisitSummary;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.search.BudgetedRules.foldTurnStates(dicechess.engine.domain.GameState,java.lang.Object,dicechess.engine.search.BudgetedRules#Budget,scala.Function4)dicechess.engine.search.BudgetedRules#Outcome",
+              "<A:Ljava/lang/Object;>(Ldicechess/engine/domain/GameState;TA;Ldicechess/engine/search/BudgetedRules$Budget;Lscala/Function4<TA;Lscala/collection/immutable/List<Ljava/lang/Object;>;Ldicechess/engine/domain/GameState;Ljava/lang/Object;Lscala/Tuple2<TA;Ljava/lang/Object;>;>;)Ldicechess/engine/search/BudgetedRules$Outcome<Ldicechess/engine/search/BudgetedRules$TurnFoldResult<TA;>;>;",
+              "<A:Ljava/lang/Object;>(Ldicechess/engine/domain/GameState;TA;Ldicechess/engine/search/BudgetedRules$Budget;Lscala/Function4<TA;Lscala/collection/immutable/List<Ljava/lang/Integer;>;Ldicechess/engine/domain/GameState;Ljava/lang/Boolean;Lscala/Tuple2<TA;Ljava/lang/Boolean;>;>;)Ldicechess/engine/search/BudgetedRules$Outcome<Ldicechess/engine/search/BudgetedRules$TurnFoldResult<TA;>;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.search.BudgetedRules.turnPaths(dicechess.engine.domain.GameState,dicechess.engine.search.BudgetedRules#Budget)dicechess.engine.search.BudgetedRules#Outcome",
+              "(Ldicechess/engine/domain/GameState;Ldicechess/engine/search/BudgetedRules$Budget;)Ldicechess/engine/search/BudgetedRules$Outcome<Lscala/collection/immutable/List<Lscala/collection/immutable/List<Ljava/lang/Object;>;>;>;",
+              "(Ldicechess/engine/domain/GameState;Ldicechess/engine/search/BudgetedRules$Budget;)Ldicechess/engine/search/BudgetedRules$Outcome<Lscala/collection/immutable/List<Lscala/collection/immutable/List<Ljava/lang/Integer;>;>;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.search.BudgetedRules.kingCapturePath(dicechess.engine.domain.GameState,dicechess.engine.search.BudgetedRules#Budget)dicechess.engine.search.BudgetedRules#Outcome",
+              "(Ldicechess/engine/domain/GameState;Ldicechess/engine/search/BudgetedRules$Budget;)Ldicechess/engine/search/BudgetedRules$Outcome<Lscala/Option<Lscala/collection/immutable/List<Ljava/lang/Object;>;>;>;",
+              "(Ldicechess/engine/domain/GameState;Ldicechess/engine/search/BudgetedRules$Budget;)Ldicechess/engine/search/BudgetedRules$Outcome<Lscala/Option<Lscala/collection/immutable/List<Ljava/lang/Integer;>;>;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.search.BudgetedRules.kingCaptureRolls(dicechess.engine.domain.GameState,Int,dicechess.engine.search.BudgetedRules#Budget)dicechess.engine.search.BudgetedRules#Outcome",
+              "(Ldicechess/engine/domain/GameState;ILdicechess/engine/search/BudgetedRules$Budget;)Ldicechess/engine/search/BudgetedRules$Outcome<Ljava/lang/Object;>;",
+              "(Ldicechess/engine/domain/GameState;ILdicechess/engine/search/BudgetedRules$Budget;)Ldicechess/engine/search/BudgetedRules$Outcome<Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.search.BudgetedRules#Outcome#Complete.copy$default$2()Long",
+              "<missing>",
+              "<A:Ljava/lang/Object;>()J"
+            ),
+            signatureChange(
+              "dicechess.engine.search.BudgetedRules#Outcome#Incomplete.copy$default$1()Long",
+              "<missing>",
+              "<A:Ljava/lang/Object;>()J"
+            ),
+            signatureChange(
+              "dicechess.engine.search.BudgetedRules#TurnFoldResult.copy$default$2()Boolean",
+              "<missing>",
+              "<A:Ljava/lang/Object;>()Z"
+            ),
+            signatureChange(
+              "dicechess.engine.search.CompactRoll#package#CompactRoll.given_CanEqual_CompactRoll_CompactRoll()scala.CanEqual",
+              "()Lscala/CanEqual<Ljava/lang/Object;Ljava/lang/Object;>;",
+              "()Lscala/CanEqual<Ljava/lang/Integer;Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.search.CompactRoll#package#CompactRoll.fromSortedList(scala.collection.immutable.List)Int",
+              "(Lscala/collection/immutable/List<Ljava/lang/Object;>;)I",
+              "(Lscala/collection/immutable/List<Ljava/lang/Integer;>;)I"
+            ),
+            signatureChange(
+              "dicechess.engine.search.CompactRoll#package#CompactRoll.toList(Int)scala.collection.immutable.List",
+              "(I)Lscala/collection/immutable/List<Ljava/lang/Object;>;",
+              "(I)Lscala/collection/immutable/List<Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.search.DiceRolls.weighted()Array[scala.Tuple2]",
+              "()[Lscala/Tuple2<Lscala/collection/immutable/List<Ljava/lang/Object;>;Ljava/lang/Object;>;",
+              "()[Lscala/Tuple2<Lscala/collection/immutable/List<Ljava/lang/Integer;>;Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.search.DiceRolls.byWeightDescending()Array[scala.Tuple2]",
+              "()[Lscala/Tuple2<Lscala/collection/immutable/List<Ljava/lang/Object;>;Ljava/lang/Object;>;",
+              "()[Lscala/Tuple2<Lscala/collection/immutable/List<Ljava/lang/Integer;>;Ljava/lang/Integer;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.search.PlayableDice.of(dicechess.engine.domain.GameState,scala.collection.immutable.Seq)scala.Option",
+              "(Ldicechess/engine/domain/GameState;Lscala/collection/immutable/Seq<Ljava/lang/Object;>;)Lscala/Option<Lscala/collection/immutable/List<Ljava/lang/Object;>;>;",
+              "(Ldicechess/engine/domain/GameState;Lscala/collection/immutable/Seq<Ljava/lang/Integer;>;)Lscala/Option<Lscala/collection/immutable/List<Ljava/lang/Integer;>;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.search.TurnGenerator.generateAllLegalTurnPaths(dicechess.engine.domain.GameState)scala.collection.immutable.List",
+              "(Ldicechess/engine/domain/GameState;)Lscala/collection/immutable/List<Lscala/collection/immutable/List<Ljava/lang/Object;>;>;",
+              "(Ldicechess/engine/domain/GameState;)Lscala/collection/immutable/List<Lscala/collection/immutable/List<Ljava/lang/Integer;>;>;"
+            ),
+            signatureChange(
+              "dicechess.engine.search.TurnGenerator.forEachLegalTurnPath(dicechess.engine.domain.GameState,scala.Function2)Unit",
+              "(Ldicechess/engine/domain/GameState;Lscala/Function2<[ILjava/lang/Object;Lscala/runtime/BoxedUnit;>;)V",
+              "(Ldicechess/engine/domain/GameState;Lscala/Function2<[ILjava/lang/Integer;Lscala/runtime/BoxedUnit;>;)V"
+            ),
+            signatureChange(
+              "dicechess.engine.search.TurnGenerator.forEachLegalTurnState(dicechess.engine.domain.GameState,scala.Function4)Int",
+              "(Ldicechess/engine/domain/GameState;Lscala/Function4<[ILjava/lang/Object;Ldicechess/engine/domain/GameState;Ljava/lang/Object;Ljava/lang/Object;>;)I",
+              "(Ldicechess/engine/domain/GameState;Lscala/Function4<[ILjava/lang/Integer;Ldicechess/engine/domain/GameState;Ljava/lang/Boolean;Ljava/lang/Boolean;>;)I"
+            )
+          )
+        else Seq.empty
+      },
       assertRulesBinaryCompatible := Def.uncached {
         import com.typesafe.tools.mima.lib.MiMaLib
         val log     = streams.value.log
