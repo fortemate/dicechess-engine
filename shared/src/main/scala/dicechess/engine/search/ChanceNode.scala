@@ -52,7 +52,8 @@ import dicechess.engine.search.ActiveDicePartitioner.WeightedRoll
   * the proven bound when it cannot (Star1). When the node's own side of the window is finite, [[Policy.probe]] is asked
   * first for a bound per class — a single legal reply's value, exact for terminal and forced-pass classes — and the
   * resulting suffix sums both tighten every Star1 check and may prune the node before a single class is expanded
-  * (Star2). A probe that is already [[SearchOutcome.Exact]] settles its class outright and is never re-searched.
+  * (Star2), unless the policy explicitly disables probing. A probe that is already [[SearchOutcome.Exact]] settles its
+  * class outright and is never re-searched.
   *
   * Each class is searched inside the window its own weight implies: a child value below `childAlpha` cannot lift the
   * expectation to `alpha` even if every remaining class scores `highestValue`. A child that answers with a bound that
@@ -71,7 +72,10 @@ import dicechess.engine.search.ActiveDicePartitioner.WeightedRoll
   *
   * The classes are visited in partition order (descending weight) unless the caller passes a permutation in its own
   * invocation-local array; the shared `IArray[WeightedRoll]` is never reordered or exposed. All scratch is allocated
-  * per call, so concurrent independent invocations never interfere.
+  * per call, so nested and concurrent independent invocations never interfere. Cancelled entries allocate no expansion
+  * scratch; open windows need no suffix arrays, and an initial unprobed cut uses only scalar reverse-fold totals.
+  * Settlement arrays exist only when an exact probe needs retaining. Policies with no probes can explicitly set
+  * [[Policy.probingEnabled]] to `false`, constructing rolled states only for classes that are actually expanded.
   *
   * ## Example
   *
@@ -88,8 +92,9 @@ import dicechess.engine.search.ActiveDicePartitioner.WeightedRoll
   *
   * val policy = new ChanceNode.Policy:
   *   // A one-ply MIN node can lose White's king but can never win for White: [terminalLoss, maxNonTerminal].
-  *   def lowestValue: Double  = bounds.terminalLoss
-  *   def highestValue: Double = bounds.maxNonTerminal
+  *   def lowestValue: Double              = bounds.terminalLoss
+  *   def highestValue: Double             = bounds.maxNonTerminal
+  *   override def probingEnabled: Boolean = false // this policy uses only exact decisions
   *   def decide(rolled: GameState, classIndex: Int, alpha: Double, beta: Double): ChanceNode.Value =
   *     ChanceNode.Replies.generate(rolled, SearchControl.Unbounded) match
   *       case None                                  => ChanceNode.Value.incomplete(SearchControl.Unbounded)
@@ -166,6 +171,12 @@ object ChanceNode:
 
     /** The greatest value [[decide]] can return at this node, at or below `bounds.terminalWin`. */
     def highestValue: Double
+
+    /** Explicitly opt out when this policy has no probes. `false` suppresses [[probe]] and builds rolled states only
+      * for expanded classes. The default preserves every existing override's callback semantics; the mechanism never
+      * infers absence from a policy's implementation type. Keep this declaration stable for the expansion.
+      */
+    def probingEnabled: Boolean = true
 
     /** Star2 probes: one bound per class, in class order, or `None` to skip probing. Called at most once per node, only
       * when the node's own side of the window is finite, and before any [[decide]] call.
@@ -244,6 +255,42 @@ object ChanceNode:
     def isEmpty: Boolean           = buffer.isEmpty
     def result(): Array[GameState] = buffer.toArray
 
+  /** One policy's lazy cross-class traversal. Never retained across chance nodes, even when they share a control.
+    * Evaluators and selective reply policies consume the same canonical arrays as before. A terminal reply settles its
+    * class during discovery; an interrupted traversal never exposes its partially collected array. Timed controls check
+    * the clock at class entry and every 64 internal cancellation polls. Work-budget exhaustion remains checked at every
+    * admission; individual geometry and callback operations remain non-preemptive.
+    */
+  final private[search] class ReplyTraversal(afterTurn: GameState, control: SearchControl):
+    private inline val ClockPollInterval = 64
+    private var pollsBeforeClock         = 0
+    private val traversal                = new TurnGenerator.SharedTraversal(
+      afterTurn,
+      control.budget,
+      if control.isTimed then () => timedCancellation() else () => control.isCancelled
+    )
+
+    private inline def timedCancellation(): Boolean =
+      if pollsBeforeClock > 0 then
+        pollsBeforeClock -= 1
+        false
+      else
+        pollsBeforeClock = ClockPollInterval - 1
+        control.isCancelled
+
+    def generate(rolled: GameState): Option[Replies] =
+      if rolled.flags.isDicePoolEmpty && !control.isCancelled then Some(Replies.ForcedPass)
+      else if control.isTimed && control.isCancelled then None
+      else
+        if control.isTimed then pollsBeforeClock = ClockPollInterval - 1
+        val collector = new ReplyCollector
+        traversal.visitFlags(rolled.flags)(collector.visit) match
+          case BudgetedRules.Outcome.Incomplete(_)  => None
+          case BudgetedRules.Outcome.Complete(_, _) =>
+            if collector.captured then Some(Replies.KingCapture)
+            else if collector.isEmpty then Some(Replies.ForcedPass)
+            else Some(new Replies(collector.result(), capturesKing = false))
+
   /** Expands the chance node at `afterTurn` in partition order. See the object documentation for the contract. */
   def expand(
       afterTurn: GameState,
@@ -273,13 +320,19 @@ object ChanceNode:
     requireChanceBoundary(afterTurn)
     requireRange(bounds, policy)
     requirePermutation(order, classes.length)
-    val node = new Expansion(afterTurn, classes, order, bounds, control, alpha, beta, policy)
-    if control.isCancelled then node.incomplete()
+    if control.isCancelled then Result(SearchOutcome.Incomplete(control.workUsed), false, classes.length, 0, false)
     else
+      val node = new Expansion(afterTurn, classes, order, bounds, control, alpha, beta, policy)
       node.probePhase()
       node.run()
 
   private val PartitionOrder: Array[Int] = Array.empty
+
+  // Zero-length sentinels cannot hold mutable contents and are never written. Every non-empty scratch array is
+  // allocated and owned by one Expansion, including across nested calls.
+  private val EmptyDoubles: Array[Double]    = Array.empty
+  private val EmptyFlags: Array[Boolean]     = Array.empty
+  private val EmptyStates: IArray[GameState] = IArray.empty
 
   private def requireChanceBoundary(afterTurn: GameState): Unit =
     require(afterTurn.flags.isDicePoolEmpty, "a chance node opens on a fresh roll: the dice pool must be empty")
@@ -308,7 +361,7 @@ object ChanceNode:
         seen |= 1L << index
         i += 1
 
-  /** One expansion's scratch and loop: allocated per call, read by one thread. */
+  /** One expansion's lazy scratch and loop: owned by this call, read by one thread. */
   final private class Expansion(
       afterTurn: GameState,
       classes: IArray[WeightedRoll],
@@ -324,14 +377,17 @@ object ChanceNode:
     private val mass       = DiceRolls.totalOrderedRolls.toDouble
 
     /** Suffix sums of `weight * ceiling` and `weight * floor` over the visiting order; index `count` is zero. */
-    private val ceilingSuffix = new Array[Double](count + 1)
-    private val floorSuffix   = new Array[Double](count + 1)
+    private var ceilingSuffix: Array[Double] = EmptyDoubles
+    private var floorSuffix: Array[Double]   = EmptyDoubles
 
     /** Classes the probe phase settled exactly, with their values. */
-    private val settled      = new Array[Boolean](count)
-    private val settledValue = new Array[Double](count)
+    private var settled: Array[Boolean]     = EmptyFlags
+    private var settledValue: Array[Double] = EmptyDoubles
 
-    private var rolledStates: IArray[GameState] = IArray.empty
+    private var rolledStates: IArray[GameState] = EmptyStates
+
+    private var initialUpper = Double.PositiveInfinity
+    private var initialLower = Double.NegativeInfinity
 
     private var accumulated     = 0.0
     private var resolved        = 0
@@ -345,6 +401,23 @@ object ChanceNode:
 
     private def rolledAt(position: Int): GameState =
       if rolledStates.nonEmpty then rolledStates(position) else entry(position).roll.applyToState(afterTurn)
+
+    private def isSettled(position: Int): Boolean = settled.nonEmpty && settled(position)
+
+    // Reproduce the historical reverse-fold arithmetic without scratch when an initial cut needs only the total.
+    private def uniformSuffix(position: Int, value: Double): Double =
+      var sum   = 0.0
+      var index = count - 1
+      while index >= position do
+        sum += entry(index).weight.toDouble * value
+        index -= 1
+      sum
+
+    private def ceilingAt(position: Int): Double =
+      if ceilingSuffix.nonEmpty then ceilingSuffix(position) else uniformSuffix(position, policy.highestValue)
+
+    private def floorAt(position: Int): Double =
+      if floorSuffix.nonEmpty then floorSuffix(position) else uniformSuffix(position, policy.lowestValue)
 
     def incomplete(): Result = Result(SearchOutcome.Incomplete(control.workUsed), tainted, count, resolved, probeCut)
 
@@ -363,27 +436,50 @@ object ChanceNode:
       */
     def probePhase(): Unit =
       val probes =
-        if boundedForRole then
-          rolledStates = IArray.tabulate(count)(position => entry(position).roll.applyToState(afterTurn))
-          policy.probe(rolledStates)
+        if boundedForRole && policy.probingEnabled then
+          val states = IArray.tabulate(count)(position => entry(position).roll.applyToState(afterTurn))
+          rolledStates = states
+          policy.probe(states)
         else None
       probes match
         case Some(values) =>
           require(values.length == count, s"probe must answer every class ($count), got ${values.length}")
           probed = true
-          fillSuffixes(values)
-        case None => fillSuffixes(Array.empty)
+          fillSuffixes(probes)
+        case None =>
+          if alpha != Double.NegativeInfinity || beta != Double.PositiveInfinity then
+            prepareUniformBounds()
+            if !(initialUpper < alpha || initialLower > beta) then fillSuffixes(None)
 
-    private def fillSuffixes(values: Array[Value]): Unit =
+    private def prepareUniformBounds(): Unit =
+      var upper    = 0.0
+      var lower    = 0.0
+      var position = count - 1
+      while position >= 0 do
+        val weight = entry(position).weight.toDouble
+        upper += weight * policy.highestValue
+        lower += weight * policy.lowestValue
+        position -= 1
+      initialUpper = upper / mass
+      initialLower = lower / mass
+
+    private def fillSuffixes(values: Option[Array[Value]]): Unit =
+      val ceilings = new Array[Double](count + 1)
+      val floors   = new Array[Double](count + 1)
+      ceilingSuffix = ceilings
+      floorSuffix = floors
       var position = count - 1
       while position >= 0 do
         var ceiling = policy.highestValue
         var floor   = policy.lowestValue
         if values.nonEmpty then
-          val value = values(position)
+          val value = values.get(position)
           tainted ||= value.lossTainted
           value.outcome match
             case SearchOutcome.Exact(exact, _) =>
+              if settled.isEmpty then
+                settled = new Array[Boolean](count)
+                settledValue = new Array[Double](count)
               settled(position) = true
               settledValue(position) = exact
               ceiling = exact
@@ -393,8 +489,8 @@ object ChanceNode:
             case SearchOutcome.Incomplete(_)                       => probeIncomplete = true
             case _ => () // a bound pointing the wrong way proves nothing here
         val weight = entry(position).weight.toDouble
-        ceilingSuffix(position) = ceilingSuffix(position + 1) + weight * ceiling
-        floorSuffix(position) = floorSuffix(position + 1) + weight * floor
+        ceilings(position) = ceilings(position + 1) + weight * ceiling
+        floors(position) = floors(position + 1) + weight * floor
         position -= 1
 
     private def clampToRange(value: Double): Double =
@@ -404,15 +500,15 @@ object ChanceNode:
       * check happens inside the loop before the first class, as a Star1 cut on the declared range.
       */
     def run(): Result =
-      if probeIncomplete || (probed && control.isCancelled) then incomplete()
+      if probeIncomplete || (rolledStates.nonEmpty && control.isCancelled) then incomplete()
       else
-        val probeUpper = ceilingSuffix(0) / mass
-        val probeLower = floorSuffix(0) / mass
-        if probed && probeUpper < alpha then
-          probeCut = true
+        val probeUpper = if probed then ceilingAt(0) / mass else initialUpper
+        val probeLower = if probed then floorAt(0) / mass else initialLower
+        if probeUpper < alpha then
+          probeCut = probed
           upperBound(probeUpper)
-        else if probed && probeLower > beta then
-          probeCut = true
+        else if probeLower > beta then
+          probeCut = probed
           lowerBound(probeLower)
         else loop()
 
@@ -420,20 +516,26 @@ object ChanceNode:
       var result: Option[Result] = None
       var position               = 0
       while position < count && result.isEmpty do
-        if settled(position) then
-          accumulated += entry(position).weight.toDouble * settledValue(position)
-          resolved += 1
-        else
-          val upperNow = (accumulated + ceilingSuffix(position)) / mass
-          val lowerNow = (accumulated + floorSuffix(position)) / mass
-          if upperNow < alpha then result = Some(upperBound(upperNow))
-          else if lowerNow > beta then result = Some(lowerBound(lowerNow))
-          else if control.isCancelled then result = Some(incomplete())
-          else result = expandClass(position)
+        result = resolveClass(position)
         position += 1
       result.getOrElse(
         Result(SearchOutcome.Exact(accumulated / mass, control.workUsed), tainted, count, resolved, probeCut)
       )
+
+    private inline def resolveClass(position: Int): Option[Result] =
+      if isSettled(position) then
+        accumulated += entry(position).weight.toDouble * settledValue(position)
+        resolved += 1
+        None
+      else
+        val upperNow = if alpha == Double.NegativeInfinity then Double.PositiveInfinity
+        else (accumulated + ceilingAt(position)) / mass
+        val lowerNow = if beta == Double.PositiveInfinity then Double.NegativeInfinity
+        else (accumulated + floorAt(position)) / mass
+        if upperNow < alpha then Some(upperBound(upperNow))
+        else if lowerNow > beta then Some(lowerBound(lowerNow))
+        else if control.isCancelled then Some(incomplete())
+        else expandClass(position)
 
     /** Searches one class inside the window its weight implies and folds the answer; `Some` ends the node. */
     private def expandClass(position: Int): Option[Result] =
@@ -441,10 +543,10 @@ object ChanceNode:
       val rolled     = rolledAt(position)
       val childAlpha =
         if alpha == Double.NegativeInfinity then alpha
-        else bounds.clamp((alpha * mass - accumulated - ceilingSuffix(position + 1)) / weight)
+        else bounds.clamp((alpha * mass - accumulated - ceilingAt(position + 1)) / weight)
       val childBeta =
         if beta == Double.PositiveInfinity then beta
-        else bounds.clamp((beta * mass - accumulated - floorSuffix(position + 1)) / weight)
+        else bounds.clamp((beta * mass - accumulated - floorAt(position + 1)) / weight)
       val child = policy.decide(rolled, position, childAlpha, childBeta)
       tainted ||= child.lossTainted
       child.outcome match
@@ -452,10 +554,10 @@ object ChanceNode:
           accept(weight, value)
           None
         case SearchOutcome.UpperBound(upper, _) =>
-          val combined = (accumulated + weight * upper + ceilingSuffix(position + 1)) / mass
+          val combined = (accumulated + weight * upper + ceilingAt(position + 1)) / mass
           if combined < alpha then Some(upperBound(combined)) else research(position, rolled, weight)
         case SearchOutcome.LowerBound(lower, _) =>
-          val combined = (accumulated + weight * lower + floorSuffix(position + 1)) / mass
+          val combined = (accumulated + weight * lower + floorAt(position + 1)) / mass
           if combined > beta then Some(lowerBound(combined)) else research(position, rolled, weight)
         case SearchOutcome.Incomplete(_) => Some(incomplete())
 

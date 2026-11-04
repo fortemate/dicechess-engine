@@ -54,6 +54,11 @@ class ExpectimaxSearchBenchmark:
       ExpectimaxConfig(candidateLimit = 1, searchDepth = searchDepth),
       tt = Some(table)
     )
+    val untimed = search.findBestMove(state, Random(42L))
+    table.clear()
+    val timed = search.findBestMove(state, SearchControl.untilDeadline(Long.MaxValue - 1L), Random(42L))
+    require(timed == untimed, "a far-future deadline must preserve the fixed-tree result")
+    table.clear()
 
   @Setup(Level.Invocation)
   def setupInvocation(): Unit =
@@ -63,10 +68,15 @@ class ExpectimaxSearchBenchmark:
   @Benchmark
   def coldTree(): Option[ScoredSequence] = search.findBestMove(state, random)
 
-  /** The same tree under an ample [[SearchControl]] work budget (#393): every nested reply generation goes through
-    * `BudgetedRules.turnPaths` and the control is consulted at every yield point, so the gap to [[coldTree]] is the
-    * price of deterministic cancellation.
+  /** The same tree under an ample [[SearchControl]] work budget (#393), including shared reply-traversal admissions.
+    * The control is consulted at cooperative yield points without reading the clock.
     */
   @Benchmark
   def coldTreeBudgeted(): Option[ScoredSequence] =
     search.findBestMove(state, SearchControl.withBudget(new BudgetedRules.Budget(Long.MaxValue)), random)
+
+  /** The same complete tree with a far-future deadline: exercise real clock reads without deadline-dependent stopping.
+    */
+  @Benchmark
+  def coldTreeTimed(): Option[ScoredSequence] =
+    search.findBestMove(state, SearchControl.untilDeadline(Long.MaxValue - 1L), random)

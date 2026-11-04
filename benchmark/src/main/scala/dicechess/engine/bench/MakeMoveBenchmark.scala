@@ -72,6 +72,7 @@ class EndTurnInput:
   var state: GameState = uninitialized
   @Setup(Level.Trial)
   def setup(): Unit =
+    require(dice == "empty" || dice == "rolled", s"Unsupported dice mode: $dice")
     state = EndTurnFixtures.state(color, targets, if dice == "empty" then Nil else List(1, 4, 6))
     val actual   = state.endTurn()
     val expected = EndTurnFixtures.reference(state)
@@ -103,6 +104,8 @@ class TurnFinalizationInput:
 
 private object EndTurnFixtures:
   def state(color: String, targets: String, dice: List[Int]): GameState =
+    require(color == "white" || color == "black", s"Unsupported color: $color")
+    require(Set("none", "stale", "mixed").contains(targets), s"Unsupported targets: $targets")
     val base      = BenchmarkPositions.parse("r3k2r/8/8/3pP3/3Pp3/8/8/R3K2R w KQkq - 37 12")
     val mover     = if color == "white" then Color.White else Color.Black
     val stale     = Square('d', if mover.isWhite then 6 else 3)
