@@ -3,8 +3,6 @@ package dicechess.engine.search
 
 import dicechess.engine.domain.{Color, GameState}
 
-import scala.collection.mutable
-
 /** Invocation-local memoization of a deterministic, side-effect-free evaluator.
   *
   * Keys use exact `(GameState, Color)` value equality, including mailbox contents, all flags, full en-passant targets
@@ -21,9 +19,11 @@ import scala.collection.mutable
   * membership and tie-breaking. Timed searches may evaluate more candidates and select a different legal path.
   * Memoization must not become candidate deduplication.
   *
-  * Memory grows with the number of unique evaluated state/perspective pairs in the invocation; hashing and comparing
-  * full states includes walking the mailbox. Callers control the candidate/work bound. There is no eviction or reuse
-  * across invocations. This is an exact evaluation cache, separate from [[TranspositionTable]] search bounds (#397).
+  * Memory grows with the number of unique evaluated state/perspective pairs in the invocation. A constant-work scalar
+  * fingerprint selects a collision chain; exact equality, including the mailbox, still decides every hit. No tuple is
+  * allocated for a lookup and the fingerprint is computed once, including on misses. Callers control the candidate/work
+  * bound. There is no eviction or reuse across invocations. This is an exact evaluation cache, separate from
+  * [[TranspositionTable]] search bounds (#397).
   *
   * Pass [[apply]] to [[SearchScoring.scorePath]] so replay, `endTurn()` and the original mover's perspective remain
   * owned by that helper. Immediate king capture bypasses the evaluator and this cache entirely:
@@ -50,13 +50,37 @@ import scala.collection.mutable
   * The consumer retains evaluator configuration, deadline policy and fallback ownership; adopting this helper needs no
   * change to the engine's built-in bot defaults or facade contracts.
   *
+  * Separately allocated equal mailboxes still share an entry, independently of the derived hash field:
+  *
+  * ```scala
+  * import dicechess.engine.domain.{Color, FenParser, Mailbox}
+  * import dicechess.engine.search.EvaluationCache
+  *
+  * val state = FenParser.parse("4k3/8/8/8/8/8/8/4K3 w - - 0 1").toOption.get
+  * val equal = state.copy(mailbox = Mailbox.fromBuilder(state.mailbox.toArray), zobristKey = 123L)
+  * val cache = new EvaluationCache((s, _) => s.fullMoveNumber)
+  * assert(cache(state, Color.White) == cache(equal, Color.White))
+  * assert(cache.evaluatorCalls == 1L && cache.cacheHits == 1L && cache.entryCount == 1)
+  * ```
+  *
   * @param evalFn
   *   pure deterministic callback with immutable input and configuration for this invocation
   */
 final class EvaluationCache(evalFn: (GameState, Color) => Int):
-  private val entries = mutable.HashMap.empty[(GameState, Color), Int]
-  private var calls   = 0L
-  private var hits    = 0L
+  sealed private trait Bucket derives CanEqual
+  private case object Empty extends Bucket
+  final private class Entry(
+      val hash: Int,
+      val state: GameState,
+      val perspective: Color,
+      var value: Int,
+      var next: Bucket
+  ) extends Bucket
+
+  private var entries  = Array.fill[Bucket](16)(Empty)
+  private var calls    = 0L
+  private var hits     = 0L
+  private var retained = 0
 
   /** Actual callback attempts, including those that throw. Hits do not increment this count. */
   def evaluatorCalls: Long = calls
@@ -65,19 +89,78 @@ final class EvaluationCache(evalFn: (GameState, Color) => Int):
   def cacheHits: Long = hits
 
   /** Number of successful state/perspective pairs retained by this invocation. */
-  def entryCount: Int = entries.size
+  def entryCount: Int = retained
+
+  // The mailbox is deliberately omitted from the index, never from identity. This avoids its 64-entry hash walk;
+  // even inconsistent synthetic states with identical scalar fields remain distinct through full equality below.
+  // Neither a populated nor an unpopulated derived Zobrist key participates in this fingerprint.
+  private def fingerprint(state: GameState, perspective: Color): Int =
+    var hash = if perspective.isWhite then 17 else 19
+    hash = hash * 31 + java.lang.Long.hashCode(state.whitePieces.value)
+    hash = hash * 31 + java.lang.Long.hashCode(state.blackPieces.value)
+    hash = hash * 31 + java.lang.Long.hashCode(state.pawns.value)
+    hash = hash * 31 + java.lang.Long.hashCode(state.knights.value)
+    hash = hash * 31 + java.lang.Long.hashCode(state.bishops.value)
+    hash = hash * 31 + java.lang.Long.hashCode(state.rooks.value)
+    hash = hash * 31 + java.lang.Long.hashCode(state.queens.value)
+    hash = hash * 31 + java.lang.Long.hashCode(state.kings.value)
+    hash = hash * 31 + state.flags.value
+    hash = hash * 31 + java.lang.Long.hashCode(state.enPassant.value)
+    hash = hash * 31 + state.fullMoveNumber
+    hash ^ (hash >>> 16)
+
+  private def bucket(hash: Int): Bucket = entries(hash & (entries.length - 1))
+
+  // A resizable reference table stores only chain heads, with no boxed primitive keys or parallel key arrays.
+  // Relinking retained entries on growth neither evaluates a state nor recomputes its fingerprint.
+  private def grow(): Unit =
+    val previous = entries
+    entries = Array.fill[Bucket](previous.length * 2)(Empty)
+    var index = 0
+    while index < previous.length do
+      var cursor   = previous(index)
+      var scanning = true
+      while scanning do
+        cursor match
+          case entry: Entry =>
+            cursor = entry.next
+            val slot = entry.hash & (entries.length - 1)
+            entry.next = entries(slot)
+            entries(slot) = entry
+          case Empty => scanning = false
+      index += 1
+
+  private def find(bucket: Bucket, hash: Int, state: GameState, perspective: Color): Bucket =
+    var cursor    = bucket
+    var searching = true
+    while searching do
+      cursor match
+        case entry: Entry =>
+          if entry.hash == hash && entry.perspective == perspective && ((entry.state eq state) || entry.state == state)
+          then searching = false
+          else cursor = entry.next
+        case Empty => searching = false
+    cursor
 
   /** Returns a cached value or evaluates once. Exceptions propagate unchanged and never create an entry; a later access
     * retries the callback. Every returned `Int`, including sentinel-like extreme values, is cacheable.
     */
   def apply(state: GameState, perspective: Color): Int =
-    val key = (state, perspective)
-    entries.get(key) match
-      case Some(value) =>
+    val hash = fingerprint(state, perspective)
+    find(bucket(hash), hash, state, perspective) match
+      case entry: Entry =>
         hits += 1
-        value
-      case None =>
+        entry.value
+      case Empty =>
         calls += 1
         val value = evalFn(state, perspective)
-        entries.update(key, value)
+        // Re-read only the primitive index after the callback: a nested successful evaluation must survive, even
+        // when it populated this collision chain or the same key. Failures reach neither mutation below.
+        find(bucket(hash), hash, state, perspective) match
+          case entry: Entry => entry.value = value
+          case Empty        =>
+            if retained >= entries.length - entries.length / 4 then grow()
+            val slot = hash & (entries.length - 1)
+            entries(slot) = new Entry(hash, state, perspective, value, entries(slot))
+            retained += 1
         value

@@ -4,7 +4,7 @@ package dicechess.engine.search
 import dicechess.engine.domain.*
 import munit.FunSuite
 
-/** Exact state identity, per-invocation ownership and telemetry regressions for #295. */
+/** Exact state identity, per-invocation ownership and telemetry regressions for #295 and #443. */
 class EvaluationCacheSuite extends FunSuite:
   private def position: GameState =
     FenParser.parse("r3k2r/8/8/8/8/8/P7/R3K2R w KQkq - 0 1").fold(fail(_), identity)
@@ -177,4 +177,86 @@ class EvaluationCacheSuite extends FunSuite:
     assertEquals(cache.evaluatorCalls, 4L)
     assertEquals(cache.cacheHits, 2L)
     assertEquals(cache.entryCount, 2)
+  }
+
+  test("scalar-index collisions retain every distinct mailbox through equal-allocation hits") {
+    val base   = position
+    val states = base :: (0 until 32).map { index =>
+      val mailbox = base.mailbox.toArray
+      mailbox(index) = if mailbox(index) == Piece.Empty then Piece(Color.Black, PieceType.Knight) else Piece.Empty
+      base.copy(mailbox = Mailbox.fromBuilder(mailbox))
+    }.toList
+    assertEquals(states.distinct.size, states.size)
+    val cache = new EvaluationCache((s, c) => states.indexOf(s) * (if c.isWhite then 1 else -1))
+    for state <- states; color <- List(Color.White, Color.Black) do
+      assertEquals(cache(state, color), states.indexOf(state) * (if color.isWhite then 1 else -1))
+    for state <- states.reverse ++ states; color <- List(Color.White, Color.Black) do
+      val equal = state.copy(mailbox = Mailbox.fromBuilder(state.mailbox.toArray), zobristKey = 123L)
+      assertEquals(cache(equal, color), states.indexOf(state) * (if color.isWhite then 1 else -1))
+    assertEquals(cache.entryCount, states.size * 2)
+    assertEquals(cache.evaluatorCalls, states.size.toLong * 2)
+    assertEquals(cache.cacheHits, states.size.toLong * 4)
+  }
+
+  test("a failed evaluation preserves successful entries in its scalar collision chain") {
+    val base    = position
+    val mailbox = base.mailbox.toArray
+    mailbox(20) = Piece(Color.Black, PieceType.Knight)
+    val other   = base.copy(mailbox = Mailbox.fromBuilder(mailbox))
+    val error   = new IllegalStateException("synthetic colliding evaluator failure")
+    var failing = true
+    val cache   = new EvaluationCache((state, _) =>
+      if state == other && failing then scala.util.Failure[Int](error).get
+      else if state == other then 78
+      else 12
+    )
+    assertEquals(cache(base, Color.White), 12)
+    for _ <- 1 to 2 do
+      assert(intercept[IllegalStateException](cache(other, Color.White)) eq error)
+      assertEquals(cache.entryCount, 1)
+    assertEquals(cache(base, Color.White), 12)
+    failing = false
+    assertEquals(cache(other, Color.White), 78)
+    assertEquals(cache(other, Color.White), 78)
+    assertEquals(cache(base, Color.White), 12)
+    assertEquals(cache.entryCount, 2)
+    assertEquals(cache.evaluatorCalls, 4L)
+    assertEquals(cache.cacheHits, 3L)
+  }
+
+  test("nested evaluations retain colliding entries through growth without duplicating a key") {
+    val base    = position
+    val mailbox = base.mailbox.toArray
+    mailbox(20) = Piece(Color.Black, PieceType.Knight)
+    val other                          = base.copy(mailbox = Mailbox.fromBuilder(mailbox))
+    var cache: Option[EvaluationCache] = None
+    var nested                         = false
+    val invocation                     = new EvaluationCache((state, color) =>
+      if !nested then
+        nested = true
+        for counter <- 2 to 65 do assertEquals(cache.get(base.copy(fullMoveNumber = counter), color), 12)
+        assertEquals(cache.get(other, color), 78)
+        assertEquals(cache.get(base, color), 12)
+      if state == other then 78 else 12
+    )
+    cache = Some(invocation)
+    assertEquals(invocation(base, Color.White), 12)
+    assertEquals(invocation(base, Color.White), 12)
+    assertEquals(invocation(other, Color.White), 78)
+    for counter <- 2 to 65 do assertEquals(invocation(base.copy(fullMoveNumber = counter), Color.White), 12)
+    assertEquals(invocation.entryCount, 66)
+    assertEquals(invocation.evaluatorCalls, 67L)
+    assertEquals(invocation.cacheHits, 66L)
+  }
+
+  test("growing the invocation index preserves all unique states and perspectives") {
+    val base  = position
+    val cache = new EvaluationCache((state, color) => state.fullMoveNumber * (if color.isWhite then 1 else -1))
+    for counter <- 1 to 512; color <- List(Color.White, Color.Black) do
+      assertEquals(cache(base.copy(fullMoveNumber = counter), color), counter * (if color.isWhite then 1 else -1))
+    for counter <- (1 to 512).reverse; color <- List(Color.Black, Color.White) do
+      assertEquals(cache(base.copy(fullMoveNumber = counter), color), counter * (if color.isWhite then 1 else -1))
+    assertEquals(cache.entryCount, 1024)
+    assertEquals(cache.evaluatorCalls, 1024L)
+    assertEquals(cache.cacheHits, 1024L)
   }

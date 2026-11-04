@@ -53,8 +53,13 @@ evaluate the current state from the current mover's perspective.
 Keys use full `(GameState, Color)` value equality: all piece bitboards, mailbox
 contents, packed flags (including dice, active color, castling and half-move
 clock), full en-passant targets and full-move number. The derived `zobristKey` is
-excluded by `GameState.equals`. A mutable hash map resolves hash collisions with
-equality; neither normalized DFEN nor a bare Zobrist hash is a substitute.
+excluded by `GameState.equals`. A primitive scalar fingerprint selects an
+invocation-owned collision chain; full equality resolves every collision.
+The fingerprint includes the bitboards, packed flags, complete en-passant targets,
+full-move number and perspective. It deliberately omits the mailbox hash and
+derived Zobrist field. Mailbox contents remain part of equality even for synthetic
+states whose boards and mailbox disagree; neither normalized DFEN nor a bare
+Zobrist hash is a substitute for exact identity.
 
 | Property | Meaning |
 | --- | --- |
@@ -70,8 +75,11 @@ RNG consumption. Memoization reuses scores; it does not deduplicate paths. With
 an untimed deterministic evaluator, this preserves the chosen path, score and
 next RNG value.
 
-Memory is proportional to unique evaluated state/perspective pairs. Hashing and
-comparison walk full state, including the mailbox. Callers bound the work;
+Memory is proportional to unique evaluated state/perspective pairs. Each lookup
+computes one constant-work scalar fingerprint and allocates no tuple key. Only
+comparison with collision-chain entries needs full state equality, including the
+mailbox; repeated references can use identity first. A successful miss retains
+one entry, while a thrown callback retains none. Callers bound the work;
 there is no TTL, LRU, process-global storage or cross-invocation reuse. This exact
 evaluation memoization remains separate from search transposition-table bounds.
 
@@ -86,7 +94,7 @@ evaluation memoization remains separate from search transposition-table bounds.
 | **Identity key & counters** | Exact `(GameState, Color)` via `GameState.equals` (piece bitboards, 64-square mailbox, `flags` with `dicePool`, `castlingRights`, `halfMoveClock`, full `enPassant` bitboard, and `fullMoveNumber`; excludes derived `zobristKey`) | 64-bit [`Zobrist`](https://github.com/fortemate/dicechess-engine/blob/main/shared-rules/src/main/scala/dicechess/engine/domain/Zobrist.scala) hash (piece placement, `activeColor`, `castlingRights`, full `enPassant` bitboard, canonical `dicePool`) XORed with role salt; deliberately excludes `halfMoveClock` and `fullMoveNumber` |
 | **Stored payload & bounds** | Exact `Int` score only | `TTEntry(key, value: Double, bound: TTBound, depth: Int, lossTainted: Boolean)` (`Exact`, `LowerBound`, `UpperBound`) |
 | **Terminal & loss-taint handling** | `SearchScoring.scorePath` short-circuits immediate king capture with `TerminalWinScore` before touching the cache | Immediate root king capture short-circuits before probing; recursive chance nodes record `lossTainted = true` (at `UtilityBounds.terminalLoss`) when any opponent roll captures the root perspective's king, preserving the flag in `TTEntry` so [`RootRescore`](/dicechess-engine/architecture/search/06-expectimax-search/#7-root-rescoring-rootrescore) never blends a loss-tainted candidate on a table hit |
-| **Collision & replacement policy** | Lossless value equality on `mutable.HashMap` buckets; no eviction during the invocation | Fixed power-of-two array (`key & mask`), depth-preferred replacement (`depth >= oldDepth` or replacing a non-exact bound on the same key), 64-bit Hyatt XOR checksum (~$2^{-64}$ residual collision acceptance) |
+| **Collision & replacement policy** | Lossless full value equality on scalar-indexed collision chains; no eviction during the invocation | Fixed power-of-two array (`key & mask`), depth-preferred replacement (`depth >= oldDepth` or replacing a non-exact bound on the same key), 64-bit Hyatt XOR checksum (~$2^{-64}$ residual collision acceptance) |
 | **Lifetime, memory & concurrency** | Per-invocation, single-thread, heap grows with unique evaluated `(GameState, Color)` pairs, discarded when the call returns | Caller-owned fixed primitive arrays (zero GC pressure on hot paths), racy-reader safe (lockless XOR checksum, single writer recommended), reusable across moves/plies for one fixed evaluator, model, `UtilityBounds` scale, and `RootRescore` configuration; call `clear()` or replace when configuration changes |
 | **Cancellation & incomplete values** | Caller checks deadline / `SearchControl.isCancelled` **before** calling `apply` (including warm hits); exceptions propagate without writing an entry | Caller checks `SearchControl.isCancelled` **before** `probe`; `SearchOutcome.Incomplete` carries no score and is never passed to `store` |
 
@@ -151,9 +159,12 @@ A downstream Scala bot can replace an equivalent local wrapper after adopting
 an engine version containing this helper, while keeping its own evaluator and
 configuration. Downstream migration and release publication are separate work.
 
-`EvaluationCacheBenchmark` compares fixed batches with repeated equal states and
-zero hits against the public deterministic evaluator. Each measured batch creates
-a fresh cache; construction, hashing and storage are included. Use JMH `-prof gc`
+`EvaluationCacheBenchmark` compares uncached callbacks, the original tuple-key
+`HashMap`, and the optimized cache on fixed batches with repeated equal states
+and zero hits. Both the public aggressive evaluator and an inexpensive
+deterministic counter callback are included; trial setup checks value and
+telemetry parity before timing. Each measured batch creates a fresh cache;
+construction, hashing and storage are included. Use JMH `-prof gc`
 for allocation overhead and divide auxiliary work totals by `batches` to recover
 calls, hits and entries per invocation. This measures callback cost, not playing
 strength or a universal speedup. Retain measured results according to the
