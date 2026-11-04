@@ -61,6 +61,16 @@ derived Zobrist field. Mailbox contents remain part of equality even for synthet
 states whose boards and mailbox disagree; neither normalized DFEN nor a bare
 Zobrist hash is a substitute for exact identity.
 
+FEN parsing and engine transitions keep mailbox contents consistent with the
+piece bitboards. Arbitrary synthetic copies need not preserve that invariant;
+mailbox-only variants intentionally share a scalar fingerprint and remain
+distinct through equality. Consistent states can also have ordinary index
+collisions. Lookups scan their collision chain, so inserting many colliding
+values can require quadratic equality work. Resizing does not separate identical
+fingerprints. The fingerprint has constant cost; the whole lookup has no
+worst-case constant-time guarantee. Callers retain ownership of candidate and
+input bounds.
+
 | Property | Meaning |
 | --- | --- |
 | `evaluatorCalls: Long` | Actual callback attempts, including exceptions |

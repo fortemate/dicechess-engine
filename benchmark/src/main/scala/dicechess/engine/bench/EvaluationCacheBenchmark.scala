@@ -38,6 +38,8 @@ class EvaluationCacheBenchmark:
 
   @Setup(Level.Trial)
   def setup(): Unit =
+    require(evaluator == "aggressive" || evaluator == "cheap", s"Unsupported evaluator: $evaluator")
+    require(distribution == "repeated" || distribution == "unique", s"Unsupported distribution: $distribution")
     fullEval =
       if evaluator == "cheap" then
         (state, color) => if color.isWhite then state.fullMoveNumber else -state.fullMoveNumber

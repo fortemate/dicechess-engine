@@ -25,6 +25,12 @@ import dicechess.engine.domain.{Color, GameState}
   * bound. There is no eviction or reuse across invocations. This is an exact evaluation cache, separate from
   * [[TranspositionTable]] search bounds (#397).
   *
+  * FEN parsing and engine transitions keep the mailbox consistent with the bitboards. Arbitrary synthetic copies need
+  * not preserve that invariant: mailbox-only variants deliberately share a scalar fingerprint but remain distinct by
+  * equality. Ordinary index collisions can also occur between consistent states. A lookup scans its collision chain;
+  * inserting many colliding values can require quadratic equality work. Table growth does not separate identical
+  * fingerprints, and constant fingerprint cost is not a worst-case constant lookup guarantee.
+  *
   * Pass [[apply]] to [[SearchScoring.scorePath]] so replay, `endTurn()` and the original mover's perspective remain
   * owned by that helper. Immediate king capture bypasses the evaluator and this cache entirely:
   *
