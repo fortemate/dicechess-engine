@@ -45,13 +45,43 @@ package dicechess.engine
   *
   * ## Ownership & Cancellation Boundaries (#398, #399)
   *
-  *   - [[BudgetedRules.Budget]], [[SearchControl]], [[EvaluationCache]], and visitor `Array[Move]` buffers are
-  *     **single-invocation, single-thread** objects.
+  *   - [[BudgetedRules.Budget]], [[SearchControl]], [[EvaluationCache]], [[TurnGenerator.SharedTraversal]], and visitor
+  *     `Array[Move]` buffers are **single-invocation, single-thread** objects.
   *   - [[ActiveDicePartitioner]] tables ([[CompactRoll]], [[DiceRolls]]) are immutable and shared across invocations.
   *   - [[SearchControl.isCancelled]] is cooperative and checked at yield points (including before [[EvaluationCache]]
   *     and [[TranspositionTable]] lookups), never preempting inside a single move-generation or evaluator call.
   *   - [[UtilityBounds]] enforces strict terminal-over-heuristic dominance across [[ChanceNode]], [[ExpectimaxSearch]],
   *     [[MonteCarloSearch]], and [[MonteCarloEquity]].
+  *
+  * ## Reusing Turn Prefixes Across Roll Classes (#442)
+  *
+  * A [[TurnGenerator.SharedTraversal]] belongs to one board, active color and synchronous invocation. It reuses
+  * dice-free prefix boards and per-piece move lists while retaining each class's dice consumption, maximality proof,
+  * canonical path order and multiplicity. Captures may stop generation immediately; normal paths wait for a complete
+  * maximal-dice proof. [[BudgetedRules.visitTurnStates]] retains its older complete-discovery budget contract.
+  *
+  * ```scala
+  * import dicechess.engine.domain.FenParser
+  * import dicechess.engine.search.{ActiveDicePartitioner, BudgetedRules, TurnGenerator}
+  *
+  * val boundary        = FenParser.parse("4k3/8/8/8/8/8/8/4K3 w - - 0 1").toOption.get
+  * val traversal       = new TurnGenerator.SharedTraversal(boundary)
+  * var weightedResults = 0L
+  * for entry <- ActiveDicePartitioner.partitionsFor(boundary) do
+  *   val result = traversal.visit(entry.roll)((_, _, _, _) => true)
+  *   result match
+  *     case BudgetedRules.Outcome.Complete(summary, _) =>
+  *       // A completed zero-path class contributes its forced-pass successor with its full weight.
+  *       weightedResults += entry.weight.toLong * math.max(1, summary.emittedPaths)
+  *     case BudgetedRules.Outcome.Incomplete(_) => sys.error("unbounded traversal interrupted")
+  * assert(weightedResults > 0L && traversal.work.emitted > 0L)
+  * ```
+  *
+  * Supply `control.budget` and `() => control.isCancelled` for a controlled search. New shared traversal admissions
+  * count per-piece generation cache misses plus class-specific move examinations, unlike the full-generator units of
+  * [[BudgetedRules]]. Interruption is sticky and requires the caller to discard accumulated results, even when earlier
+  * proved king-capture callbacks were delivered. Independent nested or concurrent calls use independent traversals;
+  * borrowed path arrays must be copied within their callbacks.
   *
   * ## Staged Consumer Composition Example (#398)
   *
