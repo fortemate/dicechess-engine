@@ -246,14 +246,32 @@ object ChanceNode:
 
   /** One policy's lazy cross-class traversal. Never retained across chance nodes, even when they share a control.
     * Evaluators and selective reply policies consume the same canonical arrays as before. A terminal reply settles its
-    * class during discovery; an interrupted traversal never exposes its partially collected array.
+    * class during discovery; an interrupted traversal never exposes its partially collected array. Timed controls check
+    * the clock at class entry and every 64 internal cancellation polls. Work-budget exhaustion remains checked at every
+    * admission; individual geometry and callback operations remain non-preemptive.
     */
   final private[search] class ReplyTraversal(afterTurn: GameState, control: SearchControl):
-    private val traversal = new TurnGenerator.SharedTraversal(afterTurn, control.budget, () => control.isCancelled)
+    private inline val ClockPollInterval = 64
+    private var pollsBeforeClock         = 0
+    private val traversal                = new TurnGenerator.SharedTraversal(
+      afterTurn,
+      control.budget,
+      if control.isTimed then () => timedCancellation() else () => control.isCancelled
+    )
+
+    private inline def timedCancellation(): Boolean =
+      if pollsBeforeClock > 0 then
+        pollsBeforeClock -= 1
+        false
+      else
+        pollsBeforeClock = ClockPollInterval - 1
+        control.isCancelled
 
     def generate(rolled: GameState): Option[Replies] =
       if rolled.flags.isDicePoolEmpty && !control.isCancelled then Some(Replies.ForcedPass)
+      else if control.isTimed && control.isCancelled then None
       else
+        if control.isTimed then pollsBeforeClock = ClockPollInterval - 1
         val collector = new ReplyCollector
         traversal.visitFlags(rolled.flags)(collector.visit) match
           case BudgetedRules.Outcome.Incomplete(_)  => None

@@ -54,6 +54,8 @@ The shared traversal checks its cancellation callback before generation, edge ex
 
 Expectimax owns one shared traversal in each node's reply policy, including the probe and decision phases. Its deterministic work limits therefore follow the new admissions above. The standalone historical `Replies.generate` helper retains its budgeted API behavior. No evaluator callback, candidate policy, utility bound or class order moves into the traversal.
 
+The Expectimax reply adapter checks a timed control at each class entry and amortizes real-clock reads across at most 64 internal traversal cancellation polls. Work-budget exhaustion is still checked at every admission, and expired controls cannot admit work in a warmed class. The counter belongs to that reply traversal; nested and concurrent nodes do not share it. An individual generator or callback remains non-preemptive, so this interval is not a wall-clock bound. Direct compositions passing `() => control.isCancelled` check the timed clock on every cancellation callback instead.
+
 ## Scala composition
 
 ```scala

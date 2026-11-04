@@ -19,6 +19,9 @@ import scala.util.Random
   * geometry cache misses and class-specific edge examinations, with dice-empty continuations and cache hits requiring
   * no generation admission. Historical [[BudgetedRules]] queries retain their full-generator-call accounting. A work
   * limit is deterministic for the selected traversal, but its numerical value is not interchangeable between them.
+  * Expectimax's reply adapter checks a timed control at each class entry and amortizes subsequent real-clock reads
+  * across at most 64 internal traversal cancellation polls. Work-budget checks are not amortized. A direct
+  * `SharedTraversal` composition using `() => control.isCancelled` still checks this control on every callback.
   *
   * ## Check order and latching
   *

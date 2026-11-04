@@ -86,13 +86,57 @@ class SharedReplyTraversalSuite extends FunSuite:
     assert(traversal.generate(afterTurn).isEmpty)
     assert(traversal.generate(afterTurn.withDicePool(List(6))).isEmpty)
 
-  test("a deadline during normal discovery discards the partial reply collection"):
+  test("a deadline during traversal discards the partial reply collection"):
     val afterTurn = parse("4k3/8/8/8/8/8/8/4K3 w - - 0 1")
     var ticks     = 0L
     val control   = SearchControl.untilDeadline(7L, () => { ticks += 1; ticks })
     val traversal = new ChanceNode.ReplyTraversal(afterTurn, control)
     assert(traversal.generate(afterTurn.withDicePool(List(6, 6, 6))).isEmpty)
     assert(control.isCancelled)
+
+  test("deadline clock reads are amortized while deterministic work and exact replies remain unchanged"):
+    val afterTurn       = parse("4k3/8/8/8/8/8/8/4K3 w - - 0 1")
+    val rolled          = afterTurn.withDicePool(List(6, 6, 6))
+    val referenceBudget = new BudgetedRules.Budget(Long.MaxValue)
+    val reference       = new ChanceNode.ReplyTraversal(afterTurn, SearchControl.withBudget(referenceBudget))
+      .generate(rolled)
+      .getOrElse(fail("unbounded reference was interrupted"))
+    val budget     = new BudgetedRules.Budget(Long.MaxValue)
+    var clockReads = 0L
+    val control    = new SearchControl(Some(budget), 1L, () => { clockReads += 1; 0L })
+    val actual     = new ChanceNode.ReplyTraversal(afterTurn, control)
+      .generate(rolled)
+      .getOrElse(fail("far-future deadline was interrupted"))
+    assertEquals(snapshot(actual), snapshot(reference))
+    assertEquals(budget.used, referenceBudget.used)
+    assert(clockReads > 0L)
+    assert(clockReads * 4L < budget.used, s"clock reads=$clockReads, admitted work=${budget.used}")
+
+  test("an expired deadline is checked before a warmed class can admit any more work"):
+    val afterTurn = parse("4k3/8/8/8/8/8/8/4K3 w - - 0 1")
+    val rolled    = afterTurn.withDicePool(List(6, 6, 6))
+    val budget    = new BudgetedRules.Budget(Long.MaxValue)
+    var now       = 0L
+    val control   = new SearchControl(Some(budget), 1L, () => now)
+    val traversal = new ChanceNode.ReplyTraversal(afterTurn, control)
+    assert(traversal.generate(rolled).nonEmpty)
+    val used = budget.used
+    now = 2L
+    assert(traversal.generate(rolled).isEmpty)
+    assertEquals(budget.used, used)
+    assert(control.isCancelled)
+
+  test("a deadline firing inside a class discards replies before all deterministic work is admitted"):
+    val afterTurn  = parse("4k3/8/8/8/8/8/8/4K3 w - - 0 1")
+    val rolled     = afterTurn.withDicePool(List(6, 6, 6))
+    val fullBudget = new BudgetedRules.Budget(Long.MaxValue)
+    assert(new ChanceNode.ReplyTraversal(afterTurn, SearchControl.withBudget(fullBudget)).generate(rolled).nonEmpty)
+    val budget     = new BudgetedRules.Budget(Long.MaxValue)
+    var clockReads = 0
+    val control    = new SearchControl(Some(budget), 1L, () => { clockReads += 1; if clockReads == 1 then 0L else 2L })
+    assert(new ChanceNode.ReplyTraversal(afterTurn, control).generate(rolled).isEmpty)
+    assert(control.isCancelled)
+    assert(budget.used > 0L && budget.used < fullBudget.used)
 
   test("a chance expectation is incomplete at insufficient work and exact at its measured boundary"):
     val afterTurn                                            = parse("4k3/8/8/8/8/8/8/4K3 w - - 0 1")
