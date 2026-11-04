@@ -138,6 +138,14 @@ class SharedClassTraversalBenchmark:
 
   /** Independent accounting probe for the unchanged BudgetedRules visitor, outside measured operations. */
   private def legacyWork(rolled: GameState, stopFirst: Boolean): LegacyWork =
+    val discovery = new LegacyDiscovery
+    if !rolled.flags.isDicePoolEmpty then discovery.discover(rolled, MoveGenerator.computeEligibleEpPawns(rolled))
+    val all      = TurnGenerator.generateAllLegalTurnPaths(rolled)
+    val paths    = if stopFirst then all.take(1) else all
+    val replayed = legacyReplayWork(rolled, paths)
+    LegacyWork(discovery.generated, discovery.examined, discovery.transitions + replayed, replayed)
+
+  final private class LegacyDiscovery:
     var generated                                              = 0L
     var examined                                               = 0L
     var transitions                                            = 0L
@@ -145,19 +153,19 @@ class SharedClassTraversalBenchmark:
       generated += 1
       MoveGenerator.generateMoves(current, eligible).foreach { move =>
         examined += 1
-        if !current.isKingCapture(move) then
-          val remaining = current.diceAfter(move)
-          if remaining.isValid then
-            transitions += 1
-            val nextEligible =
-              if move.isEnPassant || eligible.contains(move.fromSquare) then eligible.remove(move.fromSquare)
-              else eligible
-            discover(current.makeMove(move).withDiceSlotsOf(remaining), nextEligible)
+        if !current.isKingCapture(move) then follow(current, eligible, move)
       }
-    if !rolled.flags.isDicePoolEmpty then discover(rolled, MoveGenerator.computeEligibleEpPawns(rolled))
 
-    val all          = TurnGenerator.generateAllLegalTurnPaths(rolled)
-    val paths        = if stopFirst then all.take(1) else all
+    private def follow(current: GameState, eligible: Bitboard, move: Move): Unit =
+      val remaining = current.diceAfter(move)
+      if remaining.isValid then
+        transitions += 1
+        val nextEligible =
+          if move.isEnPassant || eligible.contains(move.fromSquare) then eligible.remove(move.fromSquare)
+          else eligible
+        discover(current.makeMove(move).withDiceSlotsOf(remaining), nextEligible)
+
+  private def legacyReplayWork(rolled: GameState, paths: List[List[Move]]): Long =
     var prevFirst    = -1
     var prevSecond   = -1
     var previousKing = true
@@ -181,7 +189,7 @@ class SharedClassTraversalBenchmark:
       if path.length == 3 then replayed += 1
       previousKing = king
     }
-    LegacyWork(generated, examined, transitions + replayed, replayed)
+    replayed
 
 /** Counts are accumulated per measurement iteration. Normalize by `batches` for deterministic work per boundary. */
 @AuxCounters(AuxCounters.Type.EVENTS)

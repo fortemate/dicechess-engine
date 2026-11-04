@@ -246,30 +246,47 @@ object TurnGenerator:
           val bit  = 1 << face
           if face != 0 && (seen & bit) == 0 then
             seen |= bit
-            var moves = geometry(prefix, face)
-            while moves.nonEmpty && !stopped && live do
-              val move = moves.head
-              if admit() then
-                examining += 1
-                path(depth) = move
-                val spent  = consumed + (if move.isCastling then 2 else 1)
-                val packed = packPath(path, depth + 1, spent)
-                if prefix.state.isKingCapture(move) then
-                  found = true
-                  ctx.maxDice = math.max(ctx.maxDice, spent)
-                  emit(packed, prefix, move, true)
-                else
-                  val remaining = flags.consumeDiceFor(move, prefix.state.mailbox(move.fromSquare).pieceType)
-                  if remaining.isValid then
-                    found = true
-                    if remaining.isDicePoolEmpty then ctx.addNormal(packed)
-                    else
-                      val next      = child(prefix, move, packed)
-                      val continued = discover(next, remaining, depth + 1, spent)
-                      if !continued && !stopped && live then ctx.addNormal(packed)
-              moves = moves.tail
+            if discoverFace(prefix, flags, depth, consumed, face) then found = true
           slot += 1
         found
+
+      private def discoverFace(prefix: Prefix, flags: GameFlags, depth: Int, consumed: Int, face: Int): Boolean =
+        var found = false
+        var moves = geometry(prefix, face)
+        while moves.nonEmpty && !stopped && live do
+          val move = moves.head
+          if admit() then if discoverMove(prefix, flags, depth, consumed, move) then found = true
+          moves = moves.tail
+        found
+
+      private def discoverMove(prefix: Prefix, flags: GameFlags, depth: Int, consumed: Int, move: Move): Boolean =
+        examining += 1
+        path(depth) = move
+        val spent  = consumed + (if move.isCastling then 2 else 1)
+        val packed = packPath(path, depth + 1, spent)
+        if prefix.state.isKingCapture(move) then
+          ctx.maxDice = math.max(ctx.maxDice, spent)
+          emit(packed, prefix, move, true)
+          true
+        else discoverNormal(prefix, flags, depth, spent, move, packed)
+
+      private def discoverNormal(
+          prefix: Prefix,
+          flags: GameFlags,
+          depth: Int,
+          spent: Int,
+          move: Move,
+          packed: Long
+      ): Boolean =
+        val remaining = flags.consumeDiceFor(move, prefix.state.mailbox(move.fromSquare).pieceType)
+        if !remaining.isValid then false
+        else
+          if remaining.isDicePoolEmpty then ctx.addNormal(packed)
+          else
+            val next      = child(prefix, move, packed)
+            val continued = discover(next, remaining, depth + 1, spent)
+            if !continued && !stopped && live then ctx.addNormal(packed)
+          true
 
       private def emit(packed: Long, prefix: Prefix, move: Move, isKing: Boolean): Unit =
         if live then

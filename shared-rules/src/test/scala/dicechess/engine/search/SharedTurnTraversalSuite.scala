@@ -386,26 +386,32 @@ class SharedTurnTraversalSuite extends FunSuite:
       case other => fail(s"expected complete traversal, got $other")
 
   private def exhaustive(initial: GameState): List[List[Move]] =
-    def walk(state: GameState, path: List[Move], eligible: Bitboard): List[List[Move]] =
-      val continuations = MoveGenerator.generateMoves(state, eligible).flatMap { move =>
-        val nextPath = path :+ move
-        if state.isKingCapture(move) then List(nextPath)
-        else
-          val required =
-            if move.isCastling then List(4, 6) else List(state.mailbox(move.fromSquare).pieceType.diceValue)
-          val remaining = state.dicePool.diff(required)
-          if state.dicePool.size - remaining.size != required.size then Nil
-          else
-            val nextEligible =
-              if move.isEnPassant || eligible.contains(move.fromSquare) then eligible.remove(move.fromSquare)
-              else eligible
-            walk(state.makeMove(move).withDicePool(remaining), nextPath, nextEligible)
-      }
-      if continuations.isEmpty && path.nonEmpty then List(path) else continuations
-
-    val paths              = walk(initial, Nil, MoveGenerator.computeEligibleEpPawns(initial))
+    val paths              = walkExhaustive(initial, Nil, MoveGenerator.computeEligibleEpPawns(initial))
     val maximum            = paths.map(_.map(move => if move.isCastling then 2 else 1).sum).maxOption.getOrElse(0)
     val (captures, normal) = paths.partition { path =>
       path.init.foldLeft(initial)((s, move) => s.makeMove(move)).isKingCapture(path.last)
     }
     captures ++ normal.filter(_.map(move => if move.isCastling then 2 else 1).sum == maximum)
+
+  private def walkExhaustive(state: GameState, path: List[Move], eligible: Bitboard): List[List[Move]] =
+    val continuations = MoveGenerator.generateMoves(state, eligible).flatMap { move =>
+      val nextPath = path :+ move
+      if state.isKingCapture(move) then List(nextPath)
+      else continueExhaustive(state, nextPath, eligible, move)
+    }
+    if continuations.isEmpty && path.nonEmpty then List(path) else continuations
+
+  private def continueExhaustive(
+      state: GameState,
+      path: List[Move],
+      eligible: Bitboard,
+      move: Move
+  ): List[List[Move]] =
+    val required  = if move.isCastling then List(4, 6) else List(state.mailbox(move.fromSquare).pieceType.diceValue)
+    val remaining = state.dicePool.diff(required)
+    if state.dicePool.size - remaining.size != required.size then Nil
+    else
+      val nextEligible =
+        if move.isEnPassant || eligible.contains(move.fromSquare) then eligible.remove(move.fromSquare)
+        else eligible
+      walkExhaustive(state.makeMove(move).withDicePool(remaining), path, nextEligible)

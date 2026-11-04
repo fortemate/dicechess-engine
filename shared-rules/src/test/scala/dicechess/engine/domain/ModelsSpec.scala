@@ -216,7 +216,7 @@ class ModelsSpec extends FunSuite:
   }
 
   test("GameState.equals should return false for non-GameState object") {
-    val s: Any = emptyState()
+    val s = emptyState()
     assert(!s.equals("not a game state"))
   }
 
