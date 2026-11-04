@@ -71,6 +71,8 @@ flowchart TD
 
 ### 2.2 Canonical Turn-State Traversal and `endTurn()` Ownership (`#392`)
 
+The original two-phase budgeted visitor below remains the contract of `BudgetedRules.visitTurnStates` and `foldTurnStates`. The additive `TurnGenerator.SharedTraversal` API reuses prefixes across dice classes, and `forEachLegalTurnState` uses that mechanism for a single roll. Shared traversal can emit proved king captures during discovery; its separate accounting and early-stop contracts are specified in [Traversal Prefixes Across Dice Classes](/dicechess-engine/architecture/search/19-shared-class-traversal/) ([#442](https://github.com/fortemate/dicechess-engine/issues/442)).
+
 Within a turn for `mover = state.activeColor`, non-capturing path legality depends on `maxDice` — the maximum **dice consumed** achievable across the whole turn (castling consumes 2 dice; normal moves consume 1 die). Consequently, non-capturing paths cannot be emitted before `maxDice` is known for the entire turn.
 
 1. **Phase 1 — Discovery & Budget Admission (Zero Callback Emissions)**:
@@ -265,6 +267,7 @@ Each benchmark isolates a specific structural mechanism and exposes auxiliary wo
 | :--- | :--- | :--- | :--- |
 | `TurnGeneratorBenchmark` (`kiwipete`, `dicePool = 1,2` and `1,2,3`) | `replayAllLegalTurnPaths` (path list + full replay per path) | `forEachLegalTurnState` (2-slot shared-prefix visitor) | Reuses 1st- and 2nd-step `makeMove` prefix states and borrows a 3-slot `Array[Move]` instead of allocating per-path `List[Move]` instances. |
 | `BudgetedRulesBenchmark` (`endgame`, `workLimit`) | `turnPaths` (budgeted path lists) | `visitTurnStates` (budgeted resulting-state visitor) | Admits Phase 1 discovery against `Budget` before emitting post-`endTurn()` `GameState` entries with shared-prefix reuse. |
+| `SharedClassTraversalBenchmark` (`sparse`, `all-types`, `castling`, `promotion`, `en-passant`, `capture`) | Independent per-class `BudgetedRules.visitTurnStates`, full and stop-first | One `SharedTraversal` across classes, full and stop-first | Reports generation, edge examinations, discovery/result transitions, replay transitions, result counts and forced passes; use `-prof gc` for allocation. [Accounting and reproduction guide](/dicechess-engine/architecture/search/19-shared-class-traversal/). |
 | `AttackerTypesBenchmark` (`initial`, `kiwipete`, `endgame`) | `allAttackers` (attacker square bitboard) | `typeMask`, `availableRolls`, `cheapestAttacker` | Adds six piece-type bitboard intersections, a `bitCount` + table-free cube `216 - (6 - k)^3`, and `PieceValues.minimumOrElse` without heap allocation. |
 | `EvaluationCacheBenchmark` (`repeated`, `transposing`, `unique` batches) | `uncached` (direct evaluator call per path) | `cached` (per-invocation `EvaluationCache`) | Tracks `evalCalls`, `cacheHits`, and `entries` via `@AuxCounters` while preserving path multiplicity and seeded tie-breaking. |
 | `ExpectimaxSearchBenchmark` (`searchDepth = 2` and `3`, cold TT) | `coldTree` (`SearchControl.Unbounded`) | `coldTreeBudgeted` (`SearchControl.withBudget(Long.MaxValue)`) | Compares unbounded vs work-budgeted `ChanceNode.expand` traversal and cooperative yield-point overhead under `-prof gc`. |

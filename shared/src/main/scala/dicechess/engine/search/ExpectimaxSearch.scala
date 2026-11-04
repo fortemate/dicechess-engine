@@ -673,11 +673,12 @@ final class ExpectimaxSearch(
     * generates them twice, and a probe's exact value is reused by the decision node for the reply it searched.
     */
   final private class NodePolicy(toMove: GameState, ctx: SearchContext) extends ChanceNode.Policy:
-    private val bounds  = ctx.bounds
-    private val myColor = ctx.myColor
-    private val leafPly = ctx.pliesRemaining == 1
-    private val classes = ActiveDicePartitioner.partitionsFor(toMove).length
-    private val replies = Array.fill[ChanceNode.Replies](classes)(PendingReplies)
+    private val bounds    = ctx.bounds
+    private val myColor   = ctx.myColor
+    private val leafPly   = ctx.pliesRemaining == 1
+    private val classes   = ActiveDicePartitioner.partitionsFor(toMove).length
+    private val replies   = Array.fill[ChanceNode.Replies](classes)(PendingReplies)
+    private val traversal = new ChanceNode.ReplyTraversal(toMove, ctx.control)
 
     /** The reply the probe searched for each class (or [[NoProbe]]) and the exact value it found, reused by the
       * decision node rather than searched twice.
@@ -702,7 +703,7 @@ final class ExpectimaxSearch(
       val cached = replies(index)
       if cached ne PendingReplies then cached
       else
-        val generated = ChanceNode.Replies.generate(rolled, ctx.control) match
+        val generated = traversal.generate(rolled) match
           case Some(fresh) => fresh
           case None        => InterruptedReplies
         replies(index) = generated

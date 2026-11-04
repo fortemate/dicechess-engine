@@ -244,6 +244,22 @@ object ChanceNode:
     def isEmpty: Boolean           = buffer.isEmpty
     def result(): Array[GameState] = buffer.toArray
 
+  /** One policy's lazy cross-class traversal. Never retained across chance nodes, even when they share a control.
+    * Evaluators and selective reply policies consume the same canonical arrays as before. A terminal reply settles its
+    * class during discovery; an interrupted traversal never exposes its partially collected array.
+    */
+  final private[search] class ReplyTraversal(afterTurn: GameState, control: SearchControl):
+    private val traversal = new TurnGenerator.SharedTraversal(afterTurn, control.budget, () => control.isCancelled)
+
+    def generate(rolled: GameState): Option[Replies] =
+      val collector = new ReplyCollector
+      traversal.visitFlags(rolled.flags)(collector.visit) match
+        case BudgetedRules.Outcome.Incomplete(_)  => None
+        case BudgetedRules.Outcome.Complete(_, _) =>
+          if collector.captured then Some(Replies.KingCapture)
+          else if collector.isEmpty then Some(Replies.ForcedPass)
+          else Some(new Replies(collector.result(), capturesKing = false))
+
   /** Expands the chance node at `afterTurn` in partition order. See the object documentation for the contract. */
   def expand(
       afterTurn: GameState,

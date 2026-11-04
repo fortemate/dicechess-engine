@@ -110,15 +110,193 @@ object TurnGenerator:
   def forEachLegalTurnState(state: GameState)(
       f: (Array[Move], Int, GameState, Boolean) => Boolean
   ): Int =
-    val initialEligible = computeEligibleEpPawns(state)
-    val moves           = MoveGenerator.generateMoves(state, initialEligible)
-    if moves.isEmpty then 0
-    else
-      val ctx         = new TurnGenContext()
-      val currentPath = new Array[Move](3)
-      generatePathsSinglePass(state, currentPath, 0, 0, ctx, initialEligible, moves)
-      val (emitted, _) = replayTurnStates(state, ctx)(f)
-      emitted
+    new SharedTraversal(state).visitFlags(state.flags)(f) match
+      case BudgetedRules.Outcome.Complete(summary, _) => summary.emittedPaths
+      case BudgetedRules.Outcome.Incomplete(_)        => 0 // no cancellation source on this unbounded invocation
+
+  /** Work actually performed by one [[SharedTraversal]], cumulative across its classes. `generated` counts per-piece
+    * geometry calls on cache misses, `examined` counts class-specific candidate edges (including rejected castling),
+    * `transitions` counts `makeMove` calls during discovery and emission, `replayed` is its emission-only subset, and
+    * `emitted` counts visitor calls. Final `endTurn()` calls equal non-terminal emissions. These are deterministic
+    * operation counts, not time or heap bounds.
+    */
+  final case class TraversalWork(
+      generated: Long,
+      examined: Long,
+      transitions: Long,
+      emitted: Long,
+      replayed: Long = 0L
+  ) derives CanEqual
+
+  /** No total is claimed when a visitor stops before generation finishes. */
+  final case class SharedVisitSummary(emittedPaths: Int, stoppedEarly: Boolean) derives CanEqual
+
+  /** Lazy canonical traversal shared across the retained rolls of one fresh-roll position.
+    *
+    * Own one instance per chance node and discard it with that node. Only ordered move prefixes are shared: their
+    * dice-free boards, per-edge en-passant eligibility and lazily generated piece geometry. Different paths reaching
+    * the same board remain distinct. Dice consumption, promotion-created piece availability and maximality are resolved
+    * separately for each roll through the existing generator and `consumeDiceFor`; castling spends two dice.
+    *
+    * King captures are emitted as discovered, in canonical capture order, without `endTurn()`. Returning `false` is a
+    * complete stopping proof and prevents further discovery. Normal leaves are buffered as packed paths until the
+    * entire class proves its maximum dice consumption (including captures), then emitted in canonical order with
+    * exactly one `endTurn()` each. A partially explored normal branch is never emitted. The borrowed three-slot moves
+    * array is valid only during its callback; copy its used elements to retain a path.
+    *
+    * The optional budget admits one unit per geometry cache miss and per examined class edge. Cache hits and replay are
+    * free of admissions; empty dice need none. This deliberately differs from the historical, unchanged
+    * [[BudgetedRules.visitTurnStates]] contract. `Outcome` work is cumulative budget usage when supplied, otherwise
+    * this instance's `generated + examined`. Cancellation is checked before geometry, edges and emissions and latches
+    * for the instance. An incomplete visit may have emitted proven results; callers must discard their accumulation and
+    * must never infer a forced pass or exact value from it. A callback stop does not cancel later class visits.
+    *
+    * Instances are single-threaded and non-reentrant; nested and concurrent traversals need independent instances. No
+    * mutable state is global and the partitioner's immutable arrays are never modified. `initial` supplies the board,
+    * side, rights and counters; its dice are ignored by [[visit]]. No evaluator, utility or class order is owned here.
+    * Geometry calls are indivisible, so external time and memory supervision remains the host's responsibility.
+    */
+  final class SharedTraversal(
+      initial: GameState,
+      budget: Option[BudgetedRules.Budget] = None,
+      cancelled: () => Boolean = () => false
+  ):
+    final private class Prefix(val state: GameState, val eligible: Bitboard):
+      val geometry      = Array.fill[List[Move]](6)(Nil)
+      var generatedMask = 0
+
+    private val root        = new Prefix(initial.withDicePool(Nil), computeEligibleEpPawns(initial))
+    private val prefixes    = scala.collection.mutable.LongMap.empty[Prefix]
+    private var generating  = 0L
+    private var examining   = 0L
+    private var applying    = 0L
+    private var emitting    = 0L
+    private var replaying   = 0L
+    private var interrupted = false
+    private var visiting    = false
+
+    def work: TraversalWork = TraversalWork(generating, examining, applying, emitting, replaying)
+
+    private def used: Long = budget.fold(generating + examining)(_.used)
+
+    private def live: Boolean =
+      if !interrupted && (budget.exists(_.exhausted) || cancelled()) then interrupted = true
+      !interrupted
+
+    private def admit(): Boolean =
+      val allowed = live && budget.forall(_.admit())
+      if !allowed then interrupted = true
+      allowed
+
+    /** Visits one retained roll, preserving the ordinary canonical order and multiplicity. `Complete` with zero
+      * emissions and no callback stop proves a forced pass. `Incomplete` proves neither absence nor maximality.
+      */
+    def visit(roll: CompactRoll)(
+        f: (Array[Move], Int, GameState, Boolean) => Boolean
+    ): BudgetedRules.Outcome[SharedVisitSummary] = visitFlags(roll.applyToState(root.state).flags)(f)
+
+    private[search] def visitFlags(flags: GameFlags)(
+        f: (Array[Move], Int, GameState, Boolean) => Boolean
+    ): BudgetedRules.Outcome[SharedVisitSummary] =
+      require(!visiting, "use an independent SharedTraversal for nested visits")
+      visiting = true
+      try
+        val traversal = new ClassVisit(f)
+        if live then traversal.discover(root, flags, 0, 0)
+        if !traversal.stopped && live then traversal.replayNormals()
+        if !traversal.stopped && !live then BudgetedRules.Outcome.Incomplete(used)
+        else BudgetedRules.Outcome.Complete(SharedVisitSummary(traversal.emitted, traversal.stopped), used)
+      finally visiting = false
+
+    private def geometry(prefix: Prefix, face: Int): List[Move] =
+      val bit = 1 << (face - 1)
+      if (prefix.generatedMask & bit) == 0 && admit() then
+        generating += 1
+        prefix.geometry(face - 1) =
+          MoveGenerator.generatePieceMoves(prefix.state, PieceType.fromDice(face).get, prefix.eligible)
+        prefix.generatedMask |= bit
+      prefix.geometry(face - 1)
+
+    private def step(prefix: Prefix, move: Move): Prefix =
+      applying += 1
+      val eligible =
+        if move.isEnPassant || prefix.eligible.contains(move.fromSquare) then prefix.eligible.remove(move.fromSquare)
+        else prefix.eligible
+      new Prefix(prefix.state.makeMove(move), eligible)
+
+    private def child(prefix: Prefix, move: Move, packed: Long): Prefix =
+      // Dice usage is deliberately absent from the key; length distinguishes leading zero move slots.
+      val key = packed & 0x00ffffffffffffffL
+      prefixes.getOrElseUpdate(key, step(prefix, move))
+
+    final private class ClassVisit(f: (Array[Move], Int, GameState, Boolean) => Boolean):
+      private val ctx     = new TurnGenContext
+      private val path    = new Array[Move](3)
+      private val outPath = new Array[Move](3)
+      var emitted         = 0
+      var stopped         = false
+
+      /** True only after a legal completion was found; interruption never turns a prefix into a leaf. */
+      def discover(prefix: Prefix, flags: GameFlags, depth: Int, consumed: Int): Boolean =
+        var found = false
+        var seen  = 0
+        var slot  = 0
+        while slot < 3 && !stopped && live do
+          val face = if slot == 0 then flags.diceSlot1 else if slot == 1 then flags.diceSlot2 else flags.diceSlot3
+          val bit  = 1 << face
+          if face != 0 && (seen & bit) == 0 then
+            seen |= bit
+            var moves = geometry(prefix, face)
+            while moves.nonEmpty && !stopped && live do
+              val move = moves.head
+              if admit() then
+                examining += 1
+                path(depth) = move
+                val spent  = consumed + (if move.isCastling then 2 else 1)
+                val packed = packPath(path, depth + 1, spent)
+                if prefix.state.isKingCapture(move) then
+                  found = true
+                  ctx.maxDice = math.max(ctx.maxDice, spent)
+                  emit(packed, prefix, move, true)
+                else
+                  val remaining = flags.consumeDiceFor(move, prefix.state.mailbox(move.fromSquare).pieceType)
+                  if remaining.isValid then
+                    found = true
+                    if remaining.isDicePoolEmpty then ctx.addNormal(packed)
+                    else
+                      val next      = child(prefix, move, packed)
+                      val continued = discover(next, remaining, depth + 1, spent)
+                      if !continued && !stopped && live then ctx.addNormal(packed)
+              moves = moves.tail
+          slot += 1
+        found
+
+      private def emit(packed: Long, prefix: Prefix, move: Move, isKing: Boolean): Unit =
+        if live then
+          val len = unpackPath(packed, outPath)
+          // Discovery already built internal prefixes. Only an emitted leaf needs a final transition.
+          val raw = prefixes.get(packed & 0x00ffffffffffffffL) match
+            case Some(existing) => existing.state
+            case None           =>
+              applying += 1
+              replaying += 1
+              prefix.state.makeMove(move)
+          val result = if isKing then raw else raw.endTurn()
+          emitted += 1
+          emitting += 1
+          if !f(outPath, len, result, isKing) then stopped = true
+
+      def replayNormals(): Unit =
+        var index = 0
+        while index < ctx.normalCount && !stopped && live do
+          val packed = ctx.normalPaths(index)
+          if ((packed >>> 56) & 0xffL).toInt == ctx.maxDice then
+            val len    = unpackPath(packed, path)
+            val parent =
+              if len == 1 then root
+              else prefixes(packPath(path, len - 1, 0))
+            emit(packed, parent, path(len - 1), false)
+          index += 1
 
   /** Packs a path of up to 3 moves, its length, and the total dice consumed into a single 64-bit Long.
     *
