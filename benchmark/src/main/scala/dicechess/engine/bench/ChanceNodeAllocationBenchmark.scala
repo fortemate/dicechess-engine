@@ -38,7 +38,7 @@ class ChanceNodeAllocationBenchmark:
     state = BenchmarkPositions.parse(if position == "sparse" then "4k3/8/8/8/8/8/8/4K3 w - - 0 1"
     else "4k3/8/8/8/8/8/P7/RNBQK3 w - - 0 1")
     val classes = ActiveDicePartitioner.partitionsFor(state).length
-    val result  = expand(new MeasuredPolicy)
+    val result  = expand(new MeasuredPolicy(new ChanceNodeAllocationWork))
     require(result.classes == classes && !result.lossTainted)
     if scenario == "cancelled" then require(result.outcome.isIncomplete && result.classesResolved == 0)
     else if scenario == "cut" then
@@ -53,12 +53,13 @@ class ChanceNodeAllocationBenchmark:
 
   @Benchmark
   def construction(work: ChanceNodeAllocationWork, blackhole: Blackhole): Unit =
-    val policy = new MeasuredPolicy
+    val policy = new MeasuredPolicy(work)
     val result = expand(policy)
     work.record(policy.rolledStates, result.classesResolved, result.classes, policy.probes, policy.decisions)
+    work.consumeRetained(blackhole)
     blackhole.consume(result)
 
-  final private class MeasuredPolicy extends ChanceNode.Policy:
+  final private class MeasuredPolicy(work: ChanceNodeAllocationWork) extends ChanceNode.Policy:
     var rolledStates                                                               = 0L
     var probes                                                                     = 0L
     var decisions                                                                  = 0L
@@ -67,11 +68,13 @@ class ChanceNodeAllocationBenchmark:
     def lowestValue: Double                                                        = 0.0
     def highestValue: Double                                                       = 10.0
     override def probe(rolled: IArray[GameState]): Option[Array[ChanceNode.Value]] =
+      work.retainProbe(rolled)
       probes += 1
       rolledStates += rolled.length
       eager = true
       if policyMode == "active" then Some(Array.fill(rolled.length)(probeValue)) else None
     def decide(rolled: GameState, classIndex: Int, alpha: Double, beta: Double): ChanceNode.Value =
+      work.retainRoll(rolled)
       if !eager then rolledStates += 1
       decisions += 1
       ChanceNode.Value.exact(2.0)
@@ -80,26 +83,37 @@ class ChanceNodeAllocationBenchmark:
 @AuxCounters(AuxCounters.Type.EVENTS)
 @State(Scope.Thread)
 class ChanceNodeAllocationWork:
-  private var batchTotal    = 0L
-  private var rolledTotal   = 0L
-  private var resolvedTotal = 0L
-  private var classTotal    = 0L
-  private var probeTotal    = 0L
-  private var decisionTotal = 0L
-  def batches: Long         = batchTotal
-  def rolledStates: Long    = rolledTotal
-  def resolvedClasses: Long = resolvedTotal
-  def classes: Long         = classTotal
-  def probes: Long          = probeTotal
-  def decisions: Long       = decisionTotal
+  private val sentinel                      = BenchmarkPositions.parse("4k3/8/8/8/8/8/8/4K3 w - - 0 1")
+  private val emptyRolls: IArray[GameState] = IArray.empty
+  private var retainedRoll                  = sentinel
+  private var retainedProbe                 = emptyRolls
+  private var batchTotal                    = 0L
+  private var rolledTotal                   = 0L
+  private var resolvedTotal                 = 0L
+  private var classTotal                    = 0L
+  private var probeTotal                    = 0L
+  private var decisionTotal                 = 0L
+  def batches: Long                         = batchTotal
+  def rolledStates: Long                    = rolledTotal
+  def resolvedClasses: Long                 = resolvedTotal
+  def classes: Long                         = classTotal
+  def probes: Long                          = probeTotal
+  def decisions: Long                       = decisionTotal
   @Setup(Level.Iteration)
   def reset(): Unit =
+    retainedRoll = sentinel
+    retainedProbe = emptyRolls
     batchTotal = 0L
     rolledTotal = 0L
     resolvedTotal = 0L
     classTotal = 0L
     probeTotal = 0L
     decisionTotal = 0L
+  def retainRoll(state: GameState): Unit           = retainedRoll = state
+  def retainProbe(states: IArray[GameState]): Unit = retainedProbe = states
+  def consumeRetained(blackhole: Blackhole): Unit  =
+    blackhole.consume(retainedRoll)
+    blackhole.consume(retainedProbe)
   def record(rolled: Long, resolved: Int, count: Int, probes: Long, decisions: Long): Unit =
     batchTotal += 1
     rolledTotal += rolled

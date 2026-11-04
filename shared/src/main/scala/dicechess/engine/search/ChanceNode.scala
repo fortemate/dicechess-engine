@@ -412,9 +412,20 @@ object ChanceNode:
           fillSuffixes(probes)
         case None =>
           if alpha != Double.NegativeInfinity || beta != Double.PositiveInfinity then
-            initialUpper = uniformSuffix(0, policy.highestValue) / mass
-            initialLower = uniformSuffix(0, policy.lowestValue) / mass
+            prepareUniformBounds()
             if !(initialUpper < alpha || initialLower > beta) then fillSuffixes(None)
+
+    private def prepareUniformBounds(): Unit =
+      var upper    = 0.0
+      var lower    = 0.0
+      var position = count - 1
+      while position >= 0 do
+        val weight = entry(position).weight.toDouble
+        upper += weight * policy.highestValue
+        lower += weight * policy.lowestValue
+        position -= 1
+      initialUpper = upper / mass
+      initialLower = lower / mass
 
     private def fillSuffixes(values: Option[Array[Value]]): Unit =
       val ceilings = new Array[Double](count + 1)
@@ -453,7 +464,7 @@ object ChanceNode:
       * check happens inside the loop before the first class, as a Star1 cut on the declared range.
       */
     def run(): Result =
-      if probeIncomplete || (probed && control.isCancelled) then incomplete()
+      if probeIncomplete || (rolledStates.nonEmpty && control.isCancelled) then incomplete()
       else
         val probeUpper = if probed then ceilingAt(0) / mass else initialUpper
         val probeLower = if probed then floorAt(0) / mass else initialLower

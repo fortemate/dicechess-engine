@@ -107,7 +107,10 @@ class ChanceNodeScratchSuite extends FunSuite:
       assertEquals(result, ChanceNode.Result(SearchOutcome.Incomplete(0L), false, count, 0, false))
 
   test("cancellation during present or absent probes returns no value and resolves no classes"):
-    for present <- List(false, true) do
+    for
+      present <- List(false, true)
+      alpha   <- List(0.0, 11.0)
+    do
       var now     = 0L
       val control = SearchControl.untilDeadline(1L, () => now)
       val policy  = new ChanceNode.Policy:
@@ -122,7 +125,7 @@ class ChanceNodeScratchSuite extends FunSuite:
         sparse,
         ExpectimaxSearch.utilityBounds(Color.Black),
         control,
-        0.0,
+        alpha,
         Double.PositiveInfinity,
         policy
       )
@@ -149,3 +152,32 @@ class ChanceNodeScratchSuite extends FunSuite:
     val result = ChanceNode.expand(sparse, bounds, SearchControl.Unbounded, 0.0, Double.PositiveInfinity, outer)
     assertEquals(result.outcome.exactOption, Some(2.0))
     assertEquals(result.classesResolved, result.classes)
+
+  test("nested decisions preserve live outer suffixes and transformed child windows"):
+    val bounds     = ExpectimaxSearch.utilityBounds(Color.Black)
+    val outerState = ChanceNodeOracle.fixtures.last._2
+    val inner      = new ChanceNode.Policy:
+      override def probingEnabled: Boolean                                                          = false
+      def lowestValue: Double                                                                       = -20.0
+      def highestValue: Double                                                                      = 30.0
+      def decide(rolled: GameState, classIndex: Int, alpha: Double, beta: Double): ChanceNode.Value =
+        ChanceNode.Value.exact(3.0)
+    def one(nested: Boolean): (ChanceNode.Result, List[(Int, Double, Double)]) =
+      val windows = scala.collection.mutable.ListBuffer.empty[(Int, Double, Double)]
+      val outer   = new ChanceNode.Policy:
+        def lowestValue: Double                                                        = 0.0
+        def highestValue: Double                                                       = 10.0
+        override def probe(rolled: IArray[GameState]): Option[Array[ChanceNode.Value]] =
+          Some(Array.fill(rolled.length)(ChanceNode.Value(SearchOutcome.UpperBound(5.0, 0L))))
+        def decide(rolled: GameState, classIndex: Int, alpha: Double, beta: Double): ChanceNode.Value =
+          windows += ((classIndex, alpha, beta))
+          if nested then
+            val result = ChanceNode.expand(sparse, bounds, SearchControl.Unbounded, 0.0, 4.0, inner)
+            assertEquals(result.outcome.exactOption, Some(3.0))
+          ChanceNode.Value.exact(2.0)
+      val result = ChanceNode.expand(outerState, bounds, SearchControl.Unbounded, 1.5, 2.5, outer)
+      (result, windows.toList)
+    val expected = one(false)
+    assertEquals(expected._1.outcome.exactOption, Some(2.0))
+    assertEquals(expected._2.length, expected._1.classes)
+    assertEquals(one(true), expected)

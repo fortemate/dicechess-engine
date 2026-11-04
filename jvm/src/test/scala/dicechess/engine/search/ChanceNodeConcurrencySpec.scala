@@ -5,7 +5,7 @@ import dicechess.engine.domain.*
 import dicechess.engine.search.ChanceNodeOracle.{fixtures, LeafPolicy}
 import munit.FunSuite
 
-import java.util.concurrent.{Callable, Executors, TimeUnit}
+import java.util.concurrent.{Callable, CyclicBarrier, Executors, TimeUnit}
 import scala.util.Random
 
 /** JVM-only: independent [[ChanceNode]] invocations share nothing, so concurrent expansions of the same and of
@@ -59,6 +59,32 @@ class ChanceNodeConcurrencySpec extends FunSuite:
     val expected = cases.map(one.tupled)
     val repeated = cases ++ cases.reverse
     assertEquals(runAll(repeated.map(c => () => one.tupled(c))), repeated.map(c => expected(cases.indexOf(c))))
+
+  test("uncut opt-out expansions overlap after allocating independent suffix scratch"):
+    val cases   = List(fixtures.head._2, fixtures.last._2, fixtures.last._2, fixtures.head._2)
+    val barrier = new CyclicBarrier(cases.length)
+    def one(state: GameState, overlap: Boolean): ChanceNode.Result =
+      var first  = true
+      val policy = new ChanceNode.Policy:
+        override def probingEnabled: Boolean                                                          = false
+        def lowestValue: Double                                                                       = 0.0
+        def highestValue: Double                                                                      = 10.0
+        def decide(rolled: GameState, classIndex: Int, alpha: Double, beta: Double): ChanceNode.Value =
+          if first then
+            first = false
+            if overlap then barrier.await(30, TimeUnit.SECONDS)
+          ChanceNode.Value.exact(2.0)
+      ChanceNode.expand(
+        state,
+        ExpectimaxSearch.utilityBounds(Color.Black),
+        SearchControl.Unbounded,
+        1.5,
+        2.5,
+        policy
+      )
+    val expected = cases.map(one(_, false))
+    assert(expected.forall(_.outcome.exactOption.contains(2.0)))
+    assertEquals(runAll(cases.map(state => () => one(state, true))), expected)
 
   test("concurrent chance-node expansions reproduce the sequential outcomes"):
     val cases = for
