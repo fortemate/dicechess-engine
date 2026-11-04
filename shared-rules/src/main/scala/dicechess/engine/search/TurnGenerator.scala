@@ -250,16 +250,23 @@ object TurnGenerator:
           slot += 1
         found
 
-      private def discoverFace(prefix: Prefix, flags: GameFlags, depth: Int, consumed: Int, face: Int): Boolean =
+      // Inline the helpers to keep each recursion level's control flow in one runtime method.
+      private inline def discoverFace(prefix: Prefix, flags: GameFlags, depth: Int, consumed: Int, face: Int): Boolean =
         var found = false
         var moves = geometry(prefix, face)
         while moves.nonEmpty && !stopped && live do
           val move = moves.head
-          if admit() then if discoverMove(prefix, flags, depth, consumed, move) then found = true
+          if admit() && discoverMove(prefix, flags, depth, consumed, move) then found = true
           moves = moves.tail
         found
 
-      private def discoverMove(prefix: Prefix, flags: GameFlags, depth: Int, consumed: Int, move: Move): Boolean =
+      private inline def discoverMove(
+          prefix: Prefix,
+          flags: GameFlags,
+          depth: Int,
+          consumed: Int,
+          move: Move
+      ): Boolean =
         examining += 1
         path(depth) = move
         val spent  = consumed + (if move.isCastling then 2 else 1)
@@ -270,7 +277,7 @@ object TurnGenerator:
           true
         else discoverNormal(prefix, flags, depth, spent, move, packed)
 
-      private def discoverNormal(
+      private inline def discoverNormal(
           prefix: Prefix,
           flags: GameFlags,
           depth: Int,
