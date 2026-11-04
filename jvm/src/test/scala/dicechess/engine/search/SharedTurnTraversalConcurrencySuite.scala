@@ -3,11 +3,16 @@ package dicechess.engine.search
 
 import dicechess.engine.domain.*
 import munit.FunSuite
+import java.util.concurrent.{CyclicBarrier, Executors, TimeUnit}
 import scala.concurrent.{ExecutionContext, Future}
 
 /** Invocation isolation for #442: only immutable partition tables may cross concurrent traversal boundaries. */
 class SharedTurnTraversalConcurrencySuite extends FunSuite:
-  private given ExecutionContext = ExecutionContext.global
+  private val workers            = 4
+  private val pool               = Executors.newFixedThreadPool(workers)
+  private given ExecutionContext = ExecutionContext.fromExecutor(pool)
+
+  override def afterAll(): Unit = pool.shutdown()
 
   test("concurrent independent invocations retain their own prefix boards and borrowed arrays"):
     val states = List(
@@ -17,14 +22,20 @@ class SharedTurnTraversalConcurrencySuite extends FunSuite:
       "4k3/8/8/8/8/8/PP6/4K3 w - - 0 1"
     ).map(fen => FenParser.parse(fen).toOption.get)
     val expected = states.map(reference)
+    val barrier  = new CyclicBarrier(workers)
     Future
       .sequence((0 until 16).map { index =>
         Future {
           val state     = states(index % states.size)
           val traversal = new TurnGenerator.SharedTraversal(state)
           val entries   = List.newBuilder[(List[Int], String, Long, Boolean)]
+          var first     = true
           ActiveDicePartitioner.partitionsFor(state).foreach { weighted =>
             traversal.visit(weighted.roll) { (moves, len, result, capture) =>
+              if first then
+                first = false
+                if index < workers then
+                  val _ = barrier.await(10L, TimeUnit.SECONDS)
               entries += ((
                 moves.take(len).map(_.toInt).toList,
                 FenParser.serialize(result),
