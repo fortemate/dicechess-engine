@@ -2,6 +2,8 @@ import sbt.{given, *}
 import org.scalajs.linker.interface.{ESVersion, ModuleSplitStyle}
 import scala.jdk.CollectionConverters.*
 
+val ScalaV = "3.10.0"
+
 // =============================================================================
 // Project Metadata & Publishing Settings
 // =============================================================================
@@ -11,7 +13,7 @@ ThisBuild / organizationHomepage := Some(uri("https://fortemate.com"))
 ThisBuild / homepage             := Some(uri("https://fortemate.com"))
 ThisBuild / startYear            := Some(2026)
 ThisBuild / version              := "0.17.1-SNAPSHOT"
-ThisBuild / scalaVersion         := "3.10.0"
+ThisBuild / scalaVersion         := ScalaV
 
 ThisBuild / description   := "Cross-platform high-performance Dice Chess engine, move generator, and AI search."
 ThisBuild / licenses      := List(License("AGPL-3.0-only", uri("https://www.gnu.org/licenses/agpl-3.0.txt")))
@@ -41,7 +43,6 @@ ThisBuild / developers := List(
 // GPG key is imported by the CI step and unlocked via PGP_PASSPHRASE (sbt-pgp reads this).
 // Local publishing (publishM2, publishLocal) bypasses signing and needs no env vars.
 
-val ScalaV       = "3.8.4"
 val OnnxRuntimeV = "1.31.1"
 // Previous release of com.fortemate:dicechess-rules_3 that the current rules row must stay binary
 // compatible with (#246). release.yaml moves it to the version it has just released; keep the
@@ -230,7 +231,156 @@ lazy val rules = (projectMatrix in file("shared-rules"))
       // a libraryDependency: sbt drops a dependency on the project's own module id, and an ad-hoc retrieve
       // keeps the baseline off the compile classpath and out of the published POM. An intentional break is
       // accepted with a ProblemFilters.exclude entry in rulesMimaFilters, each with the issue that justifies it.
-      rulesMimaFilters            := Seq.empty,
+      // Scala 3.10 refines boxed-primitive generic signatures (scala/scala3#25944) and adds
+      // type parameters to synthetic copy defaults. JVM descriptors are unchanged. Accept only
+      // the reviewed members against this pre-upgrade baseline; retire these on the next release.
+      rulesMimaFilters := {
+        import com.typesafe.tools.mima.core.{IncompatibleSignatureProblem, ProblemFilters}
+        if (RulesMimaBaseline == "0.17.0")
+          Seq(
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.GameFlags#package#GameFlags.given_CanEqual_GameFlags_GameFlags()scala.CanEqual"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.GameFlags#package#GameFlags.fromList(Int,Int,Int,scala.collection.immutable.List,Int)Int"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.GameFlags#package#GameFlags.dicePool(Int)scala.collection.immutable.List"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.GameFlags#package#GameFlags.addDie(Int,Int)scala.util.Either"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.GameFlags#package#GameFlags.withDicePool(Int,scala.collection.immutable.List)Int"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.GameState.withDicePool(scala.collection.immutable.List)dicechess.engine.domain.GameState"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.Models#package#Bitboard.given_CanEqual_Bitboard_Bitboard()scala.CanEqual"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.Models#package#Color.given_CanEqual_Color_Color()scala.CanEqual"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.Models#package#MicroMove.given_CanEqual_MicroMove_MicroMove()scala.CanEqual"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.Models#package#MicroMove.apply(Int,Int,scala.Option)Int"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.Models#package#MicroMove.apply$default$3()scala.Option"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.Models#package#MicroMove.promotion(Int)scala.Option"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.Models#package#Piece.given_CanEqual_Piece_Piece()scala.CanEqual"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.Models#package#PieceType.given_CanEqual_PieceType_PieceType()scala.CanEqual"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.Models#package#PieceType.all()scala.collection.immutable.List"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.Models#package#PieceType.fromDice(Int)scala.Option"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.Models#package#Square.given_CanEqual_Square_Square()scala.CanEqual"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.Models#package#Square.fromNotation(java.lang.String)scala.Option"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.Move#package#Move.promotionPieceType(Int)scala.Option"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.Turn.this(Int,scala.collection.immutable.List)Unit"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.Turn.microMoves()scala.collection.immutable.List"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.Turn.copy(Int,scala.collection.immutable.List)dicechess.engine.domain.Turn"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.Turn.copy$default$2()scala.collection.immutable.List"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.Turn._2()scala.collection.immutable.List"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.domain.Turn.apply(Int,scala.collection.immutable.List)dicechess.engine.domain.Turn"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.movegen.LegalMovesFilter.filterMaximalMoves(dicechess.engine.domain.GameState)scala.collection.immutable.List"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.movegen.MoveGenerator.generateMoves(dicechess.engine.domain.GameState,Long)scala.collection.immutable.List"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.movegen.MoveGenerator.generateMoves(dicechess.engine.domain.GameState)scala.collection.immutable.List"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.movegen.MoveGenerator.generateAllMoves(dicechess.engine.domain.GameState)scala.collection.immutable.List"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.movegen.Perft.divide(dicechess.engine.domain.GameState,Int)scala.collection.immutable.Map"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.search.BudgetedRules.visitTurnStates(dicechess.engine.domain.GameState,dicechess.engine.search.BudgetedRules#Budget,scala.Function4)dicechess.engine.search.BudgetedRules#Outcome"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.search.BudgetedRules.foldTurnStates(dicechess.engine.domain.GameState,java.lang.Object,dicechess.engine.search.BudgetedRules#Budget,scala.Function4)dicechess.engine.search.BudgetedRules#Outcome"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.search.BudgetedRules.turnPaths(dicechess.engine.domain.GameState,dicechess.engine.search.BudgetedRules#Budget)dicechess.engine.search.BudgetedRules#Outcome"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.search.BudgetedRules.kingCapturePath(dicechess.engine.domain.GameState,dicechess.engine.search.BudgetedRules#Budget)dicechess.engine.search.BudgetedRules#Outcome"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.search.BudgetedRules.kingCaptureRolls(dicechess.engine.domain.GameState,Int,dicechess.engine.search.BudgetedRules#Budget)dicechess.engine.search.BudgetedRules#Outcome"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.search.BudgetedRules#Outcome#Complete.copy$default$2()Long"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.search.BudgetedRules#Outcome#Incomplete.copy$default$1()Long"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.search.BudgetedRules#TurnFoldResult.copy$default$2()Boolean"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.search.CompactRoll#package#CompactRoll.given_CanEqual_CompactRoll_CompactRoll()scala.CanEqual"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.search.CompactRoll#package#CompactRoll.fromSortedList(scala.collection.immutable.List)Int"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.search.CompactRoll#package#CompactRoll.toList(Int)scala.collection.immutable.List"
+            ),
+            ProblemFilters
+              .exclude[IncompatibleSignatureProblem]("dicechess.engine.search.DiceRolls.weighted()Array[scala.Tuple2]"),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.search.DiceRolls.byWeightDescending()Array[scala.Tuple2]"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.search.PlayableDice.of(dicechess.engine.domain.GameState,scala.collection.immutable.Seq)scala.Option"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.search.TurnGenerator.generateAllLegalTurnPaths(dicechess.engine.domain.GameState)scala.collection.immutable.List"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.search.TurnGenerator.forEachLegalTurnPath(dicechess.engine.domain.GameState,scala.Function2)Unit"
+            ),
+            ProblemFilters.exclude[IncompatibleSignatureProblem](
+              "dicechess.engine.search.TurnGenerator.forEachLegalTurnState(dicechess.engine.domain.GameState,scala.Function4)Int"
+            )
+          )
+        else Seq.empty
+      },
       assertRulesBinaryCompatible := Def.uncached {
         import com.typesafe.tools.mima.lib.MiMaLib
         val log     = streams.value.log
