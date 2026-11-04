@@ -35,6 +35,9 @@ class ChanceNodeAllocationBenchmark:
 
   @Setup(Level.Trial)
   def setup(): Unit =
+    require(position == "sparse" || position == "all-types", s"Unsupported position: $position")
+    require(Set("legacy-none", "no-probe", "active").contains(policyMode), s"Unsupported policy mode: $policyMode")
+    require(Set("open", "full", "cut", "cancelled").contains(scenario), s"Unsupported scenario: $scenario")
     state = BenchmarkPositions.parse(if position == "sparse" then "4k3/8/8/8/8/8/8/4K3 w - - 0 1"
     else "4k3/8/8/8/8/8/P7/RNBQK3 w - - 0 1")
     val classes = ActiveDicePartitioner.partitionsFor(state).length

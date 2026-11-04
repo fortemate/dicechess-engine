@@ -62,8 +62,8 @@ class TurnGeneratorBenchmark:
       rem = rem.tail
     count
 
-  /** Shared-prefix canonical state visitor (#392): reuses 2-slot intra-turn prefix cache without allocating
-    * `List[Move]`.
+  /** Single-roll canonical visitor (#392): discovers packed paths, then replays with two intermediate board slots
+    * without allocating `List[Move]`. Cross-class prefix caching is measured by `SharedClassTraversalBenchmark`.
     */
   @Benchmark
   def forEachLegalTurnState(blackhole: Blackhole): Int =

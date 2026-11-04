@@ -255,6 +255,42 @@ object ChanceNode:
     def isEmpty: Boolean           = buffer.isEmpty
     def result(): Array[GameState] = buffer.toArray
 
+  /** One policy's lazy cross-class traversal. Never retained across chance nodes, even when they share a control.
+    * Evaluators and selective reply policies consume the same canonical arrays as before. A terminal reply settles its
+    * class during discovery; an interrupted traversal never exposes its partially collected array. Timed controls check
+    * the clock at class entry and every 64 internal cancellation polls. Work-budget exhaustion remains checked at every
+    * admission; individual geometry and callback operations remain non-preemptive.
+    */
+  final private[search] class ReplyTraversal(afterTurn: GameState, control: SearchControl):
+    private inline val ClockPollInterval = 64
+    private var pollsBeforeClock         = 0
+    private val traversal                = new TurnGenerator.SharedTraversal(
+      afterTurn,
+      control.budget,
+      if control.isTimed then () => timedCancellation() else () => control.isCancelled
+    )
+
+    private inline def timedCancellation(): Boolean =
+      if pollsBeforeClock > 0 then
+        pollsBeforeClock -= 1
+        false
+      else
+        pollsBeforeClock = ClockPollInterval - 1
+        control.isCancelled
+
+    def generate(rolled: GameState): Option[Replies] =
+      if rolled.flags.isDicePoolEmpty && !control.isCancelled then Some(Replies.ForcedPass)
+      else if control.isTimed && control.isCancelled then None
+      else
+        if control.isTimed then pollsBeforeClock = ClockPollInterval - 1
+        val collector = new ReplyCollector
+        traversal.visitFlags(rolled.flags)(collector.visit) match
+          case BudgetedRules.Outcome.Incomplete(_)  => None
+          case BudgetedRules.Outcome.Complete(_, _) =>
+            if collector.captured then Some(Replies.KingCapture)
+            else if collector.isEmpty then Some(Replies.ForcedPass)
+            else Some(new Replies(collector.result(), capturesKing = false))
+
   /** Expands the chance node at `afterTurn` in partition order. See the object documentation for the contract. */
   def expand(
       afterTurn: GameState,
@@ -480,22 +516,26 @@ object ChanceNode:
       var result: Option[Result] = None
       var position               = 0
       while position < count && result.isEmpty do
-        if isSettled(position) then
-          accumulated += entry(position).weight.toDouble * settledValue(position)
-          resolved += 1
-        else
-          val upperNow = if alpha == Double.NegativeInfinity then Double.PositiveInfinity
-          else (accumulated + ceilingAt(position)) / mass
-          val lowerNow = if beta == Double.PositiveInfinity then Double.NegativeInfinity
-          else (accumulated + floorAt(position)) / mass
-          if upperNow < alpha then result = Some(upperBound(upperNow))
-          else if lowerNow > beta then result = Some(lowerBound(lowerNow))
-          else if control.isCancelled then result = Some(incomplete())
-          else result = expandClass(position)
+        result = resolveClass(position)
         position += 1
       result.getOrElse(
         Result(SearchOutcome.Exact(accumulated / mass, control.workUsed), tainted, count, resolved, probeCut)
       )
+
+    private inline def resolveClass(position: Int): Option[Result] =
+      if isSettled(position) then
+        accumulated += entry(position).weight.toDouble * settledValue(position)
+        resolved += 1
+        None
+      else
+        val upperNow = if alpha == Double.NegativeInfinity then Double.PositiveInfinity
+        else (accumulated + ceilingAt(position)) / mass
+        val lowerNow = if beta == Double.PositiveInfinity then Double.NegativeInfinity
+        else (accumulated + floorAt(position)) / mass
+        if upperNow < alpha then Some(upperBound(upperNow))
+        else if lowerNow > beta then Some(lowerBound(lowerNow))
+        else if control.isCancelled then Some(incomplete())
+        else expandClass(position)
 
     /** Searches one class inside the window its weight implies and folds the answer; `Some` ends the node. */
     private def expandClass(position: Int): Option[Result] =
