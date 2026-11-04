@@ -50,6 +50,7 @@ object ChanceNode:
   trait Policy:
     def lowestValue: Double
     def highestValue: Double
+    def probingEnabled: Boolean = true
     def probe(rolled: IArray[GameState]): Option[Array[Value]] = None
     def decide(rolled: GameState, classIndex: Int, alpha: Double, beta: Double): Value
 
@@ -82,6 +83,7 @@ val afterTurn = FenParser.parse("4k3/8/8/8/8/8/8/4K3 b - - 0 1").toOption.get
 val bounds    = ExpectimaxSearch.utilityBounds(perspective = Color.White)
 
 val policy = new ChanceNode.Policy:
+  override def probingEnabled: Boolean = false // exact decisions only; no probe callback or eager rolled-state array
   def lowestValue: Double  = bounds.terminalLoss   // the opponent may capture White's king
   def highestValue: Double = bounds.maxNonTerminal // one opponent ply can never win for White
   def decide(rolled: GameState, classIndex: Int, alpha: Double, beta: Double): ChanceNode.Value =
@@ -97,6 +99,14 @@ val result = ChanceNode.expand(afterTurn, bounds, SearchControl.Unbounded,
   alpha = Double.NegativeInfinity, beta = Double.PositiveInfinity, policy)
 assert(result.outcome.isExact && result.classes == 4)
 ```
+
+### Construction and explicit probe opt-out
+
+`probingEnabled` defaults to `true`, preserving existing `probe` overrides, callback frequency, visiting order and the correspondence between probe-array positions and decision indices. Set it to `false` only as an explicit declaration that the policy has no probes: the mechanism then suppresses the callback and constructs a rolled state only when its class is expanded. It never infers absence from the implementation type. An existing override that returns `None` keeps its callback and eager rolled-state array unless the consumer opts out.
+
+Already-cancelled entry returns the same `Incomplete` result and class telemetry before creating expansion scratch. Open windows allocate no suffix arrays. A finite unprobed window first computes the historical reverse-fold totals without arrays; an immediate strict cut needs no further scratch. Otherwise the node builds its two suffix arrays. Probe settlement arrays are allocated only when an exact probe value must be retained, and settled scores are copied before decisions can mutate caller-owned probe results.
+
+All mutable scratch belongs to one expansion and is discarded with it. Recursive and concurrent expansions own independent storage. Weights, strict cutoffs, transformed windows, open-window re-search and loss taint retain their existing semantics. These construction choices change no evaluator policy or serving default.
 
 ## 3. Bounds that are proven, not assumed
 
@@ -167,6 +177,14 @@ Every assertion uses a deterministic work limit, an injected clock or an exhaust
 A property over all fixtures, both perspectives, random windows, fail-soft and probing policies checks that every outcome is exact or a strict proven bound against the oracle; another that a random visiting order never changes an exact expectation. The JVM-only `ChanceNodeConcurrencySpec` runs the same expansions and whole `ExpectimaxSearch` invocations at both depths on eight threads and compares them with the sequential results. `ExpectimaxSearchSpec`, `ExpectimaxSearchControlSuite` and `ExpectimaxDepthThreeSpec` cover the search on top: scenario decisions, the F4/F7/F10 control boundaries at both depths, and the exhaustive per-candidate depth-3 oracle.
 
 ## 7. Performance
+
+`ChanceNodeAllocationBenchmark` isolates construction with constant exact decision values on sparse and all-piece-type positions. It covers open/full windows, an initial cut and already-cancelled entry, using an existing callback returning `None`, explicit probe opt-out and active probes. Trial setup checks the expected outcomes and class telemetry. Per-operation policy creation, rolled states and node scratch are inside measurement; partition initialization is outside. Auxiliary `rolledStates`, `resolvedClasses`, `classes`, `probes` and `decisions` totals are normalized by `batches` and reported alongside `-prof gc` allocation:
+
+```bash
+sbt 'benchmark/Jmh/run -prof gc .*ChanceNodeAllocationBenchmark.*'
+```
+
+This isolates the numerical mechanism without reply-generation or evaluator cost. Retain comparative timing/allocation results in the private knowledge base under **Chance-node construction performance qualification**. The harness and counters establish which work was performed; they make no end-to-end latency or playing-strength claim.
 
 Hot-path changes carry JMH evidence: `ExpectimaxSearchBenchmark` measures the cold-tree latency of the sparse rook ending at depths 2 and 3, with and without a work budget, and an A/B run alternates `origin/main` and the branch from exported classpaths with `-prof gc` so thermal drift cancels and allocation is measured alongside time. Where the saving comes from is structural: on that ending White's king and rook retain ten dice classes and Black's lone king four, against the 56 canonical rolls iterated before, the canonical visitor replaces per-reply path replays, and forced passes and terminal classes are settled by their probes. A position where both sides keep every piece type still has 56 classes and gains only the last two. The measured verdict lives in the private knowledge base (the #394 benchmark evidence page) under the repository's publication boundary; fixed-work parity is what the suites prove, and no claim about timed behaviour or playing strength is made here.
 

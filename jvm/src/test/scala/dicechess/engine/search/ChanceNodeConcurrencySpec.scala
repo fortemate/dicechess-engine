@@ -33,6 +33,33 @@ class ChanceNodeConcurrencySpec extends FunSuite:
       futures.map(_.get(5, TimeUnit.MINUTES))
     finally pool.shutdownNow()
 
+  test("lazy scratch and probe opt-out remain isolated across independent concurrent expansions"):
+    val cases = for
+      (_, state) <- List(fixtures.head, fixtures.last)
+      probe      <- List(false, true)
+      early      <- List(false, true)
+    yield (state, probe, early)
+    def one(state: GameState, probing: Boolean, early: Boolean): ChanceNode.Result =
+      val policy = new ChanceNode.Policy:
+        override def probingEnabled: Boolean                                           = probing
+        def lowestValue: Double                                                        = 0.0
+        def highestValue: Double                                                       = 10.0
+        override def probe(rolled: IArray[GameState]): Option[Array[ChanceNode.Value]] =
+          Some(Array.fill(rolled.length)(ChanceNode.Value.exact(2.0)))
+        def decide(rolled: GameState, classIndex: Int, alpha: Double, beta: Double): ChanceNode.Value =
+          ChanceNode.Value.exact(2.0)
+      ChanceNode.expand(
+        state,
+        ExpectimaxSearch.utilityBounds(Color.Black),
+        SearchControl.Unbounded,
+        if early then 11.0 else 0.0,
+        Double.PositiveInfinity,
+        policy
+      )
+    val expected = cases.map(one.tupled)
+    val repeated = cases ++ cases.reverse
+    assertEquals(runAll(repeated.map(c => () => one.tupled(c))), repeated.map(c => expected(cases.indexOf(c))))
+
   test("concurrent chance-node expansions reproduce the sequential outcomes"):
     val cases = for
       (_, afterTurn) <- fixtures
