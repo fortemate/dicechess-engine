@@ -81,6 +81,8 @@ class EndTurnInput:
 /** Result construction has one endTurn per normal path and no endTurn for a terminal path. */
 @State(Scope.Thread)
 class TurnFinalizationInput:
+  private inline val KingCaptureFixture = "king-capture"
+
   @Param(Array("normal", "king-capture"))
   var fixture: String = uninitialized
   @Param(Array("white", "black"))
@@ -90,8 +92,8 @@ class TurnFinalizationInput:
   var state: GameState = uninitialized
   @Setup(Level.Trial)
   def setup(): Unit =
-    require(fixture == "normal" || fixture == "king-capture", s"Unsupported fixture: $fixture")
-    state = EndTurnFixtures.state(color, targets, List(1, 1, 6), kingCapture = fixture == "king-capture")
+    require(fixture == "normal" || fixture == KingCaptureFixture, s"Unsupported fixture: $fixture")
+    state = EndTurnFixtures.state(color, targets, List(1, 1, 6), kingCapture = fixture == KingCaptureFixture)
     val expected = TurnGenerator.generateAllLegalTurnPaths(state)
     var index    = 0
     var normal   = 0
@@ -108,7 +110,7 @@ class TurnFinalizationInput:
     }
     require(index == expected.length && index > 0)
     require(normal > 0, "every fixture must exercise normal turn finalization")
-    require(if fixture == "king-capture" then terminal > 0 else terminal == 0)
+    require(if fixture == KingCaptureFixture then terminal > 0 else terminal == 0)
 
 private object EndTurnFixtures:
   def state(color: String, targets: String, dice: List[Int], kingCapture: Boolean = false): GameState =
