@@ -101,4 +101,20 @@ This function is responsible for the critical **state transition boundary**:
 
 1. **Active Color Toggle**: The active color switches to the opponent (e.g., White $\rightarrow$ Black).
 2. **Move Counter**: The `fullMoveNumber` increments if the completing player was Black.
-3. **Stale En-Passant Cleanup**: This is uniquely vital in Dice Chess. Since a player can push multiple pawns in one turn, multiple en-passant targets can exist. When the player *ends* their turn, any en-passant targets they created *on their previous turn* (which the opponent had a chance to capture but didn't) are wiped out. The targets they just created in *this* turn are preserved for the opponent's upcoming turn.
+3. **Stale En-Passant Cleanup**: Since a player can push multiple pawns in one turn, multiple targets can exist. Cleanup removes the incoming side's older targets: rank 6 when Black moves next, rank 3 when White moves next. The outgoing player's new targets survive for the opponent's upcoming turn. Other ranks and every surviving target bit are preserved.
+4. **Dice Cleanup**: The completed turn's dice pool is cleared, including when the caller supplies a non-empty pool.
+5. **Derived Hash**: The active-color and dice keys change, and precisely the expired full-target square keys are removed. Both an already populated key and a key computed on demand agree with independent recomputation.
+
+### Immutable state construction
+
+`GameState.endTurn()` computes cleanup and finalization before constructing one immutable state copy. It does not create an intermediate `GameState` through `clearEnPassant`; that method remains independently callable with its existing behavior. Pieces and the mailbox are reused, the half-move clock and castling rights are preserved, and the full-move number advances only after Black. The full en-passant bitboard is authoritative for cleanup; packed EP file flags keep their existing value rather than being normalized as an incidental change.
+
+Canonical resulting-state traversal calls `endTurn()` exactly once for each normal legal turn. A king-capture result keeps the mover's active color and unfinalized counters and targets. This boundary remains the same with shared prefixes or exact evaluation memoization.
+
+`MakeMoveBenchmark.endTurn` isolates both colors, absent/stale/mixed targets and empty/non-empty dice. `MakeMoveBenchmark.resultingTurnStates` measures normal resulting-state construction on the same target/color fixtures. Setup compares ordered paths, fields and independently recomputed hashes before timing; auxiliary result counts establish identical work. Run with `-prof gc` and normalize `normalResults` and `terminalResults` by `operations`:
+
+```bash
+sbt 'benchmark/Jmh/run -bm avgt -prof gc .*MakeMoveBenchmark.(endTurn|resultingTurnStates).*'
+```
+
+Keep comparative time/allocation measurements in the private knowledge base under **Turn-finalization construction performance qualification**. This measures immutable-state construction and fixed-work parity, not playing strength.
