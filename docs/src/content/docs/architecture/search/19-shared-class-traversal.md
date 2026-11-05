@@ -28,7 +28,7 @@ Normal paths wait until the entire class has been explored and the maximum achie
 For every emitted result:
 
 - A king capture applies the path without `endTurn()`, preserving the mover's active color.
-- A normal maximal turn applies exactly one `endTurn()`, clearing dice, flipping the side and advancing Black's full-move counter.
+- A normal maximal turn applies the semantics of exactly one `endTurn()`, clearing dice, flipping the side and advancing Black's full-move counter. An uncached final edge fuses move application and this finalization into one immutable state construction; a cached intermediate board still uses `endTurn()` directly.
 - The resulting board and Zobrist hash equal plain sequential replay. Duplicate paths or states remain duplicate callbacks.
 - The move array is borrowed and reused. Copy `moves.take(length).toList` inside the callback to retain a path.
 
@@ -42,9 +42,11 @@ The new shared traversal has an explicit accounting contract. Its cumulative `Tr
 | :--- | :--- |
 | `generated` | Actual per-piece move-generator calls on cache misses. A cache hit requires no generation admission. |
 | `examined` | Micro-move examinations for each visited class, including cached moves whose class-specific dice consumption must be checked. |
-| `transitions` | Actual `makeMove` calls during discovery and result construction. |
+| `transitions` | Move applications during discovery and result construction: `makeMove` calls and fused final edges through `makeMoveAndEndTurn`. Cached-prefix `endTurn()` calls are not counted. |
 | `emitted` | Visitor callbacks, preserving path multiplicity. |
 | `replayed` | The subset of `transitions` needed to apply an emitted leaf that has no cached intermediate board. |
+
+Fusing an uncached final edge does not change these counts or the admission unit: it is still one move transition and one normal-turn finalization. Three-move leaves cannot be intermediate prefixes under the three-dice rule, so they bypass the prefix-map lookup. Final states are constructed only when emitted; completed leaves are not retained in another traversal cache.
 
 One budget unit admits a per-piece generator call or an examined move; therefore newly admitted work is `generated + examined`. Cached geometry and dice-empty continuations require no generator call. `used` is cumulative on the supplied `BudgetedRules.Budget`, including previous queries that used that budget. Without a supplied budget it is the traversal's cumulative admitted work.
 

@@ -20,14 +20,15 @@ import dicechess.engine.domain.{Color, GameState}
   * Memoization must not become candidate deduplication.
   *
   * Memory grows with the number of unique evaluated state/perspective pairs in the invocation. A constant-work scalar
-  * fingerprint selects a collision chain; exact equality, including the mailbox, still decides every hit. No tuple is
-  * allocated for a lookup and the fingerprint is computed once, including on misses. Callers control the candidate/work
-  * bound. There is no eviction or reuse across invocations. This is an exact evaluation cache, separate from
-  * [[TranspositionTable]] search bounds (#397).
+  * fingerprint selects a slot in a linear-probing reference table; exact equality, including the mailbox, still decides
+  * every hit. References and primitive values are stored directly without per-entry objects. No tuple is allocated for
+  * a lookup and the fingerprint is computed once, including on misses. Callers control the candidate/work bound. There
+  * is no eviction or reuse across invocations. This is an exact evaluation cache, separate from [[TranspositionTable]]
+  * search bounds (#397).
   *
   * FEN parsing and engine transitions keep the mailbox consistent with the bitboards. Arbitrary synthetic copies need
   * not preserve that invariant: mailbox-only variants deliberately share a scalar fingerprint but remain distinct by
-  * equality. Ordinary index collisions can also occur between consistent states. A lookup scans its collision chain;
+  * equality. Ordinary index collisions can also occur between consistent states. A lookup scans its occupied cluster;
   * inserting many colliding values can require quadratic equality work. Table growth does not separate identical
   * fingerprints, and constant fingerprint cost is not a worst-case constant lookup guarantee.
   *
@@ -73,17 +74,10 @@ import dicechess.engine.domain.{Color, GameState}
   *   pure deterministic callback with immutable input and configuration for this invocation
   */
 final class EvaluationCache(evalFn: (GameState, Color) => Int):
-  sealed private trait Bucket derives CanEqual
-  private case object Empty extends Bucket
-  final private class Entry(
-      val hash: Int,
-      val state: GameState,
-      val perspective: Color,
-      var value: Int,
-      var next: Bucket
-  ) extends Bucket
-
-  private var entries  = Array.fill[Bucket](16)(Empty)
+  private object Empty
+  private var states   = Array.fill[AnyRef](16)(Empty)
+  private var hashes   = new Array[Int](16)
+  private var values   = new Array[Int](16)
   private var calls    = 0L
   private var hits     = 0L
   private var retained = 0
@@ -97,76 +91,81 @@ final class EvaluationCache(evalFn: (GameState, Color) => Int):
   /** Number of successful state/perspective pairs retained by this invocation. */
   def entryCount: Int = retained
 
-  // The mailbox is deliberately omitted from the index, never from identity. This avoids its 64-entry hash walk;
-  // even inconsistent synthetic states with identical scalar fields remain distinct through full equality below.
-  // Neither a populated nor an unpopulated derived Zobrist key participates in this fingerprint.
+  // Mix both halves before folding: Long.hashCode would erase equal high/low changes before final mixing.
+  // The mailbox is omitted only from the index. Exact equality below still includes all of its contents.
+  private inline def field(value: Long): Int =
+    val mixed = value * 0x9e3779b97f4a7c15L
+    (mixed ^ (mixed >>> 32)).toInt
+
   private def fingerprint(state: GameState, perspective: Color): Int =
-    var hash = if perspective.isWhite then 17 else 19
-    hash = hash * 31 + java.lang.Long.hashCode(state.whitePieces.value)
-    hash = hash * 31 + java.lang.Long.hashCode(state.blackPieces.value)
-    hash = hash * 31 + java.lang.Long.hashCode(state.pawns.value)
-    hash = hash * 31 + java.lang.Long.hashCode(state.knights.value)
-    hash = hash * 31 + java.lang.Long.hashCode(state.bishops.value)
-    hash = hash * 31 + java.lang.Long.hashCode(state.rooks.value)
-    hash = hash * 31 + java.lang.Long.hashCode(state.queens.value)
-    hash = hash * 31 + java.lang.Long.hashCode(state.kings.value)
-    hash = hash * 31 + state.flags.value
-    hash = hash * 31 + java.lang.Long.hashCode(state.enPassant.value)
-    hash = hash * 31 + state.fullMoveNumber
-    hash ^ (hash >>> 16)
+    var hash = field(state.whitePieces.value)
+    hash = java.lang.Integer.rotateLeft(hash, 5) ^ field(state.blackPieces.value)
+    hash = java.lang.Integer.rotateLeft(hash, 5) ^ field(state.pawns.value)
+    hash = java.lang.Integer.rotateLeft(hash, 5) ^ field(state.knights.value)
+    hash = java.lang.Integer.rotateLeft(hash, 5) ^ field(state.bishops.value)
+    hash = java.lang.Integer.rotateLeft(hash, 5) ^ field(state.rooks.value)
+    hash = java.lang.Integer.rotateLeft(hash, 5) ^ field(state.queens.value)
+    hash = java.lang.Integer.rotateLeft(hash, 5) ^ field(state.kings.value)
+    hash = java.lang.Integer.rotateLeft(hash, 5) ^ field(state.enPassant.value)
+    hash = java.lang.Integer.rotateLeft(hash, 5) ^ (state.flags.value * 0x85ebca6b)
+    hash = java.lang.Integer.rotateLeft(hash, 5) ^ (state.fullMoveNumber * 0xc2b2ae35)
+    hash ^= hash >>> 16
+    hash *= 0x85ebca6b
+    hash ^= hash >>> 13
+    // Reserve one bit for the exact perspective, so equal signatures imply equal colors.
+    (hash & ~1) | perspective.value
 
-  private def bucket(hash: Int): Bucket = entries(hash & (entries.length - 1))
+  // Linear probing stores references and primitive data directly, without a linked Entry per success.
+  // Empty slots use a private sentinel, allowing every Int hash and evaluator result to be stored.
+  private def find(hash: Int, state: GameState): Int =
+    val mask = states.length - 1
+    var slot = (hash >>> 1) & mask
+    while (states(slot) ne Empty) &&
+      !(hashes(slot) == hash && ((states(slot) eq state) || states(slot).asInstanceOf[GameState] == state))
+    do slot = (slot + 1) & mask
+    slot
 
-  // A resizable reference table stores only chain heads, with no boxed primitive keys or parallel key arrays.
-  // Relinking retained entries on growth neither evaluates a state nor recomputes its fingerprint.
   private def grow(): Unit =
-    val previous = entries
-    entries = Array.fill[Bucket](previous.length * 2)(Empty)
+    val oldStates = states
+    val oldHashes = hashes
+    val oldValues = values
+    states = Array.fill[AnyRef](oldStates.length * 2)(Empty)
+    hashes = new Array[Int](states.length)
+    values = new Array[Int](states.length)
+    val mask  = states.length - 1
     var index = 0
-    while index < previous.length do
-      var cursor   = previous(index)
-      var scanning = true
-      while scanning do
-        cursor match
-          case entry: Entry =>
-            cursor = entry.next
-            val slot = entry.hash & (entries.length - 1)
-            entry.next = entries(slot)
-            entries(slot) = entry
-          case Empty => scanning = false
+    while index < oldStates.length do
+      if oldStates(index) ne Empty then
+        val hash = oldHashes(index)
+        var slot = (hash >>> 1) & mask
+        while states(slot) ne Empty do slot = (slot + 1) & mask
+        states(slot) = oldStates(index)
+        hashes(slot) = hash
+        values(slot) = oldValues(index)
       index += 1
-
-  private def find(bucket: Bucket, hash: Int, state: GameState, perspective: Color): Bucket =
-    var cursor    = bucket
-    var searching = true
-    while searching do
-      cursor match
-        case entry: Entry =>
-          if entry.hash == hash && entry.perspective == perspective && ((entry.state eq state) || entry.state == state)
-          then searching = false
-          else cursor = entry.next
-        case Empty => searching = false
-    cursor
 
   /** Returns a cached value or evaluates once. Exceptions propagate unchanged and never create an entry; a later access
     * retries the callback. Every returned `Int`, including sentinel-like extreme values, is cacheable.
     */
   def apply(state: GameState, perspective: Color): Int =
     val hash = fingerprint(state, perspective)
-    find(bucket(hash), hash, state, perspective) match
-      case entry: Entry =>
-        hits += 1
-        entry.value
-      case Empty =>
-        calls += 1
-        val value = evalFn(state, perspective)
-        // Re-read only the primitive index after the callback: a nested successful evaluation must survive, even
-        // when it populated this collision chain or the same key. Failures reach neither mutation below.
-        find(bucket(hash), hash, state, perspective) match
-          case entry: Entry => entry.value = value
-          case Empty        =>
-            if retained >= entries.length - entries.length / 4 then grow()
-            val slot = hash & (entries.length - 1)
-            entries(slot) = new Entry(hash, state, perspective, value, entries(slot))
-            retained += 1
-        value
+    var slot = find(hash, state)
+    if states(slot) ne Empty then
+      hits += 1
+      values(slot)
+    else
+      val before = retained
+      calls += 1
+      val value = evalFn(state, perspective)
+      // Without successful re-entry, neither the vacant slot nor its backing arrays can have changed.
+      // A callback may insert this very key, grow the table, or fail after retaining other nested successes.
+      if retained != before then slot = find(hash, state)
+      if states(slot) eq Empty then
+        if retained >= states.length - states.length / 4 then
+          grow()
+          slot = find(hash, state)
+        hashes(slot) = hash
+        states(slot) = state
+        retained += 1
+      values(slot) = value
+      value
