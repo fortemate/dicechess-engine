@@ -12,7 +12,7 @@ ThisBuild / organizationName     := "Fortemate"
 ThisBuild / organizationHomepage := Some(uri("https://fortemate.com"))
 ThisBuild / homepage             := Some(uri("https://fortemate.com"))
 ThisBuild / startYear            := Some(2026)
-ThisBuild / version              := "0.18.1-SNAPSHOT"
+ThisBuild / version              := "0.18.2-SNAPSHOT"
 ThisBuild / scalaVersion         := ScalaV
 
 ThisBuild / description   := "Cross-platform high-performance Dice Chess engine, move generator, and AI search."
@@ -47,7 +47,7 @@ val OnnxRuntimeV = "1.31.1"
 // Previous release of com.fortemate:dicechess-rules_3 that the current rules row must stay binary
 // compatible with (#246). release.yaml moves it to the version it has just released; keep the
 // literal on this one line so that sed finds it.
-val RulesMimaBaseline = "0.18.0"
+val RulesMimaBaseline = "0.18.1"
 
 // Fails the build when a coverage run produced no instrumentation metadata (#531).
 lazy val assertRulesBinaryCompatible =
