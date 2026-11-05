@@ -50,6 +50,15 @@ class NestedChanceCacheBenchmark:
     require(states.nonEmpty)
     // Force partition initialization outside measurement and verify against uncached exhaustive scoring.
     states.foreach(s => ActiveDicePartitioner.partitionsFor(s))
+    if position == "promotion-ep" then
+      require(
+        states.exists { state =>
+          ActiveDicePartitioner.partitionsFor(state).exists { entry =>
+            TurnGenerator.generateAllLegalTurnPaths(entry.roll.applyToState(state)).exists(_.exists(_.isEnPassant))
+          }
+        },
+        "promotion-ep must retain an en-passant reply in the measured nested expansions"
+      )
     val actual    = batch(new NestedChanceCacheWork)
     val reference = states.map { state =>
       val classes = ActiveDicePartitioner.partitionsFor(state)

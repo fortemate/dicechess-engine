@@ -42,7 +42,7 @@ The new shared traversal has an explicit accounting contract. Its cumulative `Tr
 | :--- | :--- |
 | `generated` | Actual per-piece move-generator calls on cache misses. A cache hit requires no generation admission. |
 | `examined` | Micro-move examinations for each visited class, including cached moves whose class-specific dice consumption must be checked. |
-| `transitions` | Actual `makeMove` calls during discovery and result construction. |
+| `transitions` | Move applications during discovery and result construction: `makeMove` calls and fused final edges through `makeMoveAndEndTurn`. Cached-prefix `endTurn()` calls are not counted. |
 | `emitted` | Visitor callbacks, preserving path multiplicity. |
 | `replayed` | The subset of `transitions` needed to apply an emitted leaf that has no cached intermediate board. |
 

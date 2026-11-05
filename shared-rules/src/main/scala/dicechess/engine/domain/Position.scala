@@ -526,6 +526,14 @@ extension (state: GameState)
   // Shared traversal already proved this is a normal final edge. Complete it without an intermediate GameState.
   private[engine] def makeMoveAndEndTurn(mv: Move): GameState = applyMove(mv, completeTurn = true)
 
+  // Keep completion bookkeeping readable without adding calls or allocations to move application.
+  private inline def moveEnPassantAtBoundary(inline moveEnPassant: Bitboard, inline completeTurn: Boolean): Bitboard =
+    val staleRankMask = if completeTurn then 0xffL << (if state.activeColor.isBlack then 16 else 40) else 0L
+    Bitboard(moveEnPassant.value & ~staleRankMask)
+
+  private inline def moveNumberAfter(inline completeTurn: Boolean): Int =
+    state.fullMoveNumber + (if completeTurn && state.activeColor.isBlack then 1 else 0)
+
   private def applyMove(mv: Move, completeTurn: Boolean): GameState = {
     val from       = mv.fromSquare
     val to         = mv.toSquare
@@ -572,9 +580,8 @@ extension (state: GameState)
     )
 
     // endTurn expires the incoming side's targets but deliberately preserves the pre-cleanup packed EP files.
-    val staleRankMask = if completeTurn then 0xffL << (if state.activeColor.isBlack then 16 else 40) else 0L
-    val newEnPassant  = Bitboard(moveEnPassant.value & ~staleRankMask)
-    val key           = Position.computeMoveZobristKey(state, mv, mover, target, newEnPassant, newFlags) ^
+    val newEnPassant = moveEnPassantAtBoundary(moveEnPassant, completeTurn)
+    val key          = Position.computeMoveZobristKey(state, mv, mover, target, newEnPassant, newFlags) ^
       (if completeTurn then Zobrist.ActiveColorKey else 0L)
 
     state.copy(
@@ -589,7 +596,7 @@ extension (state: GameState)
       mailbox = Mailbox.fromBuilder(b.mailbox),
       flags = newFlags,
       enPassant = newEnPassant,
-      fullMoveNumber = state.fullMoveNumber + (if completeTurn && state.activeColor.isBlack then 1 else 0),
+      fullMoveNumber = moveNumberAfter(completeTurn),
       zobristKey = key
     )
   }
