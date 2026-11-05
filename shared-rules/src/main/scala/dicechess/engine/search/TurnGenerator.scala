@@ -125,8 +125,9 @@ object TurnGenerator:
   /** Work actually performed by one [[SharedTraversal]], cumulative across its classes. `generated` counts per-piece
     * geometry calls on cache misses, `examined` counts class-specific candidate edges (including rejected castling),
     * `transitions` counts `makeMove` calls during discovery and emission, `replayed` is its emission-only subset, and
-    * `emitted` counts visitor calls. Final `endTurn()` calls equal non-terminal emissions. These are deterministic
-    * operation counts, not time or heap bounds.
+    * `emitted` counts visitor calls. Turn finalizations equal non-terminal emissions; an uncached final edge fuses move
+    * application and the semantics of one `endTurn()` without constructing an intermediate state. These are
+    * deterministic operation counts, not time or heap bounds.
     */
   final case class TraversalWork(
       generated: Long,
@@ -308,13 +309,14 @@ object TurnGenerator:
         if live then
           val len = unpackPath(packed, outPath)
           // Discovery already built internal prefixes. Only an emitted leaf needs a final transition.
-          val raw = prefixes.get(packed & 0x00ffffffffffffffL) match
-            case Some(existing) => existing.state
+          // A three-move path cannot be an intermediate prefix of a turn with at most three dice.
+          val existing = if len == 3 then None else prefixes.get(packed & 0x00ffffffffffffffL)
+          val result   = existing match
+            case Some(existing) => if isKing then existing.state else existing.state.endTurn()
             case None           =>
               applying += 1
               replaying += 1
-              prefix.state.makeMove(move)
-          val result = if isKing then raw else raw.endTurn()
+              if isKing then prefix.state.makeMove(move) else prefix.state.makeMoveAndEndTurn(move)
           emitted += 1
           emitting += 1
           if !f(outPath, len, result, isKing) then stopped = true

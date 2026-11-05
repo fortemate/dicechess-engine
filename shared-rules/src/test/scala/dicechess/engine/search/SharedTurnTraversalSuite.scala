@@ -6,8 +6,8 @@ import dicechess.engine.movegen.MoveGenerator
 import munit.FunSuite
 import scala.concurrent.duration.*
 
-/** Cross-class traversal regressions for #442. The oracle uses an uncached recursive list traversal and plain replay,
-  * independently of packed paths, prefix caches and the resulting-state visitors.
+/** Cross-class traversal regressions for #442 and #456. The oracle uses an uncached recursive list traversal and plain
+  * replay, independently of packed paths, prefix caches and the resulting-state visitors.
   */
 class SharedTurnTraversalSuite extends FunSuite:
   override val munitTimeout: Duration = 120.seconds
@@ -56,6 +56,21 @@ class SharedTurnTraversalSuite extends FunSuite:
     val entries = collect(new TurnGenerator.SharedTraversal(initial), roll)
     assert(entries.size > entries.map(_._2).distinct.size)
     assertEquals(entries, exhaustive(roll.applyToState(initial)).map(result(roll.applyToState(initial), _)))
+
+  test("shuffled class orders and partial visits preserve the independent exhaustive sequence"):
+    val selected = fixtures.filter((name, _) =>
+      Set("sparse king", "commuting pawns", "white two-step promotion", "black en passant").contains(name)
+    )
+    for (name, fen) <- selected; seed <- 0L until 4L do
+      val initial = parse(fen)
+      val shared  = new TurnGenerator.SharedTraversal(initial)
+      val random  = new scala.util.Random(seed)
+      val classes = ActiveDicePartitioner.partitionsFor(initial).toVector
+      for entry <- random.shuffle(classes) ++ random.shuffle(classes) do
+        val rolled   = entry.roll.applyToState(initial)
+        val expected = exhaustive(rolled).map(result(rolled, _))
+        shared.visit(entry.roll)((_, _, _, _) => false)
+        assertEquals(collect(shared, entry.roll), expected, s"$name seed=$seed roll=${entry.roll.toList}")
 
   test("shared prefixes retain the 17 legal replacement-pawn paths from #446"):
     for (fen, forbidden) <- List(

@@ -521,7 +521,12 @@ extension (state: GameState)
     *   a new [[dicechess.engine.domain.GameState]] reflecting the position after the micro-move
     */
   @targetName("makeMove_Move")
-  def makeMove(mv: Move): GameState = {
+  def makeMove(mv: Move): GameState = applyMove(mv, completeTurn = false)
+
+  // Shared traversal already proved this is a normal final edge. Complete it without an intermediate GameState.
+  private[engine] def makeMoveAndEndTurn(mv: Move): GameState = applyMove(mv, completeTurn = true)
+
+  private def applyMove(mv: Move, completeTurn: Boolean): GameState = {
     val from       = mv.fromSquare
     val to         = mv.toSquare
     val mover      = state.mailbox(from)
@@ -542,7 +547,7 @@ extension (state: GameState)
       b.clearPiece(p.pieceType, toBB)
     }
 
-    val newEnPassant = Position.applyMovePlacement(
+    val moveEnPassant = Position.applyMovePlacement(
       b,
       mv,
       mover,
@@ -556,15 +561,21 @@ extension (state: GameState)
     val newHalfMoveClock  =
       if mover.pieceType == PieceType.Pawn || isCap then 0 else state.flags.halfMoveClock + 1
 
-    val newFlags = GameFlags.fromList(
-      color = state.activeColor,
+    val newFlags = GameFlags(
+      color = if completeTurn then state.activeColor.opponent else state.activeColor,
       castlingRights = newCastlingRights,
-      enPassantFiles = Position.enPassantFiles(newEnPassant),
-      dicePool = Nil,
+      enPassantFiles = Position.enPassantFiles(moveEnPassant),
+      dice1 = 0,
+      dice2 = 0,
+      dice3 = 0,
       halfMoveClock = newHalfMoveClock
     )
 
-    val key = Position.computeMoveZobristKey(state, mv, mover, target, newEnPassant, newFlags)
+    // endTurn expires the incoming side's targets but deliberately preserves the pre-cleanup packed EP files.
+    val staleRankMask = if completeTurn then 0xffL << (if state.activeColor.isBlack then 16 else 40) else 0L
+    val newEnPassant  = Bitboard(moveEnPassant.value & ~staleRankMask)
+    val key           = Position.computeMoveZobristKey(state, mv, mover, target, newEnPassant, newFlags) ^
+      (if completeTurn then Zobrist.ActiveColorKey else 0L)
 
     state.copy(
       whitePieces = b.white,
@@ -578,6 +589,7 @@ extension (state: GameState)
       mailbox = Mailbox.fromBuilder(b.mailbox),
       flags = newFlags,
       enPassant = newEnPassant,
+      fullMoveNumber = state.fullMoveNumber + (if completeTurn && state.activeColor.isBlack then 1 else 0),
       zobristKey = key
     )
   }

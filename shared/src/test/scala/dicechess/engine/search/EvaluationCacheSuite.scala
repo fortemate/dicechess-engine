@@ -4,7 +4,7 @@ package dicechess.engine.search
 import dicechess.engine.domain.*
 import munit.FunSuite
 
-/** Exact state identity, per-invocation ownership and telemetry regressions for #295 and #443. */
+/** Exact state identity, per-invocation ownership and telemetry regressions for #295, #443 and #456. */
 class EvaluationCacheSuite extends FunSuite:
   private def position: GameState =
     FenParser.parse("r3k2r/8/8/8/8/8/P7/R3K2R w KQkq - 0 1").fold(fail(_), identity)
@@ -259,4 +259,72 @@ class EvaluationCacheSuite extends FunSuite:
     assertEquals(cache.entryCount, 1024)
     assertEquals(cache.evaluatorCalls, 1024L)
     assertEquals(cache.cacheHits, 1024L)
+  }
+
+  test("colliding per-field fingerprints preserve exact states across growth") {
+    val base = position
+    // Multiplication by the field constant yields 0x0000000100000001, whose folded halves cancel.
+    // Unlike a derived-key collision, this exercises an actual collision in the cache's scalar index.
+    val collision = base.copy(enPassant = Bitboard(0x8b15f71e9937733dL))
+    val cache     = new EvaluationCache((s, c) =>
+      s.fullMoveNumber * (if c.isWhite then 1 else -1) + (if s.enPassant == Bitboard.empty then 0 else 1000)
+    )
+    for counter <- 1 to 128; s <- List(base, collision); c <- List(Color.White, Color.Black) do
+      val state = s.copy(fullMoveNumber = counter)
+      assertEquals(
+        cache(state, c),
+        counter * (if c.isWhite then 1 else -1) +
+          (if s.enPassant == Bitboard.empty then 0 else 1000)
+      )
+    for counter <- (1 to 128).reverse; s <- List(collision, base); c <- List(Color.Black, Color.White) do
+      val state = s.copy(fullMoveNumber = counter, mailbox = Mailbox.fromBuilder(s.mailbox.toArray))
+      assertEquals(
+        cache(state, c),
+        counter * (if c.isWhite then 1 else -1) +
+          (if s.enPassant == Bitboard.empty then 0 else 1000)
+      )
+    assertEquals(cache.entryCount, 512)
+    assertEquals(cache.evaluatorCalls, 512L)
+    assertEquals(cache.cacheHits, 512L)
+  }
+
+  test("same-key successful re-entry retains the outer callback's final value") {
+    val base                           = position
+    var active                         = false
+    var cache: Option[EvaluationCache] = None
+    val invocation                     = new EvaluationCache((s, c) =>
+      if active then 3
+      else
+        active = true
+        assertEquals(cache.get(s, c), 3)
+        7
+    )
+    cache = Some(invocation)
+    assertEquals(invocation(base, Color.White), 7)
+    assertEquals(invocation(base, Color.White), 7)
+    assertEquals(invocation.entryCount, 1)
+    assertEquals(invocation.evaluatorCalls, 2L)
+    assertEquals(invocation.cacheHits, 1L)
+  }
+
+  test("an outer failure preserves successful nested insertions and retries after growth") {
+    val base                           = position
+    val error                          = new IllegalStateException("outer failure after nested growth")
+    var active                         = false
+    var cache: Option[EvaluationCache] = None
+    val invocation                     = new EvaluationCache((s, c) =>
+      if !active then
+        active = true
+        for counter <- 2 to 128 do assertEquals(cache.get(base.copy(fullMoveNumber = counter), c), counter)
+        scala.util.Failure[Int](error).get
+      else s.fullMoveNumber
+    )
+    cache = Some(invocation)
+    assert(intercept[IllegalStateException](invocation(base, Color.White)) eq error)
+    assertEquals(invocation.entryCount, 127)
+    assertEquals(invocation(base, Color.White), 1)
+    for counter <- 2 to 128 do assertEquals(invocation(base.copy(fullMoveNumber = counter), Color.White), counter)
+    assertEquals(invocation.entryCount, 128)
+    assertEquals(invocation.evaluatorCalls, 129L)
+    assertEquals(invocation.cacheHits, 127L)
   }
