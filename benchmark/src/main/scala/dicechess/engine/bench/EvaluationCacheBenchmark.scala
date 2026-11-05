@@ -79,6 +79,26 @@ class EvaluationCacheBenchmark:
     work.record(cache.evaluatorCalls, cache.cacheHits, cache.entryCount)
     sum
 
+  final case class BenchValuationKey(
+      white: Long,
+      black: Long,
+      active: Color,
+      perspective: Color
+  ) derives CanEqual
+
+  @Benchmark
+  def cachedValuationKey(work: EvaluationCacheWork): Int =
+    val cache = EvaluationCache.withValuationKey(fullEval)((s, c) =>
+      BenchValuationKey(s.whitePieces.value, s.blackPieces.value, s.activeColor, c)
+    )
+    var sum = 0
+    var i   = 0
+    while i < states.length do
+      sum += cache(states(i), Color.White)
+      i += 1
+    work.record(cache.evaluatorCalls, cache.cacheHits, cache.entryCount)
+    sum
+
   @Benchmark
   def legacyTupleCache(work: EvaluationCacheWork): Int =
     val cache = new LegacyCache

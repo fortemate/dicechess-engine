@@ -328,3 +328,220 @@ class EvaluationCacheSuite extends FunSuite:
     assertEquals(invocation.evaluatorCalls, 129L)
     assertEquals(invocation.cacheHits, 127L)
   }
+
+  // ===========================================================================
+  // Consumer-declared valuation keys (#459)
+  // ===========================================================================
+
+  final case class TestBoardValuationKey(
+      white: Long,
+      black: Long,
+      active: Color,
+      perspective: Color
+  ) derives CanEqual
+
+  final case class CollidingKey(id: Int) {
+    override def hashCode(): Int           = 42
+    override def equals(obj: Any): Boolean = obj match
+      case that: CollidingKey => this.id == that.id
+      case _                  => false
+  }
+
+  test("consumer-declared valuation key merges counter variants when callback is invariant") {
+    val base = position
+    val c1   = base.copy(fullMoveNumber = 1, flags = base.flags.withHalfMoveClock(0))
+    val c2   = base.copy(fullMoveNumber = 2, flags = base.flags.withHalfMoveClock(5))
+    val c3   = base.copy(fullMoveNumber = 3, flags = base.flags.withHalfMoveClock(10))
+
+    var receivedStates                  = List.empty[GameState]
+    val eval: (GameState, Color) => Int = (s, _) =>
+      receivedStates = s :: receivedStates
+      42
+
+    val cache = EvaluationCache.withValuationKey(eval)((s, c) =>
+      TestBoardValuationKey(s.whitePieces.value, s.blackPieces.value, s.activeColor, c)
+    )
+
+    assertEquals(cache(c1, Color.White), 42)
+    assertEquals(cache(c2, Color.White), 42)
+    assertEquals(cache(c3, Color.White), 42)
+    assertEquals(cache.evaluatorCalls, 1L)
+    assertEquals(cache.cacheHits, 2L)
+    assertEquals(cache.entryCount, 1)
+
+    // The callback must receive the ORIGINAL un-normalized state on miss
+    assertEquals(receivedStates.length, 1)
+    assertEquals(receivedStates.head.fullMoveNumber, 1)
+    assertEquals(receivedStates.head.halfMoveClock, 0)
+  }
+
+  test("separately allocated equal custom keys share an entry") {
+    val base = position
+    val k1   = TestBoardValuationKey(base.whitePieces.value, base.blackPieces.value, base.activeColor, Color.White)
+    val k2   = TestBoardValuationKey(base.whitePieces.value, base.blackPieces.value, base.activeColor, Color.White)
+    assert(!(k1.asInstanceOf[AnyRef] eq k2.asInstanceOf[AnyRef]))
+    assertEquals(k1, k2)
+
+    val cache = new EvaluationCache(
+      (_, _) => 99,
+      (_, c) => TestBoardValuationKey(base.whitePieces.value, base.blackPieces.value, base.activeColor, c)
+    )
+    val s1 = base.copy(fullMoveNumber = 1)
+    val s2 = base.copy(fullMoveNumber = 2)
+    assertEquals(cache(s1, Color.White), 99)
+    assertEquals(cache(s2, Color.White), 99)
+    assertEquals(cache.evaluatorCalls, 1L)
+    assertEquals(cache.cacheHits, 1L)
+    assertEquals(cache.entryCount, 1)
+  }
+
+  test("deliberate hash collisions with unequal keys are resolved by equality") {
+    val base  = position
+    val s1    = base.copy(fullMoveNumber = 1)
+    val s2    = base.copy(fullMoveNumber = 2)
+    val cache = new EvaluationCache((s, _) => s.fullMoveNumber * 10, (s, _) => CollidingKey(s.fullMoveNumber))
+
+    assertEquals(cache(s1, Color.White), 10)
+    assertEquals(cache(s2, Color.White), 20)
+    assertEquals(cache(s1, Color.White), 10)
+    assertEquals(cache(s2, Color.White), 20)
+    assertEquals(cache.evaluatorCalls, 2L)
+    assertEquals(cache.cacheHits, 2L)
+    assertEquals(cache.entryCount, 2)
+  }
+
+  test("different perspectives remain distinct under custom keys") {
+    val base  = position
+    val cache = EvaluationCache.withValuationKey((_, c) => if c.isWhite then 100 else -100)((s, c) =>
+      TestBoardValuationKey(s.whitePieces.value, s.blackPieces.value, s.activeColor, c)
+    )
+
+    assertEquals(cache(base, Color.White), 100)
+    assertEquals(cache(base, Color.Black), -100)
+    assertEquals(cache(base, Color.White), 100)
+    assertEquals(cache(base, Color.Black), -100)
+    assertEquals(cache.evaluatorCalls, 2L)
+    assertEquals(cache.cacheHits, 2L)
+    assertEquals(cache.entryCount, 2)
+  }
+
+  test("key construction failure propagates without counting calls or creating entries") {
+    val base  = position
+    val error = new IllegalArgumentException("key construction failure")
+    var fail  = true
+    val cache = new EvaluationCache(
+      (_, _) => 77,
+      (s, c) =>
+        if fail then scala.util.Failure(error).get
+        else TestBoardValuationKey(s.whitePieces.value, s.blackPieces.value, s.activeColor, c)
+    )
+
+    val caught = intercept[IllegalArgumentException](cache(base, Color.White))
+    assert(caught eq error)
+    assertEquals(cache.evaluatorCalls, 0L)
+    assertEquals(cache.cacheHits, 0L)
+    assertEquals(cache.entryCount, 0)
+
+    fail = false
+    assertEquals(cache(base, Color.White), 77)
+    assertEquals(cache(base, Color.White), 77)
+    assertEquals(cache.evaluatorCalls, 1L)
+    assertEquals(cache.cacheHits, 1L)
+    assertEquals(cache.entryCount, 1)
+  }
+
+  test("evaluator failure under custom key counts attempts, retries and leaves no entry") {
+    val base     = position
+    val error    = new IllegalStateException("synthetic evaluator failure under key")
+    var attempts = 0
+    val cache    = EvaluationCache.withValuationKey { (_, _) =>
+      attempts += 1
+      if attempts <= 2 then scala.util.Failure[Int](error).get
+      else 123
+    }((s, c) => TestBoardValuationKey(s.whitePieces.value, s.blackPieces.value, s.activeColor, c))
+
+    intercept[IllegalStateException](cache(base, Color.White))
+    intercept[IllegalStateException](cache(base, Color.White))
+    assertEquals(cache.evaluatorCalls, 2L)
+    assertEquals(cache.cacheHits, 0L)
+    assertEquals(cache.entryCount, 0)
+
+    assertEquals(cache(base, Color.White), 123)
+    assertEquals(cache(base, Color.White), 123)
+    assertEquals(cache.evaluatorCalls, 3L)
+    assertEquals(cache.cacheHits, 1L)
+    assertEquals(cache.entryCount, 1)
+  }
+
+  test("same-key re-entry with custom key updates without stale slot corruption") {
+    val base                           = position
+    var active                         = false
+    var cache: Option[EvaluationCache] = None
+    val invocation                     = EvaluationCache.withValuationKey((s, c) =>
+      if active then 111
+      else
+        active = true
+        assertEquals(cache.get(s, c), 111)
+        222
+    )((s, c) => TestBoardValuationKey(s.whitePieces.value, s.blackPieces.value, s.activeColor, c))
+    cache = Some(invocation)
+
+    assertEquals(invocation(base, Color.White), 222)
+    assertEquals(invocation(base, Color.White), 222)
+    assertEquals(invocation.entryCount, 1)
+    assertEquals(invocation.evaluatorCalls, 2L)
+    assertEquals(invocation.cacheHits, 1L)
+  }
+
+  test("nested re-entry on distinct custom key with table growth resolves outer slot correctly") {
+    val base                           = position
+    var active                         = false
+    var cache: Option[EvaluationCache] = None
+    val invocation                     = new EvaluationCache(
+      (s, c) =>
+        if !active then
+          active = true
+          for i <- 2 to 128 do
+            val other = base.copy(fullMoveNumber = i)
+            assertEquals(cache.get(other, c), i)
+          999
+        else s.fullMoveNumber,
+      (s, _) => s.fullMoveNumber
+    )
+    cache = Some(invocation)
+
+    assertEquals(invocation(base.copy(fullMoveNumber = 1), Color.White), 999)
+    assertEquals(invocation(base.copy(fullMoveNumber = 1), Color.White), 999)
+    assertEquals(invocation.entryCount, 128)
+    assertEquals(invocation.evaluatorCalls, 128L)
+    assertEquals(invocation.cacheHits, 1L)
+  }
+
+  test("extreme integer values are cached correctly under custom key") {
+    List(0, -1, Int.MinValue, Int.MaxValue).foreach { value =>
+      val base  = position
+      val cache = EvaluationCache.withValuationKey((_, _) => value)((s, c) =>
+        TestBoardValuationKey(s.whitePieces.value, s.blackPieces.value, s.activeColor, c)
+      )
+      assertEquals(cache(base, Color.White), value)
+      assertEquals(cache(base, Color.White), value)
+      assertEquals(cache.evaluatorCalls, 1L)
+      assertEquals(cache.cacheHits, 1L)
+      assertEquals(cache.entryCount, 1)
+    }
+  }
+
+  test("negative control: counter-sensitive evaluator with default exact cache distinguishes counter variants") {
+    val base = position
+    val s1   = base.copy(fullMoveNumber = 1)
+    val s2   = base.copy(fullMoveNumber = 2)
+
+    val sensitiveEval: (GameState, Color) => Int = (s, _) => s.fullMoveNumber
+    val exactCache                               = EvaluationCache.exact(sensitiveEval)
+
+    assertEquals(exactCache(s1, Color.White), 1)
+    assertEquals(exactCache(s2, Color.White), 2)
+    assertEquals(exactCache.evaluatorCalls, 2L)
+    assertEquals(exactCache.cacheHits, 0L)
+    assertEquals(exactCache.entryCount, 2)
+  }

@@ -124,3 +124,100 @@ class EvaluationCacheIntegrationSuite extends FunSuite:
       fallback
     )
   }
+
+  // ===========================================================================
+  // Consumer-declared valuation keys integration (#459)
+  // ===========================================================================
+
+  final case class ConsumerValuationKey(
+      whitePieces: Long,
+      blackPieces: Long,
+      activeColor: Color,
+      perspective: Color
+  ) derives CanEqual
+
+  test("consumer-declared valuation key preserves exact candidate scoring, ranking and tie-breaking RNG") {
+    val state = parse("7k/8/8/8/8/8/P6P/4K3 w - - 0 1 PP")
+    val paths = TurnGenerator.generateAllLegalTurnPaths(state)
+    assert(paths.nonEmpty)
+
+    var observedMisses                      = List.empty[GameState]
+    val fullEval: (GameState, Color) => Int = (s, c) =>
+      observedMisses = s :: observedMisses
+      Evaluator.evaluateMaterial(s, c)
+
+    val keyFn: (GameState, Color) => ConsumerValuationKey =
+      (s, c) => ConsumerValuationKey(s.whitePieces.value, s.blackPieces.value, s.activeColor, c)
+
+    val cachedEval = EvaluationCache.withValuationKey(fullEval)(keyFn)
+    val cached     = paths.map(path => SearchScoring.scorePath(state, path, cachedEval.apply))
+    val uncached   = paths.map(path => SearchScoring.scorePath(state, path, Evaluator.evaluateMaterial))
+
+    assertEquals(cached, uncached)
+    assertEquals(cached.map(_.moves), paths)
+
+    // Prove callback receives original states with actual move counters
+    assert(observedMisses.forall(_.fullMoveNumber == 1))
+    assert(observedMisses.forall(_.activeColor == Color.Black))
+
+    def shortlist(scored: List[ScoredSequence]): List[ScoredSequence] =
+      val best = scored.map(_.score).max
+      scored.filter(_.score == best)
+
+    val cachedBest = shortlist(cached)
+    val plainBest  = shortlist(uncached)
+    assertEquals(cachedBest, plainBest)
+
+    (0L until 20L).foreach { seed =>
+      val cachedRng = new Random(seed)
+      val plainRng  = new Random(seed)
+      assertEquals(cachedBest(cachedRng.nextInt(cachedBest.size)), plainBest(plainRng.nextInt(plainBest.size)))
+      assertEquals(cachedRng.nextLong(), plainRng.nextLong())
+    }
+  }
+
+  test("consumer valuation key merges counter-different transposed states while preserving original callback inputs") {
+    val state = parse("7k/8/8/8/8/8/P6P/4K3 w - - 0 1 PP")
+    val path  = TurnGenerator.generateAllLegalTurnPaths(state).head
+
+    val s1 = path.foldLeft(state)((s, m) => s.makeMove(m)).endTurn()
+    val s2 = s1.copy(fullMoveNumber = 42, flags = s1.flags.withHalfMoveClock(17))
+
+    var receivedStates                  = List.empty[GameState]
+    val eval: (GameState, Color) => Int = (s, _) =>
+      receivedStates = s :: receivedStates
+      55
+
+    val cache = EvaluationCache.withValuationKey(eval)((s, c) =>
+      ConsumerValuationKey(s.whitePieces.value, s.blackPieces.value, s.activeColor, c)
+    )
+
+    assertEquals(cache(s1, Color.White), 55)
+    assertEquals(cache(s2, Color.White), 55)
+    assertEquals(cache.evaluatorCalls, 1L)
+    assertEquals(cache.cacheHits, 1L)
+    assertEquals(cache.entryCount, 1)
+
+    // The single call received the FIRST state s1, unchanged
+    assertEquals(receivedStates.length, 1)
+    assertEquals(receivedStates.head.fullMoveNumber, s1.fullMoveNumber)
+    assertEquals(receivedStates.head.halfMoveClock, s1.halfMoveClock)
+  }
+
+  test("king capture bypasses evaluator and cache even when custom valuation key is provided") {
+    val state = parse("k7/8/8/8/8/8/8/R6K w - - 0 1 R")
+    val paths = TurnGenerator.generateAllLegalTurnPaths(state).filter(SearchScoring.isTerminalWin(state, _))
+    assert(paths.nonEmpty)
+
+    val cachedEval =
+      EvaluationCache.withValuationKey[ConsumerValuationKey]((_, _) => fail("terminal capture must bypass evaluator"))(
+        (s, c) => ConsumerValuationKey(s.whitePieces.value, s.blackPieces.value, s.activeColor, c)
+      )
+
+    paths.foreach { path =>
+      assertEquals(SearchScoring.scorePath(state, path, cachedEval.apply).score, SearchScoring.TerminalWinScore)
+    }
+    assertEquals(cachedEval.evaluatorCalls, 0L)
+    assertEquals(cachedEval.cacheHits, 0L)
+    assertEquals(cachedEval.entryCount, 0)
+  }
