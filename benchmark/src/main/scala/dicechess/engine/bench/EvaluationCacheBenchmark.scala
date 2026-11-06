@@ -118,6 +118,15 @@ class EvaluationCacheBenchmark:
       require(keyedVal == expected, s"Keyed cache mismatch for $state: got $keyedVal, expected $expected")
       require(legacyVal == expected, s"Legacy cache mismatch for $state: got $legacyVal, expected $expected")
     }
+    if evaluator != "clock" then
+      distribution match
+        case "repeated" =>
+          require(exactCache.cacheHits == 28 && keyedCache.cacheHits == 31, "Hit count mismatch for repeated")
+        case "transposition" =>
+          require(exactCache.cacheHits == 0 && keyedCache.cacheHits == 28, "Hit count mismatch for transposition")
+        case "unique" =>
+          require(exactCache.cacheHits == 0 && keyedCache.cacheHits == 0, "Hit count mismatch for unique")
+        case _ => ()
 
   @Setup(Level.Trial)
   def setup(): Unit =

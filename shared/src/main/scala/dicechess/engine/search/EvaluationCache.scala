@@ -261,9 +261,11 @@ final class EvaluationCache(
       value
 
   private def applyKeyed(state: GameState, perspective: Color): Int =
-    val key  = keyFn(state, perspective)
-    val hash = if key.asInstanceOf[AnyRef] eq null then 0 else key.## // scalafix:ok(DisableSyntax.null)
-    var slot = findKeyed(hash, key)
+    val key   = keyFn(state, perspective)
+    val raw   = if key.asInstanceOf[AnyRef] eq null then 0 else key.## // scalafix:ok(DisableSyntax.null)
+    val mixed = raw * 0x9e3779b9
+    val hash  = mixed ^ (mixed >>> 16)
+    var slot  = findKeyed(hash, key)
     if states(slot) ne Empty then
       hits += 1
       values(slot)
