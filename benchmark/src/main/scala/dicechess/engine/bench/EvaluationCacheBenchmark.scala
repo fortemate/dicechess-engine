@@ -59,18 +59,12 @@ class EvaluationCacheBenchmark:
       if isCounterSensitive then state.fullMoveNumber else 0
     )
 
-  @Setup(Level.Trial)
-  def setup(): Unit =
+  private def createEvaluator(): (GameState, Color) => Int =
     require(
       evaluator == "aggressive" || evaluator == "cheap" || evaluator == "clock",
       s"Unsupported evaluator: $evaluator"
     )
-    require(
-      distribution == "repeated" || distribution == "transposition" || distribution == "unique",
-      s"Unsupported distribution: $distribution"
-    )
-
-    fullEval = evaluator match
+    evaluator match
       case "aggressive" => Evaluator.evaluateAggressive
       case "cheap"      =>
         // Inexpensive, deterministic counter-invariant material callback
@@ -81,61 +75,40 @@ class EvaluationCacheBenchmark:
       case "clock" =>
         // Meaningful negative control: counter-sensitive callback returning move counter
         (state, color) => if color.isWhite then state.fullMoveNumber else -state.fullMoveNumber
+      case _ => Evaluator.evaluateAggressive
 
-    val base     = BenchmarkPositions.parse(BenchmarkPositions.Kiwipete)
+  private def buildState(base: GameState, sq: Square, counter: Int): GameState =
+    val knightBit = Bitboard.fromSquare(sq)
+    val mb        = base.mailbox.toArray
+    mb(sq.index) = Piece(Color.White, PieceType.Knight)
+    base.copy(
+      whitePieces = base.whitePieces | knightBit,
+      knights = base.knights | knightBit,
+      mailbox = Mailbox.fromBuilder(mb),
+      fullMoveNumber = counter
+    )
+
+  private def createStates(base: GameState): Array[GameState] =
+    require(
+      distribution == "repeated" || distribution == "transposition" || distribution == "unique",
+      s"Unsupported distribution: $distribution"
+    )
     val occupied = base.whitePieces | base.blackPieces
-
-    states = distribution match
+    distribution match
       case "repeated" =>
-        // 4 distinct states repeated 8 times (identical board and counters)
-        Array.tabulate(32) { i =>
-          base.copy(fullMoveNumber = (i % 4) + 1)
-        }
+        Array.tabulate(32)(i => base.copy(fullMoveNumber = (i % 4) + 1))
       case "transposition" =>
-        // 4 distinct boards, each appearing with 8 different fullMoveNumber values
-        // Evaluators invariant to counters can hit across differing fullMoveNumber values.
-        val emptySquares = (0 until 64)
-          .map(Square.fromIndex)
-          .filter(sq => !occupied.contains(sq))
-          .take(4)
-        Array.tabulate(32) { i =>
-          val boardIndex = i / 8
-          val counter    = (i % 8) + 1
-          val sq         = emptySquares(boardIndex)
-          val knightBit  = Bitboard.fromSquare(sq)
-          val mb         = base.mailbox.toArray
-          mb(sq.index) = Piece(Color.White, PieceType.Knight)
-          base.copy(
-            whitePieces = base.whitePieces | knightBit,
-            knights = base.knights | knightBit,
-            mailbox = Mailbox.fromBuilder(mb),
-            fullMoveNumber = counter
-          )
-        }
+        val emptySquares = (0 until 64).map(Square.fromIndex).filter(sq => !occupied.contains(sq)).take(4)
+        Array.tabulate(32)(i => buildState(base, emptySquares(i / 8), (i % 8) + 1))
       case "unique" =>
-        // 32 truly distinct board configurations: each has a distinct piece placement
-        val emptySquares = (0 until 64)
-          .map(Square.fromIndex)
-          .filter(sq => !occupied.contains(sq))
-          .take(32)
-        Array.tabulate(32) { i =>
-          val sq        = emptySquares(i)
-          val knightBit = Bitboard.fromSquare(sq)
-          val mb        = base.mailbox.toArray
-          mb(sq.index) = Piece(Color.White, PieceType.Knight)
-          base.copy(
-            whitePieces = base.whitePieces | knightBit,
-            knights = base.knights | knightBit,
-            mailbox = Mailbox.fromBuilder(mb),
-            fullMoveNumber = i + 1
-          )
-        }
+        val emptySquares = (0 until 64).map(Square.fromIndex).filter(sq => !occupied.contains(sq)).take(32)
+        Array.tabulate(32)(i => buildState(base, emptySquares(i), i + 1))
+      case _ => Array.empty[GameState]
 
-    // Verify all caches bit-for-bit against uncached for each individual state
+  private def validateCaches(): Unit =
     val exactCache  = new EvaluationCache(fullEval)
     val keyedCache  = EvaluationCache.withValuationKey(fullEval)(keyFor)
     val legacyCache = new LegacyCache
-
     states.foreach { state =>
       val expected  = fullEval(state, Color.White)
       val exactVal  = exactCache(state, Color.White)
@@ -145,6 +118,12 @@ class EvaluationCacheBenchmark:
       require(keyedVal == expected, s"Keyed cache mismatch for $state: got $keyedVal, expected $expected")
       require(legacyVal == expected, s"Legacy cache mismatch for $state: got $legacyVal, expected $expected")
     }
+
+  @Setup(Level.Trial)
+  def setup(): Unit =
+    fullEval = createEvaluator()
+    states = createStates(BenchmarkPositions.parse(BenchmarkPositions.Kiwipete))
+    validateCaches()
 
   @Benchmark
   def uncached(work: EvaluationCacheWork): Int =

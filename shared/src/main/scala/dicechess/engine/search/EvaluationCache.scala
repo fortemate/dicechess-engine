@@ -200,7 +200,7 @@ final class EvaluationCache(
     val storedRef = stored.asInstanceOf[AnyRef]
     val keyRef    = key.asInstanceOf[AnyRef]
     if storedRef eq keyRef then true
-    else if (storedRef eq null) || (keyRef eq null) then false
+    else if (storedRef eq null) || (keyRef eq null) then false // scalafix:ok(DisableSyntax.null)
     else
       given CanEqual[Any, Any] = CanEqual.derived
       (stored: Any) == (key: Any)
@@ -262,7 +262,7 @@ final class EvaluationCache(
 
   private def applyKeyed(state: GameState, perspective: Color): Int =
     val key  = keyFn(state, perspective)
-    val hash = if key.asInstanceOf[AnyRef] eq null then 0 else key.##
+    val hash = if key.asInstanceOf[AnyRef] eq null then 0 else key.## // scalafix:ok(DisableSyntax.null)
     var slot = findKeyed(hash, key)
     if states(slot) ne Empty then
       hits += 1

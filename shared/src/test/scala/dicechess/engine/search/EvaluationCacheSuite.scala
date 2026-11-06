@@ -569,7 +569,7 @@ class EvaluationCacheSuite extends FunSuite:
 
     val cache = new EvaluationCache(
       (s, _) => s.fullMoveNumber * 10,
-      (s, _) => if s.fullMoveNumber <= 2 then null: Any else 0: Int
+      (s, _) => if s.fullMoveNumber <= 2 then null: Any else 0: Int // scalafix:ok(DisableSyntax.null)
     )
     // First null key creates entry
     assertEquals(cache(sNull1, Color.White), 10)
@@ -595,15 +595,16 @@ class EvaluationCacheSuite extends FunSuite:
 
   final class ThrowingKey(val id: Int, val throwOnHash: Boolean = false, val throwOnEquals: Boolean = false):
     override def hashCode(): Int =
-      if throwOnHash then throw new ArithmeticException("synthetic hashCode exception")
+      if throwOnHash then scala.util.Failure(new ArithmeticException("synthetic hashCode exception")).get
       else 42 // Deliberately collide
 
     override def equals(obj: Any): Boolean =
-      if throwOnEquals then throw new IllegalArgumentException("synthetic equals exception")
+      if throwOnEquals then scala.util.Failure(new IllegalArgumentException("synthetic equals exception")).get
       else
         obj match
           case that: ThrowingKey =>
-            if that.throwOnEquals then throw new IllegalArgumentException("synthetic equals exception")
+            if that.throwOnEquals then
+              scala.util.Failure(new IllegalArgumentException("synthetic equals exception")).get
             this.id == that.id
           case _ => false
 
@@ -616,7 +617,7 @@ class EvaluationCacheSuite extends FunSuite:
       (_, _) => 100,
       (_, _) =>
         keyFnCalls += 1
-        if keyFnCalls == 1 then throw new UnsupportedOperationException("keyFn failure")
+        if keyFnCalls == 1 then scala.util.Failure(new UnsupportedOperationException("keyFn failure")).get
         else "ok"
     )
     intercept[UnsupportedOperationException](keyFnErrCache(base, Color.White))
