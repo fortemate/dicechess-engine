@@ -9,52 +9,142 @@ import java.util.concurrent.TimeUnit
 import scala.collection.mutable
 import scala.compiletime.uninitialized
 
-/** Fixed-work comparison for the invocation-local cache (#295, #443).
+/** Fixed-work comparison for the invocation-local cache (#295, #443, #459).
   *
-  * Every operation scores the same synthetic batch of 32 states using the public aggressive evaluator or an inexpensive
-  * deterministic counter callback. The legacy method retains the original tuple-key HashMap representation. Repeated
-  * inputs are separately allocated equal states; unique inputs differ by full-move counter. State construction is
-  * outside measurement, while cache construction, hashing, lookups and retained entries are inside it. A fresh cache is
-  * created for every batch, including the zero-hit case. This measures callback memoization, not move replay or search
-  * strength. Run with `-prof gc` to include allocated bytes per batch, and divide the auxiliary evaluator-call, hit and
-  * entry totals by the batch total to recover work per invocation.
+  * Measures evaluation memoization across different distributions:
+  *   - **repeated**: repeated identical states (hits on both exact and valuation keys)
+  *   - **transposition**: transposition-rich states sharing board configuration but varying move counters (misses on
+  *     exact cache, hits on counter-invariant valuation keys)
+  *   - **unique**: distinct board configurations (zero hits on both caches, measuring miss overhead and allocation)
+  *
+  * Compares:
+  *   - `uncached`: direct evaluation without cache
+  *   - `cached`: exact-identity linear probing cache (engine default)
+  *   - `cachedValuationKey`: opt-in valuation key cache (#459)
+  *   - `legacyTupleCache`: pre-#443 tuple HashMap cache (0.18.1 baseline representation)
   */
 @BenchmarkMode(Array(Mode.AverageTime))
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
 @Warmup(iterations = 2, time = 1, timeUnit = TimeUnit.SECONDS)
 @Measurement(iterations = 3, time = 1, timeUnit = TimeUnit.SECONDS)
-@Fork(1)
+@Fork(2)
 @State(Scope.Thread)
 class EvaluationCacheBenchmark:
 
-  @Param(Array("repeated", "unique"))
+  @Param(Array("repeated", "transposition", "unique"))
   var distribution: String = uninitialized
 
-  @Param(Array("aggressive", "cheap"))
+  @Param(Array("aggressive", "cheap", "clock"))
   var evaluator: String = uninitialized
 
   private var states: Array[GameState]            = uninitialized
   private var fullEval: (GameState, Color) => Int = uninitialized
 
+  final case class BenchValuationKey(
+      white: Long,
+      black: Long,
+      active: Color,
+      perspective: Color,
+      counter: Int
+  ) derives CanEqual
+
+  private inline def isCounterSensitive: Boolean = evaluator == "clock"
+
+  def keyFor(state: GameState, color: Color): BenchValuationKey =
+    BenchValuationKey(
+      state.whitePieces.value,
+      state.blackPieces.value,
+      state.activeColor,
+      color,
+      if isCounterSensitive then state.fullMoveNumber else 0
+    )
+
   @Setup(Level.Trial)
   def setup(): Unit =
-    require(evaluator == "aggressive" || evaluator == "cheap", s"Unsupported evaluator: $evaluator")
-    require(distribution == "repeated" || distribution == "unique", s"Unsupported distribution: $distribution")
-    fullEval =
-      if evaluator == "cheap" then
+    require(
+      evaluator == "aggressive" || evaluator == "cheap" || evaluator == "clock",
+      s"Unsupported evaluator: $evaluator"
+    )
+    require(
+      distribution == "repeated" || distribution == "transposition" || distribution == "unique",
+      s"Unsupported distribution: $distribution"
+    )
+
+    fullEval = evaluator match
+      case "aggressive" => Evaluator.evaluateAggressive
+      case "cheap"      =>
+        // Inexpensive, deterministic counter-invariant material callback
+        (state, color) =>
+          val myPieces  = if color.isWhite then state.whitePieces else state.blackPieces
+          val oppPieces = if color.isWhite then state.blackPieces else state.whitePieces
+          myPieces.count - oppPieces.count
+      case "clock" =>
+        // Meaningful negative control: counter-sensitive callback returning move counter
         (state, color) => if color.isWhite then state.fullMoveNumber else -state.fullMoveNumber
-      else Evaluator.evaluateAggressive
-    states = Array.tabulate(32) { i =>
-      val counter = if distribution == "repeated" then i % 4 + 1 else i + 1
-      BenchmarkPositions.parse(BenchmarkPositions.Kiwipete).copy(fullMoveNumber = counter)
-    }
-    val cache  = new EvaluationCache(fullEval)
-    val legacy = new LegacyCache
+
+    val base     = BenchmarkPositions.parse(BenchmarkPositions.Kiwipete)
+    val occupied = base.whitePieces | base.blackPieces
+
+    states = distribution match
+      case "repeated" =>
+        // 4 distinct states repeated 8 times (identical board and counters)
+        Array.tabulate(32) { i =>
+          base.copy(fullMoveNumber = (i % 4) + 1)
+        }
+      case "transposition" =>
+        // 4 distinct boards, each appearing with 8 different fullMoveNumber values
+        // Evaluators invariant to counters can hit across differing fullMoveNumber values.
+        val emptySquares = (0 until 64)
+          .map(Square.fromIndex)
+          .filter(sq => !occupied.contains(sq))
+          .take(4)
+        Array.tabulate(32) { i =>
+          val boardIndex = i / 8
+          val counter    = (i % 8) + 1
+          val sq         = emptySquares(boardIndex)
+          val knightBit  = Bitboard.fromSquare(sq)
+          val mb         = base.mailbox.toArray
+          mb(sq.index) = Piece(Color.White, PieceType.Knight)
+          base.copy(
+            whitePieces = base.whitePieces | knightBit,
+            knights = base.knights | knightBit,
+            mailbox = Mailbox.fromBuilder(mb),
+            fullMoveNumber = counter
+          )
+        }
+      case "unique" =>
+        // 32 truly distinct board configurations: each has a distinct piece placement
+        val emptySquares = (0 until 64)
+          .map(Square.fromIndex)
+          .filter(sq => !occupied.contains(sq))
+          .take(32)
+        Array.tabulate(32) { i =>
+          val sq        = emptySquares(i)
+          val knightBit = Bitboard.fromSquare(sq)
+          val mb        = base.mailbox.toArray
+          mb(sq.index) = Piece(Color.White, PieceType.Knight)
+          base.copy(
+            whitePieces = base.whitePieces | knightBit,
+            knights = base.knights | knightBit,
+            mailbox = Mailbox.fromBuilder(mb),
+            fullMoveNumber = i + 1
+          )
+        }
+
+    // Verify all caches bit-for-bit against uncached for each individual state
+    val exactCache  = new EvaluationCache(fullEval)
+    val keyedCache  = EvaluationCache.withValuationKey(fullEval)(keyFor)
+    val legacyCache = new LegacyCache
+
     states.foreach { state =>
-      val expected = fullEval(state, Color.White)
-      require(cache(state, Color.White) == expected && legacy(state) == expected)
+      val expected  = fullEval(state, Color.White)
+      val exactVal  = exactCache(state, Color.White)
+      val keyedVal  = keyedCache(state, Color.White)
+      val legacyVal = legacyCache(state)
+      require(exactVal == expected, s"Exact cache mismatch for $state: got $exactVal, expected $expected")
+      require(keyedVal == expected, s"Keyed cache mismatch for $state: got $keyedVal, expected $expected")
+      require(legacyVal == expected, s"Legacy cache mismatch for $state: got $legacyVal, expected $expected")
     }
-    require(cache.evaluatorCalls == legacy.calls && cache.cacheHits == legacy.hits && cache.entryCount == legacy.size)
 
   @Benchmark
   def uncached(work: EvaluationCacheWork): Int =
@@ -79,20 +169,11 @@ class EvaluationCacheBenchmark:
     work.record(cache.evaluatorCalls, cache.cacheHits, cache.entryCount)
     sum
 
-  final case class BenchValuationKey(
-      white: Long,
-      black: Long,
-      active: Color,
-      perspective: Color
-  ) derives CanEqual
-
   @Benchmark
   def cachedValuationKey(work: EvaluationCacheWork): Int =
-    val cache = EvaluationCache.withValuationKey(fullEval)((s, c) =>
-      BenchValuationKey(s.whitePieces.value, s.blackPieces.value, s.activeColor, c)
-    )
-    var sum = 0
-    var i   = 0
+    val cache = EvaluationCache.withValuationKey(fullEval)(keyFor)
+    var sum   = 0
+    var i     = 0
     while i < states.length do
       sum += cache(states(i), Color.White)
       i += 1

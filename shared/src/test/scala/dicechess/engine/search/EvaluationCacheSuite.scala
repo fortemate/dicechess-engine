@@ -349,9 +349,9 @@ class EvaluationCacheSuite extends FunSuite:
 
   test("consumer-declared valuation key merges counter variants when callback is invariant") {
     val base = position
-    val c1   = base.copy(fullMoveNumber = 1, flags = base.flags.withHalfMoveClock(0))
-    val c2   = base.copy(fullMoveNumber = 2, flags = base.flags.withHalfMoveClock(5))
-    val c3   = base.copy(fullMoveNumber = 3, flags = base.flags.withHalfMoveClock(10))
+    val c1   = base.copy(fullMoveNumber = 42, flags = base.flags.withHalfMoveClock(15))
+    val c2   = base.copy(fullMoveNumber = 43, flags = base.flags.withHalfMoveClock(20))
+    val c3   = base.copy(fullMoveNumber = 44, flags = base.flags.withHalfMoveClock(25))
 
     var receivedStates                  = List.empty[GameState]
     val eval: (GameState, Color) => Int = (s, _) =>
@@ -369,10 +369,10 @@ class EvaluationCacheSuite extends FunSuite:
     assertEquals(cache.cacheHits, 2L)
     assertEquals(cache.entryCount, 1)
 
-    // The callback must receive the ORIGINAL un-normalized state on miss
+    // The callback must receive the ORIGINAL un-normalized state on miss with non-zero counters intact
     assertEquals(receivedStates.length, 1)
-    assertEquals(receivedStates.head.fullMoveNumber, 1)
-    assertEquals(receivedStates.head.halfMoveClock, 0)
+    assertEquals(receivedStates.head.fullMoveNumber, 42)
+    assertEquals(receivedStates.head.halfMoveClock, 15)
   }
 
   test("separately allocated equal custom keys share an entry") {
@@ -544,4 +544,173 @@ class EvaluationCacheSuite extends FunSuite:
     assertEquals(exactCache.evaluatorCalls, 2L)
     assertEquals(exactCache.cacheHits, 0L)
     assertEquals(exactCache.entryCount, 2)
+  }
+
+  test("numeric keys of different boxed types merge into one entry under Scala value equality") {
+    val base  = position
+    val s1    = base.copy(fullMoveNumber = 1)
+    val s2    = base.copy(fullMoveNumber = 2)
+    val cache = new EvaluationCache(
+      (_, _) => 777,
+      (s, _) => if s.fullMoveNumber == 1 then 1: Int else 1L: Long
+    )
+    assertEquals(cache(s1, Color.White), 777)
+    assertEquals(cache(s2, Color.White), 777)
+    assertEquals(cache.evaluatorCalls, 1L)
+    assertEquals(cache.cacheHits, 1L)
+    assertEquals(cache.entryCount, 1)
+  }
+
+  test("null keys and non-null collision are handled safely without NPE") {
+    val base   = position
+    val sNull1 = base.copy(fullMoveNumber = 1)
+    val sNull2 = base.copy(fullMoveNumber = 2)
+    val sZero  = base.copy(fullMoveNumber = 3)
+
+    val cache = new EvaluationCache(
+      (s, _) => s.fullMoveNumber * 10,
+      (s, _) => if s.fullMoveNumber <= 2 then null: Any else 0: Int
+    )
+    // First null key creates entry
+    assertEquals(cache(sNull1, Color.White), 10)
+    // Second null key hits cache
+    assertEquals(cache(sNull2, Color.White), 10)
+    assertEquals(cache.evaluatorCalls, 1L)
+    assertEquals(cache.cacheHits, 1L)
+    assertEquals(cache.entryCount, 1)
+
+    // Non-null key with hashCode 0 collides in slot 0 with null key
+    assertEquals(cache(sZero, Color.White), 30)
+    assertEquals(cache.evaluatorCalls, 2L)
+    assertEquals(cache.cacheHits, 1L)
+    assertEquals(cache.entryCount, 2)
+
+    // Verify subsequent lookups for both null and zero hit their respective entries
+    assertEquals(cache(sNull1, Color.White), 10)
+    assertEquals(cache(sZero, Color.White), 30)
+    assertEquals(cache.evaluatorCalls, 2L)
+    assertEquals(cache.cacheHits, 3L)
+    assertEquals(cache.entryCount, 2)
+  }
+
+  final class ThrowingKey(val id: Int, val throwOnHash: Boolean = false, val throwOnEquals: Boolean = false):
+    override def hashCode(): Int =
+      if throwOnHash then throw new ArithmeticException("synthetic hashCode exception")
+      else 42 // Deliberately collide
+
+    override def equals(obj: Any): Boolean =
+      if throwOnEquals then throw new IllegalArgumentException("synthetic equals exception")
+      else
+        obj match
+          case that: ThrowingKey =>
+            if that.throwOnEquals then throw new IllegalArgumentException("synthetic equals exception")
+            this.id == that.id
+          case _ => false
+
+  test("exceptions in keyFn, hashCode and equals preserve telemetry and create no stale entries") {
+    val base = position
+
+    // 1. Exception in keyFn
+    var keyFnCalls    = 0
+    val keyFnErrCache = new EvaluationCache(
+      (_, _) => 100,
+      (_, _) =>
+        keyFnCalls += 1
+        if keyFnCalls == 1 then throw new UnsupportedOperationException("keyFn failure")
+        else "ok"
+    )
+    intercept[UnsupportedOperationException](keyFnErrCache(base, Color.White))
+    assertEquals(keyFnErrCache.evaluatorCalls, 0L)
+    assertEquals(keyFnErrCache.cacheHits, 0L)
+    assertEquals(keyFnErrCache.entryCount, 0)
+    // Retry succeeds
+    assertEquals(keyFnErrCache(base, Color.White), 100)
+    assertEquals(keyFnErrCache.evaluatorCalls, 1L)
+    assertEquals(keyFnErrCache.entryCount, 1)
+
+    // 2. Exception in hashCode
+    var hashAttempts = 0
+    val hashErrCache = new EvaluationCache(
+      (_, _) => 200,
+      (_, _) =>
+        hashAttempts += 1
+        ThrowingKey(hashAttempts, throwOnHash = hashAttempts == 1)
+    )
+    intercept[ArithmeticException](hashErrCache(base, Color.White))
+    assertEquals(hashErrCache.evaluatorCalls, 0L)
+    assertEquals(hashErrCache.cacheHits, 0L)
+    assertEquals(hashErrCache.entryCount, 0)
+    assertEquals(hashErrCache(base, Color.White), 200)
+    assertEquals(hashErrCache.evaluatorCalls, 1L)
+    assertEquals(hashErrCache.entryCount, 1)
+
+    // 3. Exception in equals during hash collision probe
+    val s1             = base.copy(fullMoveNumber = 1)
+    val s2             = base.copy(fullMoveNumber = 2)
+    val equalsErrCache = new EvaluationCache(
+      (s, _) => s.fullMoveNumber * 100,
+      (s, _) => ThrowingKey(s.fullMoveNumber, throwOnEquals = s.fullMoveNumber == 2)
+    )
+    // First entry succeeds
+    assertEquals(equalsErrCache(s1, Color.White), 100)
+    assertEquals(equalsErrCache.evaluatorCalls, 1L)
+    assertEquals(equalsErrCache.entryCount, 1)
+    // Second entry collides with slot of s1, calling equals which throws
+    intercept[IllegalArgumentException](equalsErrCache(s2, Color.White))
+    assertEquals(equalsErrCache.evaluatorCalls, 1L)
+    assertEquals(equalsErrCache.cacheHits, 0L)
+    assertEquals(equalsErrCache.entryCount, 1)
+    // First entry is still valid and hits
+    assertEquals(equalsErrCache(s1, Color.White), 100)
+    assertEquals(equalsErrCache.evaluatorCalls, 1L)
+    assertEquals(equalsErrCache.cacheHits, 1L)
+    assertEquals(equalsErrCache.entryCount, 1)
+  }
+
+  test("re-entry with equivalent custom key from different original state resolves correctly") {
+    val base = position
+    val s1   = base.copy(fullMoveNumber = 1)
+    val s2   = base.copy(fullMoveNumber = 2)
+
+    var cache: Option[EvaluationCache] = None
+    var firstCall                      = true
+    val invocation                     = EvaluationCache.withValuationKey((_, c) =>
+      if firstCall then
+        firstCall = false
+        // Re-entrant call with s2, which has different state but equivalent valuation key
+        assertEquals(cache.get(s2, c), 888)
+        999
+      else 888
+    )((s, c) => TestBoardValuationKey(s.whitePieces.value, s.blackPieces.value, s.activeColor, c))
+    cache = Some(invocation)
+
+    assertEquals(invocation(s1, Color.White), 999)
+    assertEquals(invocation(s2, Color.White), 999)
+    assertEquals(invocation.evaluatorCalls, 2L)
+    assertEquals(invocation.cacheHits, 1L)
+    assertEquals(invocation.entryCount, 1)
+  }
+
+  test("independent custom-key cache instances own their data and telemetry separately") {
+    val base = position
+    val s1   = base.copy(fullMoveNumber = 1)
+    val s2   = base.copy(fullMoveNumber = 2)
+
+    val c1 = EvaluationCache.withValuationKey((s, _) => s.fullMoveNumber + 10)((s, c) =>
+      TestBoardValuationKey(s.whitePieces.value, s.blackPieces.value, s.activeColor, c)
+    )
+    val c2 = EvaluationCache.withValuationKey((s, _) => s.fullMoveNumber + 20)((s, c) =>
+      TestBoardValuationKey(s.whitePieces.value, s.blackPieces.value, s.activeColor, c)
+    )
+
+    assertEquals(c1(s1, Color.White), 11)
+    assertEquals(c1(s2, Color.White), 11)
+    assertEquals(c1.evaluatorCalls, 1L)
+    assertEquals(c1.cacheHits, 1L)
+
+    assertEquals(c2.entryCount, 0)
+    assertEquals(c2(s1, Color.White), 21)
+    assertEquals(c2(s2, Color.White), 21)
+    assertEquals(c2.evaluatorCalls, 1L)
+    assertEquals(c2.cacheHits, 1L)
   }

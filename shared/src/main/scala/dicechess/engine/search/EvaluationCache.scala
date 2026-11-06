@@ -16,9 +16,9 @@ import dicechess.engine.domain.{Color, GameState}
   *
   * '''Valuation Equivalence Law:''' Within a fixed evaluator, configuration and perspective context, for any states
   * `s1` and `s2`:
-  * {{{
+  * ```text
   * keyFn(s1, p) == keyFn(s2, p) ==> evalFn(s1, p) == evalFn(s2, p)
-  * }}}
+  * ```
   * The consumer owns this proof; the engine cannot infer it from observed scores.
   *
   * Key laws:
@@ -146,7 +146,7 @@ final class EvaluationCache(
     this(evalFn, EvaluationCache.exactKey)
 
   private object Empty
-  private var states   = Array.fill[AnyRef](16)(Empty)
+  private var states   = Array.fill[AnyRef | Null](16)(Empty)
   private var hashes   = new Array[Int](16)
   private var values   = new Array[Int](16)
   private var calls    = 0L
@@ -196,11 +196,20 @@ final class EvaluationCache(
     do slot = (slot + 1) & mask
     slot
 
-  private def findKeyed(hash: Int, key: AnyRef): Int =
+  private inline def keysMatch(stored: AnyRef | Null, key: Any | Null): Boolean =
+    val storedRef = stored.asInstanceOf[AnyRef]
+    val keyRef    = key.asInstanceOf[AnyRef]
+    if storedRef eq keyRef then true
+    else if (storedRef eq null) || (keyRef eq null) then false
+    else
+      given CanEqual[Any, Any] = CanEqual.derived
+      (stored: Any) == (key: Any)
+
+  private def findKeyed(hash: Int, key: Any | Null): Int =
     val mask = states.length - 1
     var slot = (hash >>> 1) & mask
     while (states(slot) ne Empty) &&
-      !(hashes(slot) == hash && ((states(slot) eq key) || states(slot).equals(key)))
+      !(hashes(slot) == hash && keysMatch(states(slot), key))
     do slot = (slot + 1) & mask
     slot
 
@@ -208,7 +217,7 @@ final class EvaluationCache(
     val oldStates = states
     val oldHashes = hashes
     val oldValues = values
-    states = Array.fill[AnyRef](oldStates.length * 2)(Empty)
+    states = Array.fill[AnyRef | Null](oldStates.length * 2)(Empty)
     hashes = new Array[Int](states.length)
     values = new Array[Int](states.length)
     val mask  = states.length - 1
@@ -252,8 +261,8 @@ final class EvaluationCache(
       value
 
   private def applyKeyed(state: GameState, perspective: Color): Int =
-    val key  = keyFn(state, perspective).asInstanceOf[AnyRef]
-    val hash = key.##
+    val key  = keyFn(state, perspective)
+    val hash = if key.asInstanceOf[AnyRef] eq null then 0 else key.##
     var slot = findKeyed(hash, key)
     if states(slot) ne Empty then
       hits += 1
@@ -268,7 +277,7 @@ final class EvaluationCache(
           grow()
           slot = findKeyed(hash, key)
         hashes(slot) = hash
-        states(slot) = key
+        states(slot) = key.asInstanceOf[AnyRef | Null]
         retained += 1
       values(slot) = value
       value
