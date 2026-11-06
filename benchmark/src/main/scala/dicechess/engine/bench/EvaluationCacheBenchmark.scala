@@ -21,7 +21,7 @@ import scala.compiletime.uninitialized
   *   - `uncached`: direct evaluation without cache
   *   - `cached`: exact-identity linear probing cache (engine default)
   *   - `cachedValuationKey`: opt-in valuation key cache (#459)
-  *   - `legacyTupleCache`: pre-#443 tuple HashMap cache (pre-0.18.1 / 0.18.0 baseline representation)
+  *   - `legacyTupleCache`: pre-#443 tuple HashMap baseline representation
   */
 @BenchmarkMode(Array(Mode.AverageTime))
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
