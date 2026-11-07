@@ -5,13 +5,46 @@ import dicechess.engine.domain.{Color, GameState}
 
 /** Invocation-local memoization of a deterministic, side-effect-free evaluator.
   *
-  * Keys use exact `(GameState, Color)` value equality, including mailbox contents, all flags, full en-passant targets
-  * and counters. Hash collisions are resolved by equality; the derived `GameState.zobristKey` is not part of identity.
-  * Inputs, including their mailboxes, must remain immutable for the lifetime of this cache.
+  * By default, keys use exact `(GameState, Color)` value equality, including mailbox contents, all flags, full
+  * en-passant targets and counters. Hash collisions are resolved by equality; the derived `GameState.zobristKey` is not
+  * part of identity. Inputs, including their mailboxes, must remain immutable for the lifetime of this cache.
+  *
+  * ===Consumer-Declared Valuation Equivalence===
+  *
+  * When an evaluator can prove that a coarser state projection preserves evaluation equality within a fixed evaluator,
+  * perspective, configuration and model domain, callers may opt in by supplying an explicit `keyFn`.
+  *
+  * '''Valuation Equivalence Law:''' Within a fixed evaluator, configuration and perspective context, for any states
+  * `s1` and `s2`:
+  * ```text
+  * keyFn(s1, p) == keyFn(s2, p) ==> evalFn(s1, p) == evalFn(s2, p)
+  * ```
+  * The consumer owns this proof; the engine cannot infer it from observed scores.
+  *
+  * Key laws:
+  *   - '''Equivalence:''' `keyFn` must define a reflexive (`k == k`), symmetric (`k1 == k2 <=> k2 == k1`), and
+  *     transitive (`k1 == k2 && k2 == k3 ==> k1 == k3`) equivalence relation.
+  *   - '''Consistent Hash:''' if `k1 == k2` then `k1.## == k2.##`. Hash collisions are resolved by `equals`.
+  *   - '''Original State Callback:''' on a cache miss, `evalFn` receives the original un-normalized
+  *     [[dicechess.engine.domain.GameState]]. States passed to the callback are never normalized, and counters are
+  *     never cleared.
+  *   - '''Perspective Domain:''' `perspective` must remain an explicit component of the key domain. Evaluators from
+  *     differing perspectives must not share cache entries.
+  *   - '''Key Immutability:''' keys and evaluator configuration must remain immutable for the invocation lifetime.
+  *   - '''Key Construction Failure:''' if `keyFn` throws an exception, no entry is created and the failure does not
+  *     count as an evaluator call attempt.
+  *
+  * ===Re-entry and Concurrency===
   *
   * Bind one instance to one evaluator with stable configuration, owned by a single search/rescoring invocation. This
   * class is not thread-safe: do not share it between concurrent invocations, profiles, models, moves or games. Do not
   * wrap stochastic rollouts or callbacks depending on time, external history or changing configuration.
+  *
+  * During evaluation, callback re-entry (nested calls to [[apply]]) is supported. If nested calls insert entries or
+  * cause the backing table to resize, the outer insertion resolves the key's table slot dynamically after the callback
+  * returns, preventing stale slot corruption.
+  *
+  * ===Cancellation and Telemetry===
   *
   * Keep deadline/cancellation checks and fallback decisions in the caller, before every cache access, including hits. A
   * slow evaluator is not made interruptible and no hard deadline is guaranteed. Untimed deterministic selection retains
@@ -70,17 +103,57 @@ import dicechess.engine.domain.{Color, GameState}
   * assert(cache.evaluatorCalls == 1L && cache.cacheHits == 1L && cache.entryCount == 1)
   * ```
   *
+  * Example with a consumer-declared valuation key:
+  *
+  * ```scala
+  * import dicechess.engine.domain.{Color, GameState}
+  * import dicechess.engine.search.EvaluationCache
+  *
+  * final case class SimpleValuationKey(
+  *     white: Long,
+  *     black: Long,
+  *     active: Color,
+  *     perspective: Color
+  * )
+  *
+  * val invariantEval: (GameState, Color) => Int = (state, _) => state.whitePieces.value.toInt
+  * val cache                                    = new EvaluationCache(
+  *   invariantEval,
+  *   (state, color) => SimpleValuationKey(state.whitePieces.value, state.blackPieces.value, state.activeColor, color)
+  * )
+  * ```
+  *
+  * Counter-sensitive evaluators must use the default exact cache (or include counters in the key):
+  *
+  * ```scala
+  * import dicechess.engine.domain.{Color, GameState}
+  * import dicechess.engine.search.EvaluationCache
+  *
+  * val clockSensitiveEval: (GameState, Color) => Int = (state, _) => state.fullMoveNumber
+  * val exactCache                                    = new EvaluationCache(clockSensitiveEval)
+  * ```
+  *
   * @param evalFn
   *   pure deterministic callback with immutable input and configuration for this invocation
+  * @param keyFn
+  *   optional projection mapping `(GameState, Color)` to a valuation key with stable equality and hashing
   */
-final class EvaluationCache(evalFn: (GameState, Color) => Int):
+final class EvaluationCache(
+    evalFn: (GameState, Color) => Int,
+    keyFn: (GameState, Color) => Any
+):
+  def this(evalFn: (GameState, Color) => Int) =
+    this(evalFn, EvaluationCache.exactKey)
+
   private object Empty
-  private var states   = Array.fill[AnyRef](16)(Empty)
+  private var states   = Array.fill[AnyRef | Null](16)(Empty)
   private var hashes   = new Array[Int](16)
   private var values   = new Array[Int](16)
   private var calls    = 0L
   private var hits     = 0L
   private var retained = 0
+
+  private val isExact: Boolean = keyFn.asInstanceOf[AnyRef] eq EvaluationCache.exactKey
 
   /** Actual callback attempts, including those that throw. Hits do not increment this count. */
   def evaluatorCalls: Long = calls
@@ -115,9 +188,7 @@ final class EvaluationCache(evalFn: (GameState, Color) => Int):
     // Reserve one bit for the exact perspective, so equal signatures imply equal colors.
     (hash & ~1) | perspective.value
 
-  // Linear probing stores references and primitive data directly, without a linked Entry per success.
-  // Empty slots use a private sentinel, allowing every Int hash and evaluator result to be stored.
-  private def find(hash: Int, state: GameState): Int =
+  private def findExact(hash: Int, state: GameState): Int =
     val mask = states.length - 1
     var slot = (hash >>> 1) & mask
     while (states(slot) ne Empty) &&
@@ -125,11 +196,28 @@ final class EvaluationCache(evalFn: (GameState, Color) => Int):
     do slot = (slot + 1) & mask
     slot
 
+  private inline def keysMatch(stored: AnyRef | Null, key: Any | Null): Boolean =
+    val storedRef = stored.asInstanceOf[AnyRef]
+    val keyRef    = key.asInstanceOf[AnyRef]
+    if storedRef eq keyRef then true
+    else if (storedRef eq null) || (keyRef eq null) then false // scalafix:ok(DisableSyntax.null)
+    else
+      given CanEqual[Any, Any] = CanEqual.derived
+      (stored: Any) == (key: Any)
+
+  private def findKeyed(hash: Int, key: Any | Null): Int =
+    val mask = states.length - 1
+    var slot = (hash >>> 1) & mask
+    while (states(slot) ne Empty) &&
+      !(hashes(slot) == hash && keysMatch(states(slot), key))
+    do slot = (slot + 1) & mask
+    slot
+
   private def grow(): Unit =
     val oldStates = states
     val oldHashes = hashes
     val oldValues = values
-    states = Array.fill[AnyRef](oldStates.length * 2)(Empty)
+    states = Array.fill[AnyRef | Null](oldStates.length * 2)(Empty)
     hashes = new Array[Int](states.length)
     values = new Array[Int](states.length)
     val mask  = states.length - 1
@@ -148,8 +236,12 @@ final class EvaluationCache(evalFn: (GameState, Color) => Int):
     * retries the callback. Every returned `Int`, including sentinel-like extreme values, is cacheable.
     */
   def apply(state: GameState, perspective: Color): Int =
+    if isExact then applyExact(state, perspective)
+    else applyKeyed(state, perspective)
+
+  private def applyExact(state: GameState, perspective: Color): Int =
     val hash = fingerprint(state, perspective)
-    var slot = find(hash, state)
+    var slot = findExact(hash, state)
     if states(slot) ne Empty then
       hits += 1
       values(slot)
@@ -157,15 +249,54 @@ final class EvaluationCache(evalFn: (GameState, Color) => Int):
       val before = retained
       calls += 1
       val value = evalFn(state, perspective)
-      // Without successful re-entry, neither the vacant slot nor its backing arrays can have changed.
-      // A callback may insert this very key, grow the table, or fail after retaining other nested successes.
-      if retained != before then slot = find(hash, state)
+      if retained != before then slot = findExact(hash, state)
       if states(slot) eq Empty then
         if retained >= states.length - states.length / 4 then
           grow()
-          slot = find(hash, state)
+          slot = findExact(hash, state)
         hashes(slot) = hash
         states(slot) = state
         retained += 1
       values(slot) = value
       value
+
+  private def applyKeyed(state: GameState, perspective: Color): Int =
+    val key   = keyFn(state, perspective)
+    val raw   = if key.asInstanceOf[AnyRef] eq null then 0 else key.## // scalafix:ok(DisableSyntax.null)
+    val mixed = raw * 0x9e3779b9
+    val hash  = mixed ^ (mixed >>> 16)
+    var slot  = findKeyed(hash, key)
+    if states(slot) ne Empty then
+      hits += 1
+      values(slot)
+    else
+      val before = retained
+      calls += 1
+      val value = evalFn(state, perspective)
+      if retained != before then slot = findKeyed(hash, key)
+      if states(slot) eq Empty then
+        if retained >= states.length - states.length / 4 then
+          grow()
+          slot = findKeyed(hash, key)
+        hashes(slot) = hash
+        states(slot) = key.asInstanceOf[AnyRef | Null]
+        retained += 1
+      values(slot) = value
+      value
+
+object EvaluationCache:
+  /** Default exact key projection: exact `(GameState, Color)` identity. */
+  val exactKey: (GameState, Color) => Any = (state, perspective) => (state, perspective)
+
+  /** Creates an exact-identity evaluation cache. */
+  def exact(evalFn: (GameState, Color) => Int): EvaluationCache =
+    new EvaluationCache(evalFn)
+
+  /** Creates an evaluation cache with an explicit consumer-declared valuation key projection.
+    *
+    * The caller guarantees the valuation-equivalence law: for a fixed evaluator, configuration, perspective and model
+    * domain, `keyFn(s1, p) == keyFn(s2, p)` implies `evalFn(s1, p) == evalFn(s2, p)`. The callback `evalFn` receives
+    * the original un-normalized [[dicechess.engine.domain.GameState]].
+    */
+  def withValuationKey[K](evalFn: (GameState, Color) => Int)(keyFn: (GameState, Color) => K): EvaluationCache =
+    new EvaluationCache(evalFn, keyFn)
