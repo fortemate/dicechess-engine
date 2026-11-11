@@ -7,6 +7,8 @@ sidebar:
 
 Publishing reusable primitives in `dicechess-rules_3` and `dicechess-engine_3` does not remove duplicate traversal, pruning, or feature code in downstream consumers until those consumers migrate to the shared APIs. This page specifies the staged downstream adoption contract ([Issue #398](https://github.com/fortemate/dicechess-engine/issues/398), part of [Epic #390](https://github.com/fortemate/dicechess-engine/issues/390)) established in [Shared Traversal & Search Contracts §5.2](/dicechess-engine/architecture/search/14-traversal-and-search-contracts/#52-staged-adoption-sequence-392399).
 
+The downstream adoption tracked by these issues is complete against published engine/rules `0.18.2`. Consumer-specific qualification evidence and accepted compatibility differences are retained in the owning private repository. The procedure and acceptance checklist below remain a reference for future consumers.
+
 :::note[Release & Publication Boundary]
 Releases are **human-only** (`gh workflow run release.yaml` or `mise run release:prepare`) and are never executed automatically by an issue or pull request. Downstream repositories keep their own evaluator formulas, parameter values, candidate limits, selective reply filters, roll urgency heuristics, root blending weights, opening books, trained models, and arena verdicts in their owning repositories.
 :::
