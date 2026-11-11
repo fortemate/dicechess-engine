@@ -50,10 +50,12 @@ class KcpScratchBoardRoundTripSpec extends FunSuite:
 
       // Forward assertion
       assertStateEquals(scratch.toGameState, afterState, s"$label -> makeMove($move)")
+      assertStateEquals(scratch.toGameStateReadOnly, afterState, s"$label -> makeMoveReadOnly($move)")
 
       // Undo assertion
       scratch.undoMove(move, undo)
       assertStateEquals(scratch.toGameState, state, s"$label -> undoMove($move)")
+      assertStateEquals(scratch.toGameStateReadOnly, state, s"$label -> undoMoveReadOnly($move)")
 
   test("initial position all moves make/undo round-trip"):
     testAllMovesRoundTrip(parse("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"), "initial")
