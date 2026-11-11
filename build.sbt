@@ -749,7 +749,7 @@ lazy val cli = project
     libraryDependencies ++= Seq(
       "com.monovore"             %% "decline"     % "2.6.2",
       "org.typelevel"            %% "cats-core"   % "2.13.0",
-      "org.jline"                 % "jline"       % "4.4.8",
+      "org.jline"                 % "jline"       % "4.5.0",
       "com.microsoft.onnxruntime" % "onnxruntime" % OnnxRuntimeV
     ),
     coverageMinimumStmtTotal := 60,
