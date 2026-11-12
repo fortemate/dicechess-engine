@@ -136,6 +136,20 @@ private object Position:
       case Some(pt) => pt
       case None     => defaultType
 
+  private[engine] inline def isMicroMoveEnPassant(
+      mover: Piece,
+      from: Square,
+      to: Square,
+      target: Piece
+  ): Boolean =
+    mover.pieceType == PieceType.Pawn && from.file != to.file && target.isEmpty
+
+  private[engine] inline def isMicroMoveCapture(target: Piece, isEnPassant: Boolean): Boolean =
+    !target.isEmpty || isEnPassant
+
+  private inline def clearEpIndexIfValid(ep: Long, idx: Int): Long =
+    if idx >= 0 && idx < 64 then ep & ~(1L << idx) else ep
+
   /** Projects active en-passant squares onto the GameFlags 8-bit file mask field. */
   private[engine] inline def enPassantFiles(bb: Bitboard): Int =
     var epFiles = 0
@@ -241,11 +255,9 @@ private object Position:
     if res != 0L then
       if mv.flags == Move.EnPassantCapture then res &= ~(1L << mv.toSquare.index)
       if mv.flags != Move.DoublePawnPush && mover.pieceType == PieceType.Pawn then
-        val passedIdx = mv.fromSquare.index + rankOffset
-        if passedIdx >= 0 && passedIdx < 64 then res &= ~(1L << passedIdx)
+        res = clearEpIndexIfValid(res, mv.fromSquare.index + rankOffset)
       if !target.isEmpty && target.pieceType == PieceType.Pawn then
-        val passedIdx = mv.toSquare.index - rankOffset
-        if passedIdx >= 0 && passedIdx < 64 then res &= ~(1L << passedIdx)
+        res = clearEpIndexIfValid(res, mv.toSquare.index - rankOffset)
     res
   }
 
@@ -336,9 +348,7 @@ extension (state: GameState)
     val moveMask    = fromBB | toBB
     val rankOffset  = Position.pawnRankOffset(isWhite)
 
-    val isEnPassantCapture = movingPiece.pieceType == PieceType.Pawn &&
-      from.file != to.file &&
-      targetPiece.isEmpty
+    val isEnPassantCapture = Position.isMicroMoveEnPassant(movingPiece, from, to, targetPiece)
 
     var white   = state.whitePieces.value
     var black   = state.blackPieces.value
@@ -359,7 +369,9 @@ extension (state: GameState)
       mailbox(victimSq.index) = Piece.Empty
     }
 
-    val oppMask = if !capPiece.isEmpty then {
+    var oppMask = 0L
+    if !capPiece.isEmpty then {
+      oppMask = capBB
       capPiece.pieceType match
         case PieceType.Pawn   => pawns &= ~capBB
         case PieceType.Knight => knights &= ~capBB
@@ -368,8 +380,7 @@ extension (state: GameState)
         case PieceType.Queen  => queens &= ~capBB
         case PieceType.King   => kings &= ~capBB
         case _                => ()
-      capBB
-    } else 0L
+    }
 
     val finalPieceType = Position.microMoveFinalPieceType(mv, movingPiece.pieceType)
     if finalPieceType == movingPiece.pieceType then {
@@ -426,7 +437,7 @@ extension (state: GameState)
       Position.nextHalfMoveClock(
         state.flags.halfMoveClock,
         movingPiece.pieceType,
-        !targetPiece.isEmpty || isEnPassantCapture
+        Position.isMicroMoveCapture(targetPiece, isEnPassantCapture)
       )
 
     val newFlags = GameFlags.fromList(
@@ -524,11 +535,12 @@ extension (state: GameState)
     var kings    = state.kings.value
     val mailbox  = state.mailbox.toArray
     var selfMask = moveMask
-    var oppMask  = if hasTarget then toBB else 0L
+    var oppMask  = 0L
 
     mailbox(from.index) = Piece.Empty
 
     if hasTarget then {
+      oppMask = toBB
       target.pieceType match
         case PieceType.Pawn   => pawns &= ~toBB
         case PieceType.Knight => knights &= ~toBB
