@@ -226,3 +226,67 @@ class MoveGeneratorPuritySpec extends ScalaCheckSuite:
       assertEquals(st.blackPieces, blackBefore, "blackPieces must remain unchanged after move generation")
     }
   }
+
+  // ── Property 4: Primitive buffer equivalence with strict EP eligibility ───
+
+  property(
+    "Property 4: MoveGenerator.generatePieceMovesInto matches generatePieceMoves for all EP eligibility masks"
+  ) {
+    import dicechess.engine.domain.{Bitboard, Color, Move, PieceType}
+    import org.scalacheck.Gen
+
+    forAll(gameStateGen, Gen.choose(Long.MinValue, Long.MaxValue)) { (state, randomMask) =>
+      for color <- List(Color.White, Color.Black) do
+        val st       = state.withActiveColor(color)
+        val strictEp = MoveGenerator.computeEligibleEpPawns(st)
+        val masks    = List(Bitboard.full, Bitboard.empty, strictEp, Bitboard(randomMask))
+        for
+          eligible <- masks
+          die      <- 1 to 6
+        do
+          val bound    = MoveGenerator.maxMovesBound(MoveGenerator.activePiecesOf(st, die), die)
+          val exactBuf = new Array[Int](bound)
+          val count    = MoveGenerator.generatePieceMovesInto(st, die, eligible, exactBuf)
+          val actual   = (0 until count).map(i => Move.fromInt(exactBuf(i))).toList
+          val expected = MoveGenerator.generatePieceMoves(st, PieceType(die), eligible)
+          assertEquals(
+            actual,
+            expected,
+            s"generatePieceMovesInto diverged from generatePieceMoves for color=$color die=$die eligible=$eligible"
+          )
+
+        val emptyBuf = Array.emptyIntArray
+        assertEquals(MoveGenerator.generatePieceMovesInto(st, 0, strictEp, emptyBuf), 0)
+        assertEquals(MoveGenerator.generatePieceMovesInto(st, 7, strictEp, emptyBuf), 0)
+    }
+  }
+
+  test("generatePieceMovesInto honors strict eligibleEpPawns mask when two friendly pawns adjoin EP target") {
+    import dicechess.engine.domain.{Bitboard, FenParser, Move, PieceType, Square}
+
+    val state = FenParser
+      .parse("4k3/8/8/2PpP3/8/8/8/4K3 w - d6 0 1")
+      .getOrElse(fail("Failed to parse twin-pawn EP FEN"))
+
+    val buf = new Array[Int](512)
+    val c5  = Square('c', 5)
+    val e5  = Square('e', 5)
+    val d6  = Square('d', 6)
+
+    val masks = List(
+      Bitboard.full,
+      Bitboard.fromSquare(e5),
+      Bitboard.fromSquare(c5),
+      Bitboard.empty
+    )
+    for eligible <- masks do
+      val count    = MoveGenerator.generatePieceMovesInto(state, 1, eligible, buf)
+      val actual   = (0 until count).map(i => Move.fromInt(buf(i))).toList
+      val expected = MoveGenerator.generatePieceMoves(state, PieceType.Pawn, eligible)
+      assertEquals(actual, expected, s"Twin-pawn EP mismatch for eligible=$eligible")
+
+    val onlyE5Count = MoveGenerator.generatePieceMovesInto(state, 1, Bitboard.fromSquare(e5), buf)
+    val onlyE5Moves = (0 until onlyE5Count).map(i => Move.fromInt(buf(i)))
+    assert(onlyE5Moves.contains(Move(e5, d6, Move.EnPassantCapture)))
+    assert(!onlyE5Moves.contains(Move(c5, d6, Move.EnPassantCapture)))
+  }

@@ -365,6 +365,13 @@ class KingCaptureProbabilitySuite extends FunSuite:
         val expected = MoveGenerator.generatePieceMoves(st, PieceType(die)).map(_.toInt)
         assertEquals(actual, expected, s"$context [color=$color, die=$die]")
 
+        val strictEp = MoveGenerator.computeEligibleEpPawns(st)
+        for eligible <- List(strictEp, Bitboard.empty) do
+          val stateCount    = MoveGenerator.generatePieceMovesInto(st, die, eligible, buf)
+          val stateActual   = (0 until stateCount).map(buf(_)).toList
+          val stateExpected = MoveGenerator.generatePieceMoves(st, PieceType(die), eligible).map(_.toInt)
+          assertEquals(stateActual, stateExpected, s"$context [color=$color, die=$die, eligible=$eligible]")
+
   test("MoveGenerator.generatePieceMovesInto matches generatePieceMoves element-for-element across fixtures") {
     val fens = KingCaptureFixtures.cases.map(_.fen) ++
       MoveGenFixtures.allSuites.flatMap(_.cases.map(_.fen.split(" ").take(6).mkString(" "))) ++

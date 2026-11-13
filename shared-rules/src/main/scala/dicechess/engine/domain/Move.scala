@@ -60,6 +60,9 @@ object Move:
   /** A sentinel move encoding a1→a1 with no flags. Used as a zero-value placeholder; never a legal move. */
   val empty: Move = 0
 
+  /** Restores an encoded 16-bit primitive move packed by `MoveGenerator.generatePieceMovesInto`. */
+  private[engine] inline def fromInt(raw: Int): Move = raw
+
   extension (move: Move)
     /** Returns the starting square of the move. */
     def fromSquare: Square = Square.fromIndex((move & FromMask) >> FromShift)
