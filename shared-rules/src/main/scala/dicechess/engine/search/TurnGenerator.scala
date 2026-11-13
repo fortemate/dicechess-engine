@@ -21,6 +21,14 @@ import dicechess.engine.movegen.MoveGenerator
   */
 object TurnGenerator:
 
+  private val EmptyMoves: Array[Int] = new Array[Int](0)
+  private inline val MinScratchMoves = 32
+
+  final private class SharedPrefix(val state: GameState, val eligible: Bitboard):
+    val geometry: Array[Array[Int]] =
+      Array(EmptyMoves, EmptyMoves, EmptyMoves, EmptyMoves, EmptyMoves, EmptyMoves)
+    var generatedMask = 0
+
   /** Generates all legal full-turn paths (sequences of 1 to 3 moves) for the given state.
     *
     * A path is a `List[Move]` of 1–3 micro-moves. An empty list means no legal move exists (the player passes). The
@@ -60,12 +68,12 @@ object TurnGenerator:
     *   the callback function invoked for each legal path
     */
   def forEachLegalTurnPath(state: GameState)(f: (Array[Move], Int) => Unit): Unit =
-    val initialEligible = computeEligibleEpPawns(state)
-    val moves           = MoveGenerator.generateMoves(state, initialEligible)
-    if moves.nonEmpty then
-      val ctx         = new TurnGenContext()
-      val currentPath = new Array[Move](3)
-      generatePathsSinglePass(state, currentPath, 0, 0, ctx, initialEligible, moves)
+    if !state.flags.isDicePoolEmpty then
+      val initialEligible = computeEligibleEpPawns(state)
+      val ctx             = new TurnGenContext()
+      val currentPath     = new Array[Move](3)
+      val depthBufs       = Array(EmptyMoves, EmptyMoves, EmptyMoves)
+      generatePathsSinglePass(state, currentPath, 0, 0, ctx, initialEligible, depthBufs)
 
       if ctx.kingCaptureCount > 0 || ctx.normalCount > 0 then
         val outPath = new Array[Move](3)
@@ -112,15 +120,15 @@ object TurnGenerator:
   def forEachLegalTurnState(state: GameState)(
       f: (Array[Move], Int, GameState, Boolean) => Boolean
   ): Int =
-    val initialEligible = computeEligibleEpPawns(state)
-    val moves           = MoveGenerator.generateMoves(state, initialEligible)
-    if moves.isEmpty then 0
+    if state.flags.isDicePoolEmpty then 0
     else
-      val ctx         = new TurnGenContext()
-      val currentPath = new Array[Move](3)
-      generatePathsSinglePass(state, currentPath, 0, 0, ctx, initialEligible, moves)
-      val (emitted, _) = replayTurnStates(state, ctx)(f)
-      emitted
+      val initialEligible = computeEligibleEpPawns(state)
+      val ctx             = new TurnGenContext()
+      val currentPath     = new Array[Move](3)
+      val depthBufs       = Array(EmptyMoves, EmptyMoves, EmptyMoves)
+      generatePathsSinglePass(state, currentPath, 0, 0, ctx, initialEligible, depthBufs)
+      if ctx.kingCaptureCount == 0 && ctx.normalCount == 0 then 0
+      else replayTurnStates(state, ctx)(f)._1
 
   /** Work actually performed by one [[SharedTraversal]], cumulative across its classes. `generated` counts per-piece
     * geometry calls on cache misses, `examined` counts class-specific candidate edges (including rejected castling),
@@ -170,19 +178,21 @@ object TurnGenerator:
       budget: Option[BudgetedRules.Budget] = None,
       cancelled: () => Boolean = () => false
   ):
-    final private class Prefix(val state: GameState, val eligible: Bitboard):
-      val geometry      = Array.fill[List[Move]](6)(Nil)
-      var generatedMask = 0
-
-    private val root        = new Prefix(initial.withDicePool(Nil), computeEligibleEpPawns(initial))
-    private val prefixes    = scala.collection.mutable.LongMap.empty[Prefix]
-    private var generating  = 0L
-    private var examining   = 0L
-    private var applying    = 0L
-    private var emitting    = 0L
-    private var replaying   = 0L
-    private var interrupted = false
-    private var visiting    = false
+    private val root         = new SharedPrefix(initial.withDicePool(Nil), computeEligibleEpPawns(initial))
+    private val prefixes     = scala.collection.mutable.LongMap.empty[SharedPrefix]
+    private val ctx          = new TurnGenContext
+    private val path         = new Array[Move](3)
+    private val outPath      = new Array[Move](3)
+    private var scratchMoves = EmptyMoves
+    private var visitEmitted = 0
+    private var visitStopped = false
+    private var generating   = 0L
+    private var examining    = 0L
+    private var applying     = 0L
+    private var emitting     = 0L
+    private var replaying    = 0L
+    private var interrupted  = false
+    private var visiting     = false
 
     def work: TraversalWork = TraversalWork(generating, examining, applying, emitting, replaying)
 
@@ -209,132 +219,162 @@ object TurnGenerator:
     ): BudgetedRules.Outcome[SharedVisitSummary] =
       require(!visiting, "use an independent SharedTraversal for nested visits")
       visiting = true
+      ctx.reset()
+      visitEmitted = 0
+      visitStopped = false
       try
-        val traversal = new ClassVisit(f)
-        if live then traversal.discover(root, flags, 0, 0)
-        if !traversal.stopped && live then traversal.replayNormals()
-        if !traversal.stopped && !live then BudgetedRules.Outcome.Incomplete(used)
-        else BudgetedRules.Outcome.Complete(SharedVisitSummary(traversal.emitted, traversal.stopped), used)
+        if live then discover(root, flags, 0, 0, f)
+        if !visitStopped && live then replayNormals(f)
+        if !visitStopped && !live then BudgetedRules.Outcome.Incomplete(used)
+        else BudgetedRules.Outcome.Complete(SharedVisitSummary(visitEmitted, visitStopped), used)
       finally visiting = false
 
-    private def geometry(prefix: Prefix, face: Int): List[Move] =
-      val bit = 1 << (face - 1)
+    private def geometry(prefix: SharedPrefix, face: Int): Array[Int] =
+      val idx = face - 1
+      val bit = 1 << idx
       if (prefix.generatedMask & bit) == 0 && admit() then
         generating += 1
-        prefix.geometry(face - 1) =
-          MoveGenerator.generatePieceMoves(prefix.state, PieceType.fromDice(face).get, prefix.eligible)
+        val active = MoveGenerator.activePiecesOf(prefix.state, face)
+        if active != 0L then
+          val needed = MoveGenerator.maxMovesBound(active, face)
+          val buf    =
+            if scratchMoves.length >= needed then scratchMoves
+            else
+              val next = new Array[Int](math.max(MinScratchMoves, needed))
+              scratchMoves = next
+              next
+          val count = MoveGenerator.generatePieceMovesInto(prefix.state, face, prefix.eligible, buf)
+          if count > 0 then
+            val exact = new Array[Int](count)
+            System.arraycopy(buf, 0, exact, 0, count)
+            prefix.geometry(idx) = exact
         prefix.generatedMask |= bit
-      prefix.geometry(face - 1)
+      prefix.geometry(idx)
 
-    private def step(prefix: Prefix, move: Move): Prefix =
+    private def step(prefix: SharedPrefix, move: Move): SharedPrefix =
       applying += 1
       val eligible =
         if move.isEnPassant || prefix.eligible.contains(move.fromSquare) then prefix.eligible.remove(move.fromSquare)
         else prefix.eligible
-      new Prefix(prefix.state.makeMove(move), eligible)
+      new SharedPrefix(prefix.state.makeMove(move), eligible)
 
-    private def child(prefix: Prefix, move: Move, packed: Long): Prefix =
+    private def child(prefix: SharedPrefix, move: Move, packed: Long): SharedPrefix =
       // Dice usage is deliberately absent from the key; length distinguishes leading zero move slots.
       val key = packed & 0x00ffffffffffffffL
       prefixes.getOrElseUpdate(key, step(prefix, move))
 
-    final private class ClassVisit(f: (Array[Move], Int, GameState, Boolean) => Boolean):
-      private val ctx     = new TurnGenContext
-      private val path    = new Array[Move](3)
-      private val outPath = new Array[Move](3)
-      var emitted         = 0
-      var stopped         = false
+    /** True only after a legal completion was found; interruption never turns a prefix into a leaf. */
+    private def discover(
+        prefix: SharedPrefix,
+        flags: GameFlags,
+        depth: Int,
+        consumed: Int,
+        f: (Array[Move], Int, GameState, Boolean) => Boolean
+    ): Boolean =
+      var found = false
+      var seen  = 0
+      var slot  = 0
+      while slot < 3 && !visitStopped && live do
+        val face = if slot == 0 then flags.diceSlot1 else if slot == 1 then flags.diceSlot2 else flags.diceSlot3
+        val bit  = 1 << face
+        if face >= 1 && face <= 6 && (seen & bit) == 0 then
+          seen |= bit
+          if discoverFace(prefix, flags, depth, consumed, face, f) then found = true
+        slot += 1
+      found
 
-      /** True only after a legal completion was found; interruption never turns a prefix into a leaf. */
-      def discover(prefix: Prefix, flags: GameFlags, depth: Int, consumed: Int): Boolean =
-        var found = false
-        var seen  = 0
-        var slot  = 0
-        while slot < 3 && !stopped && live do
-          val face = if slot == 0 then flags.diceSlot1 else if slot == 1 then flags.diceSlot2 else flags.diceSlot3
-          val bit  = 1 << face
-          if face >= 1 && face <= 6 && (seen & bit) == 0 then
-            seen |= bit
-            if discoverFace(prefix, flags, depth, consumed, face) then found = true
-          slot += 1
-        found
+    // Inline the helpers to keep each recursion level's control flow in one runtime method.
+    private inline def discoverFace(
+        prefix: SharedPrefix,
+        flags: GameFlags,
+        depth: Int,
+        consumed: Int,
+        face: Int,
+        f: (Array[Move], Int, GameState, Boolean) => Boolean
+    ): Boolean =
+      var found = false
+      val moves = geometry(prefix, face)
+      var i     = 0
+      while i < moves.length && !visitStopped do
+        if admit() then
+          if discoverMove(prefix, flags, depth, consumed, Move.fromInt(moves(i)), f) then found = true
+          i += 1
+        else i = moves.length
+      found
 
-      // Inline the helpers to keep each recursion level's control flow in one runtime method.
-      private inline def discoverFace(prefix: Prefix, flags: GameFlags, depth: Int, consumed: Int, face: Int): Boolean =
-        var found = false
-        var moves = geometry(prefix, face)
-        while moves.nonEmpty && !stopped do
-          if admit() then
-            if discoverMove(prefix, flags, depth, consumed, moves.head) then found = true
-            moves = moves.tail
-          else moves = Nil
-        found
+    private inline def discoverMove(
+        prefix: SharedPrefix,
+        flags: GameFlags,
+        depth: Int,
+        consumed: Int,
+        move: Move,
+        f: (Array[Move], Int, GameState, Boolean) => Boolean
+    ): Boolean =
+      examining += 1
+      path(depth) = move
+      val spent  = consumed + (if move.isCastling then 2 else 1)
+      val packed = packPath(path, depth + 1, spent)
+      if prefix.state.isKingCapture(move) then
+        ctx.maxDice = math.max(ctx.maxDice, spent)
+        emit(packed, prefix, move, true, f)
+        true
+      else discoverNormal(prefix, flags, depth, spent, move, packed, f)
 
-      private inline def discoverMove(
-          prefix: Prefix,
-          flags: GameFlags,
-          depth: Int,
-          consumed: Int,
-          move: Move
-      ): Boolean =
-        examining += 1
-        path(depth) = move
-        val spent  = consumed + (if move.isCastling then 2 else 1)
-        val packed = packPath(path, depth + 1, spent)
-        if prefix.state.isKingCapture(move) then
-          ctx.maxDice = math.max(ctx.maxDice, spent)
-          emit(packed, prefix, move, true)
-          true
-        else discoverNormal(prefix, flags, depth, spent, move, packed)
-
-      private inline def discoverNormal(
-          prefix: Prefix,
-          flags: GameFlags,
-          depth: Int,
-          spent: Int,
-          move: Move,
-          packed: Long
-      ): Boolean =
-        val remaining = flags.consumeDiceFor(move, prefix.state.mailbox(move.fromSquare).pieceType)
-        if !remaining.isValid then false
+    private inline def discoverNormal(
+        prefix: SharedPrefix,
+        flags: GameFlags,
+        depth: Int,
+        spent: Int,
+        move: Move,
+        packed: Long,
+        f: (Array[Move], Int, GameState, Boolean) => Boolean
+    ): Boolean =
+      val remaining = flags.consumeDiceFor(move, prefix.state.mailbox(move.fromSquare).pieceType)
+      if !remaining.isValid then false
+      else
+        if remaining.isDicePoolEmpty then ctx.addNormal(packed)
         else
-          if remaining.isDicePoolEmpty then ctx.addNormal(packed)
-          else
-            val next      = child(prefix, move, packed)
-            val continued = discover(next, remaining, depth + 1, spent)
-            if !continued && !stopped && live then ctx.addNormal(packed)
-          true
+          val next      = child(prefix, move, packed)
+          val continued = discover(next, remaining, depth + 1, spent, f)
+          if !continued && !visitStopped && live then ctx.addNormal(packed)
+        true
 
-      private def emit(packed: Long, prefix: Prefix, move: Move, isKing: Boolean): Unit =
-        if live then
-          val len = unpackPath(packed, outPath)
-          // Discovery already built internal prefixes. Only an emitted leaf needs a final transition.
-          // A three-move path cannot be an intermediate prefix of a turn with at most three dice.
-          val existing = if len == 3 then None else prefixes.get(packed & 0x00ffffffffffffffL)
-          val result   = existing match
-            case Some(existing) => completedExisting(existing, isKing)
-            case None           =>
-              applying += 1
-              replaying += 1
-              if isKing then prefix.state.makeMove(move) else prefix.state.makeMoveAndEndTurn(move)
-          emitted += 1
-          emitting += 1
-          if !f(outPath, len, result, isKing) then stopped = true
+    private def emit(
+        packed: Long,
+        prefix: SharedPrefix,
+        move: Move,
+        isKing: Boolean,
+        f: (Array[Move], Int, GameState, Boolean) => Boolean
+    ): Unit =
+      if live then
+        val len = unpackPath(packed, outPath)
+        // Discovery already built internal prefixes. Only an emitted leaf needs a final transition.
+        // A three-move path cannot be an intermediate prefix of a turn with at most three dice.
+        val existing = if len == 3 then None else prefixes.get(packed & 0x00ffffffffffffffL)
+        val result   = existing match
+          case Some(existing) => completedExisting(existing, isKing)
+          case None           =>
+            applying += 1
+            replaying += 1
+            if isKing then prefix.state.makeMove(move) else prefix.state.makeMoveAndEndTurn(move)
+        visitEmitted += 1
+        emitting += 1
+        if !f(outPath, len, result, isKing) then visitStopped = true
 
-      private inline def completedExisting(inline existing: Prefix, inline isKing: Boolean): GameState =
-        if isKing then existing.state else existing.state.endTurn()
+    private inline def completedExisting(inline existing: SharedPrefix, inline isKing: Boolean): GameState =
+      if isKing then existing.state else existing.state.endTurn()
 
-      def replayNormals(): Unit =
-        var index = 0
-        while index < ctx.normalCount && !stopped && live do
-          val packed = ctx.normalPaths(index)
-          if ((packed >>> 56) & 0xffL).toInt == ctx.maxDice then
-            val len    = unpackPath(packed, path)
-            val parent =
-              if len == 1 then root
-              else prefixes(packPath(path, len - 1, 0))
-            emit(packed, parent, path(len - 1), false)
-          index += 1
+    private def replayNormals(f: (Array[Move], Int, GameState, Boolean) => Boolean): Unit =
+      var index = 0
+      while index < ctx.normalCount && !visitStopped && live do
+        val packed = ctx.normalPaths(index)
+        if ((packed >>> 56) & 0xffL).toInt == ctx.maxDice then
+          val len    = unpackPath(packed, path)
+          val parent =
+            if len == 1 then root
+            else prefixes(packPath(path, len - 1, 0))
+          emit(packed, parent, path(len - 1), false, f)
+        index += 1
 
   /** Packs a path of up to 3 moves, its length, and the total dice consumed into a single 64-bit Long.
     *
@@ -371,9 +411,9 @@ object TurnGenerator:
     * `& 0xffffL` slicing is lossless because [[packPath]] guarantees each move fits within 16 bits.
     */
   private[search] inline def unpackPath(p: Long, out: Array[Move]): Int =
-    out(0) = (p & 0xffffL).toInt.asInstanceOf[Move]
-    out(1) = ((p >>> 16) & 0xffffL).toInt.asInstanceOf[Move]
-    out(2) = ((p >>> 32) & 0xffffL).toInt.asInstanceOf[Move]
+    out(0) = Move.fromInt((p & 0xffffL).toInt)
+    out(1) = Move.fromInt(((p >>> 16) & 0xffffL).toInt)
+    out(2) = Move.fromInt(((p >>> 32) & 0xffffL).toInt)
     ((p >>> 48) & 0xffL).toInt
 
   private[search] class TurnGenContext:
@@ -382,6 +422,11 @@ object TurnGenerator:
     var kingCaptures     = new Array[Long](32)
     var kingCaptureCount = 0
     var maxDice          = 0
+
+    def reset(): Unit =
+      normalCount = 0
+      kingCaptureCount = 0
+      maxDice = 0
 
     def totalLegalPaths: Int =
       var count = kingCaptureCount
@@ -488,6 +533,14 @@ object TurnGenerator:
 
     (emitted, stopped)
 
+  private inline def ensureDepthBuffer(depthBufs: Array[Array[Int]], depth: Int, needed: Int): Array[Int] =
+    val existing = depthBufs(depth)
+    if existing.length >= needed then existing
+    else
+      val allocated = new Array[Int](math.max(MinScratchMoves, needed))
+      depthBufs(depth) = allocated
+      allocated
+
   private def generatePathsSinglePass(
       state: GameState,
       currentPath: Array[Move],
@@ -495,17 +548,31 @@ object TurnGenerator:
       diceConsumedSoFar: Int,
       ctx: TurnGenContext,
       eligibleEpPawns: Bitboard,
-      moves: List[Move]
+      depthBufs: Array[Array[Int]]
   ): Unit =
-    var curr = moves
-    while curr.nonEmpty do
-      val move = curr.head
-      currentPath(depth) = move
-      val nextEligible =
-        if move.isEnPassant || eligibleEpPawns.contains(move.fromSquare) then eligibleEpPawns.remove(move.fromSquare)
-        else eligibleEpPawns
-      processMove(state, currentPath, depth, diceConsumedSoFar, ctx, nextEligible, move)
-      curr = curr.tail
+    val flags = state.flags
+    var seen  = 0
+    var slot  = 0
+    while slot < 3 do
+      val face = if slot == 0 then flags.diceSlot1 else if slot == 1 then flags.diceSlot2 else flags.diceSlot3
+      val bit  = 1 << face
+      if face >= 1 && face <= 6 && (seen & bit) == 0 then
+        seen |= bit
+        val active = MoveGenerator.activePiecesOf(state, face)
+        if active != 0L then
+          val buf   = ensureDepthBuffer(depthBufs, depth, MoveGenerator.maxMovesBound(active, face))
+          val count = MoveGenerator.generatePieceMovesInto(state, face, eligibleEpPawns, buf)
+          var i     = 0
+          while i < count do
+            val move = Move.fromInt(buf(i))
+            currentPath(depth) = move
+            val nextEligible =
+              if move.isEnPassant || eligibleEpPawns.contains(move.fromSquare) then
+                eligibleEpPawns.remove(move.fromSquare)
+              else eligibleEpPawns
+            processMove(state, currentPath, depth, diceConsumedSoFar, ctx, nextEligible, move, depthBufs)
+            i += 1
+      slot += 1
 
   private inline def processMove(
       state: GameState,
@@ -514,10 +581,11 @@ object TurnGenerator:
       diceConsumedSoFar: Int,
       ctx: TurnGenContext,
       eligibleEpPawns: Bitboard,
-      move: Move
+      move: Move,
+      depthBufs: Array[Array[Int]]
   ): Unit =
     if state.isKingCapture(move) then handleKingCapture(currentPath, depth, diceConsumedSoFar, ctx, move)
-    else handleNonCapture(state, currentPath, depth, diceConsumedSoFar, ctx, eligibleEpPawns, move)
+    else handleNonCapture(state, currentPath, depth, diceConsumedSoFar, ctx, eligibleEpPawns, move, depthBufs)
 
   private inline def handleKingCapture(
       currentPath: Array[Move],
@@ -537,21 +605,21 @@ object TurnGenerator:
       diceConsumedSoFar: Int,
       ctx: TurnGenContext,
       eligibleEpPawns: Bitboard,
-      move: Move
+      move: Move,
+      depthBufs: Array[Array[Int]]
   ): Unit =
     val survived = state.diceAfter(move)
     if survived.isValid then
       val diceConsumed = if move.isCastling then 2 else 1
-      val next         = state.makeMove(move).withDiceSlotsOf(survived)
-      val subMoves     = MoveGenerator.generateMoves(next, eligibleEpPawns)
       val consumed     = diceConsumedSoFar + diceConsumed
-      if subMoves.isEmpty then
+      if survived.isDicePoolEmpty then
         val packed = packPath(currentPath, depth + 1, consumed)
         ctx.addNormal(packed)
       else
+        val next         = state.makeMove(move).withDiceSlotsOf(survived)
         val normalBefore = ctx.normalCount
         val kingBefore   = ctx.kingCaptureCount
-        generatePathsSinglePass(next, currentPath, depth + 1, consumed, ctx, eligibleEpPawns, subMoves)
+        generatePathsSinglePass(next, currentPath, depth + 1, consumed, ctx, eligibleEpPawns, depthBufs)
         if ctx.normalCount == normalBefore && ctx.kingCaptureCount == kingBefore then
           val packed = packPath(currentPath, depth + 1, consumed)
           ctx.addNormal(packed)

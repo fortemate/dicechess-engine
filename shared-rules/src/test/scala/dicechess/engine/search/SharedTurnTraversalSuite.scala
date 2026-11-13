@@ -391,6 +391,37 @@ class SharedTurnTraversalSuite extends FunSuite:
       assertComplete(outcome, expected.size, stopped = false)
       assertEquals(shared.result(), expected)
 
+  test("SharedTraversal reuses TurnGenContext and scratch buffers across heterogeneous rolls"):
+    val rolls = List(
+      pool(1, 1, 2), // 3-dice opening (maxDice = 3)
+      pool(5, 5, 5), // queen roll with zero moves: must emit empty, not stale paths
+      pool(2),       // 1-die roll (maxDice = 1 < 3): must emit depth-1 knight moves
+      pool(2, 4, 6)  // mixed roll reusing same scratch and context
+    )
+    val initial   = parse(FenParser.InitialPosition)
+    val traversal = new TurnGenerator.SharedTraversal(initial)
+    for roll <- rolls do
+      val rollState = roll.applyToState(initial)
+      val expected  = List.newBuilder[Entry]
+      TurnGenerator.forEachLegalTurnState(rollState) { (moves, len, state, capture) =>
+        expected += entry(moves.take(len).toList, state, capture)
+        true
+      }
+      assertEquals(collect(traversal, roll), expected.result(), s"mismatch reusing traversal for roll=$roll")
+
+    val ctx = new TurnGenerator.TurnGenContext
+    ctx.addNormal(TurnGenerator.packPath(Array(Move(Square('e', 2), Square('e', 4)), Move.empty, Move.empty), 1, 2))
+    ctx.addKingCapture(
+      TurnGenerator.packPath(Array(Move(Square('e', 2), Square('e', 4)), Move.empty, Move.empty), 1, 1)
+    )
+    assertEquals(ctx.normalCount, 1)
+    assertEquals(ctx.kingCaptureCount, 1)
+    assertEquals(ctx.maxDice, 2)
+    ctx.reset()
+    assertEquals(ctx.normalCount, 0)
+    assertEquals(ctx.kingCaptureCount, 0)
+    assertEquals(ctx.maxDice, 0)
+
   private def pool(dice: Int*): CompactRoll = CompactRoll.fromSortedList(dice.toList)
 
   private def entry(path: List[Move], state: GameState, capture: Boolean): Entry =
