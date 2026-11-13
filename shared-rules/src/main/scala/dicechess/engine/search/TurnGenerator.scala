@@ -70,10 +70,8 @@ object TurnGenerator:
   def forEachLegalTurnPath(state: GameState)(f: (Array[Move], Int) => Unit): Unit =
     if !state.flags.isDicePoolEmpty then
       val initialEligible = computeEligibleEpPawns(state)
-      val ctx             = new TurnGenContext()
-      val currentPath     = new Array[Move](3)
-      val depthBufs       = Array(EmptyMoves, EmptyMoves, EmptyMoves)
-      generatePathsSinglePass(state, currentPath, 0, 0, ctx, initialEligible, depthBufs)
+      val ctx             = new SinglePassSearch()
+      ctx.generate(state, 0, 0, initialEligible)
 
       if ctx.kingCaptureCount > 0 || ctx.normalCount > 0 then
         val outPath = new Array[Move](3)
@@ -123,10 +121,8 @@ object TurnGenerator:
     if state.flags.isDicePoolEmpty then 0
     else
       val initialEligible = computeEligibleEpPawns(state)
-      val ctx             = new TurnGenContext()
-      val currentPath     = new Array[Move](3)
-      val depthBufs       = Array(EmptyMoves, EmptyMoves, EmptyMoves)
-      generatePathsSinglePass(state, currentPath, 0, 0, ctx, initialEligible, depthBufs)
+      val ctx             = new SinglePassSearch()
+      ctx.generate(state, 0, 0, initialEligible)
       if ctx.kingCaptureCount == 0 && ctx.normalCount == 0 then 0
       else replayTurnStates(state, ctx)(f)._1
 
@@ -533,93 +529,88 @@ object TurnGenerator:
 
     (emitted, stopped)
 
-  private inline def ensureDepthBuffer(depthBufs: Array[Array[Int]], depth: Int, needed: Int): Array[Int] =
-    val existing = depthBufs(depth)
-    if existing.length >= needed then existing
-    else
-      val allocated = new Array[Int](math.max(MinScratchMoves, needed))
-      depthBufs(depth) = allocated
-      allocated
+  private inline def diceSlotFace(flags: GameFlags, slot: Int): Int =
+    if slot == 0 then flags.diceSlot1 else if slot == 1 then flags.diceSlot2 else flags.diceSlot3
 
-  private def generatePathsSinglePass(
-      state: GameState,
-      currentPath: Array[Move],
-      depth: Int,
-      diceConsumedSoFar: Int,
-      ctx: TurnGenContext,
-      eligibleEpPawns: Bitboard,
-      depthBufs: Array[Array[Int]]
-  ): Unit =
-    val flags = state.flags
-    var seen  = 0
-    var slot  = 0
-    while slot < 3 do
-      val face = if slot == 0 then flags.diceSlot1 else if slot == 1 then flags.diceSlot2 else flags.diceSlot3
-      val bit  = 1 << face
-      if face >= 1 && face <= 6 && (seen & bit) == 0 then
-        seen |= bit
-        val active = MoveGenerator.activePiecesOf(state, face)
-        if active != 0L then
-          val buf   = ensureDepthBuffer(depthBufs, depth, MoveGenerator.maxMovesBound(active, face))
-          val count = MoveGenerator.generatePieceMovesInto(state, face, eligibleEpPawns, buf)
-          var i     = 0
-          while i < count do
-            val move = Move.fromInt(buf(i))
-            currentPath(depth) = move
-            val nextEligible =
-              if move.isEnPassant || eligibleEpPawns.contains(move.fromSquare) then
-                eligibleEpPawns.remove(move.fromSquare)
-              else eligibleEpPawns
-            processMove(state, currentPath, depth, diceConsumedSoFar, ctx, nextEligible, move, depthBufs)
-            i += 1
-      slot += 1
+  private inline def nextEligibleEpPawns(eligibleEpPawns: Bitboard, move: Move): Bitboard =
+    if move.isEnPassant || eligibleEpPawns.contains(move.fromSquare) then eligibleEpPawns.remove(move.fromSquare)
+    else eligibleEpPawns
 
-  private inline def processMove(
-      state: GameState,
-      currentPath: Array[Move],
-      depth: Int,
-      diceConsumedSoFar: Int,
-      ctx: TurnGenContext,
-      eligibleEpPawns: Bitboard,
-      move: Move,
-      depthBufs: Array[Array[Int]]
-  ): Unit =
-    if state.isKingCapture(move) then handleKingCapture(currentPath, depth, diceConsumedSoFar, ctx, move)
-    else handleNonCapture(state, currentPath, depth, diceConsumedSoFar, ctx, eligibleEpPawns, move, depthBufs)
+  /** Single-pass legal-turn DFS carrying scratch path and depth buffers as fields to avoid per-step parameter bloat. */
+  final private class SinglePassSearch extends TurnGenContext:
+    private val currentPath = new Array[Move](3)
+    private val depthBufs   = Array(EmptyMoves, EmptyMoves, EmptyMoves)
 
-  private inline def handleKingCapture(
-      currentPath: Array[Move],
-      depth: Int,
-      diceConsumedSoFar: Int,
-      ctx: TurnGenContext,
-      move: Move
-  ): Unit =
-    val consumed = diceConsumedSoFar + (if move.isCastling then 2 else 1)
-    val packed   = packPath(currentPath, depth + 1, consumed)
-    ctx.addKingCapture(packed)
-
-  private inline def handleNonCapture(
-      state: GameState,
-      currentPath: Array[Move],
-      depth: Int,
-      diceConsumedSoFar: Int,
-      ctx: TurnGenContext,
-      eligibleEpPawns: Bitboard,
-      move: Move,
-      depthBufs: Array[Array[Int]]
-  ): Unit =
-    val survived = state.diceAfter(move)
-    if survived.isValid then
-      val diceConsumed = if move.isCastling then 2 else 1
-      val consumed     = diceConsumedSoFar + diceConsumed
-      if survived.isDicePoolEmpty then
-        val packed = packPath(currentPath, depth + 1, consumed)
-        ctx.addNormal(packed)
+    private inline def ensureDepthBuffer(depth: Int, needed: Int): Array[Int] =
+      val existing = depthBufs(depth)
+      if existing.length >= needed then existing
       else
-        val next         = state.makeMove(move).withDiceSlotsOf(survived)
-        val normalBefore = ctx.normalCount
-        val kingBefore   = ctx.kingCaptureCount
-        generatePathsSinglePass(next, currentPath, depth + 1, consumed, ctx, eligibleEpPawns, depthBufs)
-        if ctx.normalCount == normalBefore && ctx.kingCaptureCount == kingBefore then
-          val packed = packPath(currentPath, depth + 1, consumed)
-          ctx.addNormal(packed)
+        val allocated = new Array[Int](math.max(MinScratchMoves, needed))
+        depthBufs(depth) = allocated
+        allocated
+
+    /** Discovers all legal micro-move paths from `state` and records them into this context. */
+    def generate(state: GameState, depth: Int, diceConsumedSoFar: Int, eligibleEpPawns: Bitboard): Unit =
+      val flags = state.flags
+      var seen  = 0
+      var slot  = 0
+      while slot < 3 do
+        val face = diceSlotFace(flags, slot)
+        val bit  = 1 << face
+        if face >= 1 && face <= 6 && (seen & bit) == 0 then
+          seen |= bit
+          processFaceMoves(state, face, depth, diceConsumedSoFar, eligibleEpPawns)
+        slot += 1
+
+    private inline def processFaceMoves(
+        state: GameState,
+        face: Int,
+        depth: Int,
+        diceConsumedSoFar: Int,
+        eligibleEpPawns: Bitboard
+    ): Unit =
+      val active = MoveGenerator.activePiecesOf(state, face)
+      if active != 0L then
+        val buf   = ensureDepthBuffer(depth, MoveGenerator.maxMovesBound(active, face))
+        val count = MoveGenerator.generatePieceMovesInto(state, face, eligibleEpPawns, buf)
+        var i     = 0
+        while i < count do
+          val move = Move.fromInt(buf(i))
+          currentPath(depth) = move
+          val nextEligible = nextEligibleEpPawns(eligibleEpPawns, move)
+          processMove(state, depth, diceConsumedSoFar, nextEligible, move)
+          i += 1
+
+    private inline def processMove(
+        state: GameState,
+        depth: Int,
+        diceConsumedSoFar: Int,
+        eligibleEpPawns: Bitboard,
+        move: Move
+    ): Unit =
+      if state.isKingCapture(move) then handleKingCapture(depth, diceConsumedSoFar, move)
+      else handleNonCapture(state, depth, diceConsumedSoFar, eligibleEpPawns, move)
+
+    private inline def handleKingCapture(depth: Int, diceConsumedSoFar: Int, move: Move): Unit =
+      val consumed = diceConsumedSoFar + (if move.isCastling then 2 else 1)
+      addKingCapture(packPath(currentPath, depth + 1, consumed))
+
+    private inline def handleNonCapture(
+        state: GameState,
+        depth: Int,
+        diceConsumedSoFar: Int,
+        eligibleEpPawns: Bitboard,
+        move: Move
+    ): Unit =
+      val survived = state.diceAfter(move)
+      if survived.isValid then
+        val diceConsumed = if move.isCastling then 2 else 1
+        val consumed     = diceConsumedSoFar + diceConsumed
+        if survived.isDicePoolEmpty then addNormal(packPath(currentPath, depth + 1, consumed))
+        else
+          val next         = state.makeMove(move).withDiceSlotsOf(survived)
+          val normalBefore = normalCount
+          val kingBefore   = kingCaptureCount
+          generate(next, depth + 1, consumed, eligibleEpPawns)
+          if normalCount == normalBefore && kingCaptureCount == kingBefore then
+            addNormal(packPath(currentPath, depth + 1, consumed))
