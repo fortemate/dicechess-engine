@@ -42,21 +42,12 @@ object PlayableDice:
   def of(state: GameState, played: Seq[Move]): Option[List[Int]] =
     // Plain arrays and loops rather than collection operations: this method is on the JavaScript entry, where each
     // generic collection call links in code of its own.
-    val prefix = new Array[Int](played.length)
-    var k      = 0
-    played.foreach { move =>
-      prefix(k) = uciKey(move.toInt)
-      k += 1
-    }
+    val prefix = uciPrefix(played)
     // What a turn spends after the prefix is the pool once the prefix is played, the same on every turn that begins with
     // it, less the pool the turn leaves at its end. So for each face this keeps the fewest dice showing it that such a
     // turn leaves at its end.
     var afterPrefix = state.flags
-    val fewestLeft  = new Array[Int](7)
-    var face        = 1
-    while face <= 6 do
-      fewestLeft(face) = GameFlags.DiceSlots
-      face += 1
+    val fewestLeft  = newFewestLeft()
     // The position before each move of the current turn, and the move that led from one to the next. The turns come
     // from a depth-first search, so a turn shares its first moves with the one before, and the positions they share are
     // kept rather than replayed. `known` counts the positions that belong to the current turn.
@@ -68,32 +59,68 @@ object PlayableDice:
     TurnGenerator.forEachLegalTurnPath(state) { (moves, len) =>
       if beginsWith(moves, len, prefix) then
         matched += 1
-        // Keep the positions this turn shares with the one before, and replay the rest, up to its last move.
-        var shared = 1
-        while shared < known && shared < len && reached(shared - 1) == moves(shared - 1).toInt do shared += 1
-        known = shared
-        while known < len do
-          before(known) = afterMove(before(known - 1), moves(known - 1))
-          reached(known - 1) = moves(known - 1).toInt
-          known += 1
+        known = syncTurnPrefix(moves, len, before, reached, known)
         val atEnd = diceLeft(before(len - 1), moves(len - 1))
         afterPrefix = if prefix.length < len then before(prefix.length).flags else atEnd
-        var f = 1
-        while f <= 6 do
-          fewestLeft(f) = math.min(fewestLeft(f), diceShowing(atEnd, f))
-          f += 1
+        recordFewestLeft(fewestLeft, atEnd)
     }
     if matched == 0 then Option.when(prefix.isEmpty)(Nil)
-    else
-      var dice = List.empty[Int]
-      face = 6
-      while face >= 1 do
-        var n = diceShowing(afterPrefix, face) - fewestLeft(face)
-        while n > 0 do
-          dice = face :: dice
-          n -= 1
-        face -= 1
-      Some(dice)
+    else Some(collectPlayableDice(afterPrefix, fewestLeft))
+
+  /** UCI keys for the already-played prefix moves. */
+  private def uciPrefix(played: Seq[Move]): Array[Int] =
+    val prefix = new Array[Int](played.length)
+    var k      = 0
+    played.foreach { move =>
+      prefix(k) = uciKey(move.toInt)
+      k += 1
+    }
+    prefix
+
+  /** Per-face minimum remaining dice array initialized above any possible roll size. */
+  private def newFewestLeft(): Array[Int] =
+    val fewestLeft = new Array[Int](7)
+    var face       = 1
+    while face <= 6 do
+      fewestLeft(face) = GameFlags.DiceSlots
+      face += 1
+    fewestLeft
+
+  /** Reuses the shared prefix from the previous DFS turn and replays only diverging moves up to `len - 1`. */
+  private def syncTurnPrefix(
+      moves: Array[Move],
+      len: Int,
+      before: Array[GameState],
+      reached: Array[Int],
+      prevKnown: Int
+  ): Int =
+    // Keep the positions this turn shares with the one before, and replay the rest, up to its last move.
+    var known = 1
+    while known < prevKnown && known < len && reached(known - 1) == moves(known - 1).toInt do known += 1
+    while known < len do
+      before(known) = afterMove(before(known - 1), moves(known - 1))
+      reached(known - 1) = moves(known - 1).toInt
+      known += 1
+    known
+
+  /** Lowers each face's minimum remaining die count using `atEnd`. */
+  private def recordFewestLeft(fewestLeft: Array[Int], atEnd: GameFlags): Unit =
+    var f = 1
+    while f <= 6 do
+      fewestLeft(f) = math.min(fewestLeft(f), diceShowing(atEnd, f))
+      f += 1
+
+  /** Collects playable die faces in ascending order from the pool after the prefix minus `fewestLeft`. */
+  private def collectPlayableDice(afterPrefix: GameFlags, fewestLeft: Array[Int]): List[Int] =
+    var dice = List.empty[Int]
+    var face = 6
+    while face >= 1 do
+      var n = diceShowing(afterPrefix, face) - fewestLeft(face)
+      while n > 0 do
+        dice = face :: dice
+        n -= 1
+      face -= 1
+    dice
 
   /** `state` after `move`, a move of a legal turn, with the dice it leaves. */
   private def afterMove(state: GameState, move: Move): GameState =
