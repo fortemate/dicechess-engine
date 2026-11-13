@@ -56,14 +56,13 @@ object PlayableDice:
     before(0) = state
     var known   = 1
     var matched = 0
-    TurnGenerator.forEachLegalTurnPath(state) { (moves, len) =>
+    TurnGenerator.forEachLegalTurnPath(state): (moves, len) =>
       if beginsWith(moves, len, prefix) then
         matched += 1
         known = syncTurnPrefix(moves, len, before, reached, known)
         val atEnd = diceLeft(before(len - 1), moves(len - 1))
         afterPrefix = if prefix.length < len then before(prefix.length).flags else atEnd
         recordFewestLeft(fewestLeft, atEnd)
-    }
     if matched == 0 then Option.when(prefix.isEmpty)(Nil)
     else Some(collectPlayableDice(afterPrefix, fewestLeft))
 
@@ -71,10 +70,9 @@ object PlayableDice:
   private def uciPrefix(played: Seq[Move]): Array[Int] =
     val prefix = new Array[Int](played.length)
     var k      = 0
-    played.foreach { move =>
+    played.foreach: move =>
       prefix(k) = uciKey(move.toInt)
       k += 1
-    }
     prefix
 
   /** Per-face minimum remaining dice array initialized above any possible roll size. */
