@@ -201,8 +201,12 @@ object MoveGenerator {
     * moves. When `pt` is `King`, also calls [[generateCastlingMoves]] after the normal attack enumeration.
     */
   private def generateLeaperMoves(state: GameState, pt: PieceType, color: Color, enemies: Bitboard): List[Move] = {
-    val myPieces     = if color.isWhite then state.whitePieces else state.blackPieces
-    val typeBB       = if pt == PieceType.Knight then state.knights else state.kings
+    val myPieces    = if color.isWhite then state.whitePieces else state.blackPieces
+    var typeBB      = state.kings
+    var attackTable = LeaperAttacks.kingAttacks
+    if pt == PieceType.Knight then
+      typeBB = state.knights
+      attackTable = LeaperAttacks.knightAttacks
     val activePieces = myPieces & typeBB
 
     val moves = List.newBuilder[Move]
@@ -211,9 +215,8 @@ object MoveGenerator {
       val fromIdx = java.lang.Long.numberOfTrailingZeros(p)
       val from    = Square.fromIndex(fromIdx)
 
-      val attacks =
-        if pt == PieceType.Knight then LeaperAttacks.knightAttacksFor(from) else LeaperAttacks.kingAttacksFor(from)
-      val legal = attacks & ~myPieces
+      val attacks = attackTable(Square.index(from))
+      val legal   = attacks & ~myPieces
 
       var a = legal.value
       while a != 0 do {
@@ -293,9 +296,8 @@ object MoveGenerator {
       val piecesPlaced =
         (myPieces & state.kings).contains(kingHome) && (myPieces & state.rooks).contains(rookHome)
       if piecesPlaced && isCastlingPathClear(allPieces, rank, kingSide) then
-        val toSquare = if kingSide then Square('g', rank) else Square('c', rank)
-        val flags    = if kingSide then Move.KingCastle else Move.QueenCastle
-        moves += Move(kingHome, toSquare, flags)
+        if kingSide then moves += Move(kingHome, Square('g', rank), Move.KingCastle)
+        else moves += Move(kingHome, Square('c', rank), Move.QueenCastle)
 
   /** Generates pseudo-legal moves for a sliding piece (Bishop, Rook, or Queen).
     *
