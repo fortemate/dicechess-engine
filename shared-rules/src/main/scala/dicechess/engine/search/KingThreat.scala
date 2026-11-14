@@ -133,38 +133,40 @@ object KingThreat:
     */
   def threatWeight(state: GameState, target: Square, maxActions: Int): Int =
     val actions = math.max(0, math.min(maxActions, 3))
-    if actions == 0 then 0
+    if actions == 0 || !hasEnemyKing(state, target) then 0
     else
-      val targetBB    = Bitboard.fromSquare(target)
-      val enemyPieces = if state.activeColor.isWhite then state.blackPieces else state.whitePieces
-      // Target king must belong to the opponent
-      if (targetBB & enemyPieces & state.kings).isEmpty then 0
-      else
-        val ctx = new ThreatContext()
+      val ctx        = new ThreatContext()
+      val attackers1 = MoveGenerator.allAttackers(state, target, state.activeColor)
+      if !attackers1.isEmpty then addDirectAttackers(state, attackers1, 0, ctx)
+      if !ctx.isAllCovered && actions >= 2 then searchDepth1Moves(state, target, actions, ctx)
+      maskToWeight(ctx.coveredRolls)
 
-        // --- Depth 1: direct attackers check ---
-        val attackers1 = MoveGenerator.allAttackers(state, target, state.activeColor)
-        if !attackers1.isEmpty then addDirectAttackers(state, attackers1, 0, ctx)
+  private inline def hasEnemyKing(state: GameState, target: Square): Boolean =
+    // Target king must belong to the opponent
+    val enemyPieces = if state.activeColor.isWhite then state.blackPieces else state.whitePieces
+    !(Bitboard.fromSquare(target) & enemyPieces & state.kings).isEmpty
 
-        if ctx.isAllCovered || actions == 1 then maskToWeight(ctx.coveredRolls)
-        else
-          // --- Depth 1 non-capturing moves ---
-          val moves1 = MoveGenerator.generateAllMoves(state)
-          var curr1  = moves1
-          while curr1.nonEmpty && !ctx.isAllCovered do
-            val m1 = curr1.head
-            curr1 = curr1.tail
-            if m1.toSquare != target then
-              val moverType   = state.mailbox(m1.fromSquare).pieceType
-              val isCastle    = m1.isCastling
-              val cost        = if isCastle then 2 else 1
-              val spent1      = if isCastle then addCastle(0) else addDie(0, moverType.diceValue)
-              val branchMask1 = rollCoverage(spent1)
-              if (branchMask1 & ~ctx.coveredRolls) != 0L then
-                val s1 = state.makeMove(m1)
-                searchDepth2(s1, target, actions, cost, spent1, ctx)
+  private def searchDepth1Moves(state: GameState, target: Square, actions: Int, ctx: ThreatContext): Unit =
+    var curr1 = MoveGenerator.generateAllMoves(state)
+    while curr1.nonEmpty && !ctx.isAllCovered do
+      val m1 = curr1.head
+      curr1 = curr1.tail
+      if m1.toSquare != target then tryDepth1Move(state, m1, target, actions, ctx)
 
-          maskToWeight(ctx.coveredRolls)
+  private inline def tryDepth1Move(
+      state: GameState,
+      m1: Move,
+      target: Square,
+      actions: Int,
+      ctx: ThreatContext
+  ): Unit =
+    val isCastle    = m1.isCastling
+    val spent1      = if isCastle then addCastle(0) else addDie(0, state.mailbox(m1.fromSquare).pieceType.diceValue)
+    val branchMask1 = rollCoverage(spent1)
+    if (branchMask1 & ~ctx.coveredRolls) != 0L then
+      val cost = if isCastle then 2 else 1
+      val s1   = state.makeMove(m1)
+      searchDepth2(s1, target, actions, cost, spent1, ctx)
 
   private def searchDepth2(
       s1: GameState,
@@ -178,28 +180,36 @@ object KingThreat:
     val attackers2 = MoveGenerator.allAttackers(s1, target, s1.activeColor)
     if !attackers2.isEmpty then addDirectAttackers(s1, attackers2, spent1, ctx)
 
-    // If maxActions == 2, depth 2 is the last action; no need to continue to depth 3
+    // If maxActions == 2, depth 2 is the last action; no need to continue to depth 3.
     // Depth 3 requires at least 1 remaining die. If move 1 was castling (diceSpentSoFar == 2),
     // any move at depth 2 would take the 3rd die, leaving 0 dice for depth 3.
     if !ctx.isAllCovered && maxActions >= 3 && diceSpentSoFar < 2 then
       // Avoid redundant depth-2 expansions
       val transKey = s1.zobristHash ^ (spent1.toLong << 16)
-      if ctx.visited.add(transKey) then
-        val moves2 = MoveGenerator.generateAllMoves(s1)
-        var curr2  = moves2
-        while curr2.nonEmpty && !ctx.isAllCovered do
-          val m2 = curr2.head
-          curr2 = curr2.tail
-          if m2.toSquare != target then
-            // Castling at depth 2 consumes 2 dice (total 3), leaving no dice for depth 3
-            if !m2.isCastling then
-              val moverType   = s1.mailbox(m2.fromSquare).pieceType
-              val spent2      = addDie(spent1, moverType.diceValue)
-              val branchMask2 = rollCoverage(spent2)
-              if (branchMask2 & ~ctx.coveredRolls) != 0L then
-                val s2         = s1.makeMove(m2)
-                val attackers3 = MoveGenerator.allAttackers(s2, target, s2.activeColor)
-                if !attackers3.isEmpty then addDirectAttackers(s2, attackers3, spent2, ctx)
+      if ctx.visited.add(transKey) then expandDepth2Moves(s1, target, spent1, ctx)
+
+  private def expandDepth2Moves(s1: GameState, target: Square, spent1: Int, ctx: ThreatContext): Unit =
+    var curr2 = MoveGenerator.generateAllMoves(s1)
+    while curr2.nonEmpty && !ctx.isAllCovered do
+      val m2 = curr2.head
+      curr2 = curr2.tail
+      // Castling at depth 2 consumes 2 dice (total 3), leaving no dice for depth 3
+      if m2.toSquare != target && !m2.isCastling then tryDepth2Move(s1, m2, target, spent1, ctx)
+
+  private inline def tryDepth2Move(
+      s1: GameState,
+      m2: Move,
+      target: Square,
+      spent1: Int,
+      ctx: ThreatContext
+  ): Unit =
+    val moverType   = s1.mailbox(m2.fromSquare).pieceType
+    val spent2      = addDie(spent1, moverType.diceValue)
+    val branchMask2 = rollCoverage(spent2)
+    if (branchMask2 & ~ctx.coveredRolls) != 0L then
+      val s2         = s1.makeMove(m2)
+      val attackers3 = MoveGenerator.allAttackers(s2, target, s2.activeColor)
+      if !attackers3.isEmpty then addDirectAttackers(s2, attackers3, spent2, ctx)
 
   private inline def addDirectAttackers(
       state: GameState,
