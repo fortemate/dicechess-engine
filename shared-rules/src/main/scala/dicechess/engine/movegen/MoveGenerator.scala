@@ -201,8 +201,12 @@ object MoveGenerator {
     * moves. When `pt` is `King`, also calls [[generateCastlingMoves]] after the normal attack enumeration.
     */
   private def generateLeaperMoves(state: GameState, pt: PieceType, color: Color, enemies: Bitboard): List[Move] = {
-    val myPieces     = if color.isWhite then state.whitePieces else state.blackPieces
-    val typeBB       = if pt == PieceType.Knight then state.knights else state.kings
+    val myPieces    = if color.isWhite then state.whitePieces else state.blackPieces
+    var typeBB      = state.kings
+    var attackTable = LeaperAttacks.kingAttacks
+    if pt == PieceType.Knight then
+      typeBB = state.knights
+      attackTable = LeaperAttacks.knightAttacks
     val activePieces = myPieces & typeBB
 
     val moves = List.newBuilder[Move]
@@ -211,9 +215,8 @@ object MoveGenerator {
       val fromIdx = java.lang.Long.numberOfTrailingZeros(p)
       val from    = Square.fromIndex(fromIdx)
 
-      val attacks =
-        if pt == PieceType.Knight then LeaperAttacks.knightAttacksFor(from) else LeaperAttacks.kingAttacksFor(from)
-      val legal = attacks & ~myPieces
+      val attacks = attackTable(Square.index(from))
+      val legal   = attacks & ~myPieces
 
       var a = legal.value
       while a != 0 do {
@@ -293,9 +296,8 @@ object MoveGenerator {
       val piecesPlaced =
         (myPieces & state.kings).contains(kingHome) && (myPieces & state.rooks).contains(rookHome)
       if piecesPlaced && isCastlingPathClear(allPieces, rank, kingSide) then
-        val toSquare = if kingSide then Square('g', rank) else Square('c', rank)
-        val flags    = if kingSide then Move.KingCastle else Move.QueenCastle
-        moves += Move(kingHome, toSquare, flags)
+        if kingSide then moves += Move(kingHome, Square('g', rank), Move.KingCastle)
+        else moves += Move(kingHome, Square('c', rank), Move.QueenCastle)
 
   /** Generates pseudo-legal moves for a sliding piece (Bishop, Rook, or Queen).
     *
@@ -503,38 +505,6 @@ object MoveGenerator {
       die: Int,
       out: Array[Int]
   ): Int =
-    generatePieceMovesInto(
-      myPieces,
-      enemyPieces,
-      activePieces,
-      enemyKings,
-      myRooks,
-      enPassant,
-      castlingRights,
-      isWhite,
-      die,
-      out,
-      -1L
-    )
-
-  /** Zero-allocation pseudo-legal move generator for a single piece type (`die` in `1..6`) with explicit EP mask.
-    *
-    * Writes encoded 16-bit moves (`Move.toInt`) into `out` starting at index 0 and returns the number of moves written.
-    * Emits moves in the exact same order as [[generatePieceMoves]].
-    */
-  private[engine] def generatePieceMovesInto(
-      myPieces: Long,
-      enemyPieces: Long,
-      activePieces: Long,
-      enemyKings: Long,
-      myRooks: Long,
-      enPassant: Long,
-      castlingRights: Int,
-      isWhite: Boolean,
-      die: Int,
-      out: Array[Int],
-      eligibleEpPawns: Long
-  ): Int =
     die match
       case 1 =>
         generatePawnMovesInto(
@@ -544,14 +514,24 @@ object MoveGenerator {
           enemyKings,
           enPassant,
           isWhite,
-          out,
-          eligibleEpPawns
+          out
         )
+      case 2 | 3 | 4 | 5 => dispatchNonKingPieceMovesInto(myPieces, enemyPieces, activePieces, die, out)
+      case _ => generateKingMovesInto(myPieces, enemyPieces, activePieces, myRooks, castlingRights, isWhite, out)
+
+  /** Dispatches move generation for knight, bishop, rook, or queen dice (`2` through `5`). */
+  private inline def dispatchNonKingPieceMovesInto(
+      myPieces: Long,
+      enemyPieces: Long,
+      activePieces: Long,
+      die: Int,
+      out: Array[Int]
+  ): Int =
+    die match
       case 2 => generateKnightMovesInto(myPieces, enemyPieces, activePieces, out)
       case 3 => generateBishopMovesInto(myPieces, enemyPieces, activePieces, out)
       case 4 => generateRookMovesInto(myPieces, enemyPieces, activePieces, out)
-      case 5 => generateQueenMovesInto(myPieces, enemyPieces, activePieces, out)
-      case _ => generateKingMovesInto(myPieces, enemyPieces, activePieces, myRooks, castlingRights, isWhite, out)
+      case _ => generateQueenMovesInto(myPieces, enemyPieces, activePieces, out)
 
   /** Returns the active side's bitboard for `die` (`1..6`), or `0L` for out-of-range dice. */
   private[engine] inline def activePiecesOf(state: GameState, die: Int): Long =
@@ -596,19 +576,19 @@ object MoveGenerator {
       val isWhite     = state.activeColor.isWhite
       val myPieces    = if isWhite then state.whitePieces.value else state.blackPieces.value
       val enemyPieces = if isWhite then state.blackPieces.value else state.whitePieces.value
-      generatePieceMovesInto(
-        myPieces,
-        enemyPieces,
-        activePieces,
-        enemyPieces & state.kings.value,
-        myPieces & state.rooks.value,
-        state.enPassant.value,
-        state.flags.castlingRights,
-        isWhite,
-        die,
-        out,
-        eligibleEpPawns.value
-      )
+      die match
+        case 1             => generatePawnMovesFromStateInto(state, activePieces, eligibleEpPawns.value, out)
+        case 2 | 3 | 4 | 5 => dispatchNonKingPieceMovesInto(myPieces, enemyPieces, activePieces, die, out)
+        case _             =>
+          generateKingMovesInto(
+            myPieces,
+            enemyPieces,
+            activePieces,
+            myPieces & state.rooks.value,
+            state.flags.castlingRights,
+            isWhite,
+            out
+          )
 
   private def generatePawnMovesInto(
       myPawns: Long,
@@ -617,8 +597,7 @@ object MoveGenerator {
       enemyKings: Long,
       enPassant: Long,
       isWhite: Boolean,
-      out: Array[Int],
-      eligibleEpPawns: Long
+      out: Array[Int]
   ): Int =
     val color     = if isWhite then Color.White else Color.Black
     val emptyBB   = Bitboard(emptySquares)
@@ -628,16 +607,54 @@ object MoveGenerator {
     var p         = myPawns
     while p != 0L do
       val fromIdx = java.lang.Long.numberOfTrailingZeros(p)
-      val fromBit = 1L << fromIdx
-      val fromBB  = Bitboard(fromBit)
-      count = addPawnPushesInto(fromIdx, fromBB, emptyBB, color, out, count)
-      val east = PawnGeneration.eastCaptures(fromBB, enemiesBB, color)
-      val west = PawnGeneration.westCaptures(fromBB, enemiesBB, color)
-      if !east.isEmpty then count = addPawnCapturesInto(fromIdx, east, color, enemyKings, out, count)
-      if !west.isEmpty then count = addPawnCapturesInto(fromIdx, west, color, enemyKings, out, count)
-      if validEp != 0L && (eligibleEpPawns & fromBit) != 0L then
-        count = addPawnEnPassantInto(fromIdx, fromBB, validEp, color, isWhite, out, count)
+      count = addPawnNonEpMovesInto(fromIdx, emptyBB, enemiesBB, enemyKings, color, out, count)
+      if validEp != 0L then count = addPawnEnPassantInto(fromIdx, Bitboard(1L << fromIdx), validEp, color, out, count)
       p &= p - 1L
+    count
+
+  /** Generates legal pawn moves from `state`, separating regular pushes/captures from en passant. */
+  private def generatePawnMovesFromStateInto(
+      state: GameState,
+      myPawns: Long,
+      eligibleEpPawns: Long,
+      out: Array[Int]
+  ): Int =
+    val isWhite      = state.activeColor.isWhite
+    val color        = if isWhite then Color.White else Color.Black
+    val myPieces     = if isWhite then state.whitePieces.value else state.blackPieces.value
+    val enemyPieces  = if isWhite then state.blackPieces.value else state.whitePieces.value
+    val emptySquares = ~(myPieces | enemyPieces)
+    val emptyBB      = Bitboard(emptySquares)
+    val enemiesBB    = Bitboard(enemyPieces)
+    val enemyKings   = enemyPieces & state.kings.value
+    val validEp      = state.enPassant.value & emptySquares
+    var count        = 0
+    var p            = myPawns
+    while p != 0L do
+      val fromIdx = java.lang.Long.numberOfTrailingZeros(p)
+      val fromBit = 1L << fromIdx
+      count = addPawnNonEpMovesInto(fromIdx, emptyBB, enemiesBB, enemyKings, color, out, count)
+      if validEp != 0L && (eligibleEpPawns & fromBit) != 0L then
+        count = addPawnEnPassantInto(fromIdx, Bitboard(fromBit), validEp, color, out, count)
+      p &= p - 1L
+    count
+
+  /** Appends single pushes, double pushes, and diagonal captures for the pawn at `fromIdx`. */
+  private inline def addPawnNonEpMovesInto(
+      fromIdx: Int,
+      emptyBB: Bitboard,
+      enemiesBB: Bitboard,
+      enemyKings: Long,
+      color: Color,
+      out: Array[Int],
+      startCount: Int
+  ): Int =
+    val fromBB = Bitboard(1L << fromIdx)
+    var count  = addPawnPushesInto(fromIdx, fromBB, emptyBB, color, out, startCount)
+    val east   = PawnGeneration.eastCaptures(fromBB, enemiesBB, color)
+    val west   = PawnGeneration.westCaptures(fromBB, enemiesBB, color)
+    if !east.isEmpty then count = addPawnCapturesInto(fromIdx, east, color, enemyKings, out, count)
+    if !west.isEmpty then count = addPawnCapturesInto(fromIdx, west, color, enemyKings, out, count)
     count
 
   private def addPawnPushesInto(
@@ -703,16 +720,16 @@ object MoveGenerator {
       fromBB: Bitboard,
       validEp: Long,
       color: Color,
-      isWhite: Boolean,
       out: Array[Int],
       startCount: Int
   ): Int =
     var count       = startCount
-    val validEPRank = if isWhite then 6 else 3
+    val validEPRank = if color.isWhite then 6 else 3
     var ep          = validEp
     while ep != 0L do
-      val epIdx = java.lang.Long.numberOfTrailingZeros(ep)
-      if (epIdx / 8) + 1 == validEPRank then
+      val epIdx  = java.lang.Long.numberOfTrailingZeros(ep)
+      val epRank = (epIdx / 8) + 1
+      if epRank == validEPRank then
         val epBB     = Bitboard(1L << epIdx)
         val epEast   = PawnGeneration.eastCaptures(fromBB, epBB, color)
         val epWest   = PawnGeneration.westCaptures(fromBB, epBB, color)
@@ -820,21 +837,30 @@ object MoveGenerator {
       count = emitTargetsInto(fromIdx, legal, enemyPieces, out, count)
       p &= p - 1L
     if activeKings != 0L && castlingRights != 0 then
-      val allPieces = myPieces | enemyPieces
-      if isWhite then
-        if (activeKings & (1L << 4)) != 0L then
-          if (castlingRights & 1) != 0 && (myRooks & (1L << 7)) != 0L && (allPieces & 0x60L) == 0L then
-            out(count) = packMove(4, 6, Move.KingCastle)
-            count += 1
-          if (castlingRights & 2) != 0 && (myRooks & (1L << 0)) != 0L && (allPieces & 0x0eL) == 0L then
-            out(count) = packMove(4, 2, Move.QueenCastle)
-            count += 1
-      else if (activeKings & (1L << 60)) != 0L then
-        if (castlingRights & 4) != 0 && (myRooks & (1L << 63)) != 0L && (allPieces & 0x6000000000000000L) == 0L then
-          out(count) = packMove(60, 62, Move.KingCastle)
-          count += 1
-        if (castlingRights & 8) != 0 && (myRooks & (1L << 56)) != 0L && (allPieces & 0x0e00000000000000L) == 0L then
-          out(count) = packMove(60, 58, Move.QueenCastle)
-          count += 1
+      count = addKingCastlingInto(myPieces | enemyPieces, activeKings, myRooks, castlingRights, isWhite, out, count)
     count
+
+  /** Appends legal kingside and queenside castling moves for `activeKings` into `out`. */
+  private inline def addKingCastlingInto(
+      allPieces: Long,
+      activeKings: Long,
+      myRooks: Long,
+      castlingRights: Int,
+      isWhite: Boolean,
+      out: Array[Int],
+      startCount: Int
+  ): Int =
+    val shift  = if isWhite then 0 else 56
+    val kingSq = 4 + shift
+    val rights = if isWhite then castlingRights else castlingRights >>> 2
+    if (activeKings & (1L << kingSq)) == 0L then startCount
+    else
+      var count = startCount
+      if (rights & 1) != 0 && (myRooks & (1L << (7 + shift))) != 0L && (allPieces & (0x60L << shift)) == 0L then
+        out(count) = packMove(kingSq, 6 + shift, Move.KingCastle)
+        count += 1
+      if (rights & 2) != 0 && (myRooks & (1L << shift)) != 0L && (allPieces & (0x0eL << shift)) == 0L then
+        out(count) = packMove(kingSq, 2 + shift, Move.QueenCastle)
+        count += 1
+      count
 }
