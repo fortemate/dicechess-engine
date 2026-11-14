@@ -26,26 +26,20 @@ object Dfen:
     * (defensively) an occupied target square.
     */
   def canonicalEnPassant(state: GameState): Bitboard =
-    val color              = state.flags.activeColor
-    val ownColor: Bitboard = if color.isWhite then state.whitePieces else state.blackPieces
-    val ownPawns           = state.pawns & ownColor
-    if ownPawns.isEmpty || state.enPassant.isEmpty then Bitboard.empty
+    if state.enPassant.isEmpty then Bitboard.empty
     else
+      val color    = state.flags.activeColor
+      val isWhite  = color.isWhite
+      val ownColor = if isWhite then state.whitePieces else state.blackPieces
+      val ownPawns = state.pawns & ownColor
       // A side captures en passant onto rank 6 (White) or rank 3 (Black); targets on any other
       // rank are stale and uncapturable by the side to move. A real en-passant square is always
       // empty, so occupied squares (possible only in malformed/legacy data) are excluded too.
-      val validRank = if color.isWhite then 6 else 3
+      val validRank = if isWhite then PawnGeneration.Rank6 else PawnGeneration.Rank3
       val occupied  = state.whitePieces | state.blackPieces
-      var bits      = state.enPassant.value
-      var targets   = Bitboard.empty
-      while bits != 0L do
-        val sq = Square.fromIndex(java.lang.Long.numberOfTrailingZeros(bits))
-        if sq.rank == validRank && !occupied.contains(sq) then targets = targets.add(sq)
-        bits &= bits - 1
-      if targets.isEmpty then Bitboard.empty
-      else
-        PawnGeneration.eastCaptures(ownPawns, targets, color) |
-          PawnGeneration.westCaptures(ownPawns, targets, color)
+      val targets   = state.enPassant & validRank & ~occupied
+      PawnGeneration.eastCaptures(ownPawns, targets, color) |
+        PawnGeneration.westCaptures(ownPawns, targets, color)
 
   /** The first four DFEN fields with the en-passant field canonicalised — byte-for-byte the analytics `normalized_fen`.
     * Placement, active colour and castling are taken verbatim from [[dicechess.engine.domain.FenParser.serialize]] so
