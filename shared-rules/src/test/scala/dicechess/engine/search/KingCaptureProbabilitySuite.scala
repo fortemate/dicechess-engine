@@ -327,6 +327,22 @@ class KingCaptureProbabilitySuite extends FunSuite:
     for fen <- fens do assertBitExactOracle(FenParser.parse(fen).fold(fail(_), identity), fen)
   }
 
+  test("entry guards and inactive root dice preserve the independent DFS probabilities") {
+    val fens = List(
+      "8/8/8/8/8/8/8/4K3 w - - 0 1",
+      "4k3/8/8/8/8/8/8/8 b - - 0 1",
+      "8/8/8/8/8/8/8/4Q3 w - - 0 1",
+      "4q3/8/8/8/8/8/8/8 b - - 0 1",
+      "8/8/8/8/b7/8/3kpn2/r2K3q b - - 0 1",
+      "R2k3Q/3KPN2/8/B7/8/8/8/8 w - - 0 1",
+      "8/8/8/8/b7/8/3kpn1q/r2K4 b - - 0 1",
+      "R2k4/3KPN1Q/8/B7/8/8/8/8 w - - 0 1",
+      "4k3/8/8/4K3/8/8/8/8 w - - 0 1",
+      "4k3/8/8/8/4K3/8/8/8 b - - 0 1"
+    )
+    for fen <- fens do assertBitExactOracle(FenParser.parse(fen).fold(fail(_), identity), fen)
+  }
+
   private def assertBitExactOracle(state: GameState, context: String): Unit =
     for defender <- List(Color.White, Color.Black) do
       val side    = if defender.isWhite then "White" else "Black"

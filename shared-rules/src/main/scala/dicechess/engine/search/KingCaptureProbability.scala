@@ -142,11 +142,21 @@ object KingCaptureProbability:
   def queenCaptureProbability(state: GameState, defenderColor: Color): Double =
     captureProbability(state, defenderColor, state.queens)
 
-  private def captureProbability(state: GameState, defenderColor: Color, targetBB: Bitboard): Double = boundary {
+  private def captureProbability(state: GameState, defenderColor: Color, targetBB: Bitboard): Double =
     val defenderPieces = if defenderColor.isWhite then state.whitePieces.value else state.blackPieces.value
     val targets        = targetBB.value & defenderPieces
-    if targets == 0L then break(0.0)
+    if targets == 0L then 0.0
+    else
+      val myPieces0 = if defenderColor.opponent.isWhite then state.whitePieces.value else state.blackPieces.value
+      if myPieces0 == 0L then 0.0
+      else captureTargetsProbability(state, defenderColor, targets, myPieces0)
 
+  private inline def captureTargetsProbability(
+      state: GameState,
+      defenderColor: Color,
+      targets: Long,
+      myPieces0: Long
+  ): Double = boundary {
     val opponent = defenderColor.opponent
     val isWhite  = opponent.isWhite
     val w0       = state.whitePieces.value
@@ -160,9 +170,7 @@ object KingCaptureProbability:
     val ep0      = state.enPassant.value
     val cr0      = state.flags.castlingRights
 
-    val myPieces0    = if isWhite then w0 else b0
-    val enemyPieces0 = if isWhite then b0 else w0
-    if myPieces0 == 0L then break(0.0)
+    val enemyPieces0 = colorPieces(!isWhite, w0, b0)
 
     val allPieces0       = w0 | b0
     val targetPawnMask   = PawnGeneration.anyAttacks(Bitboard(targets), defenderColor).value
@@ -216,7 +224,7 @@ object KingCaptureProbability:
         while i0 < count0 && (unsolved & rollsWithFirstDie(d1)) != 0L do
           val mv0   = moves0(i0)
           val flags = (mv0 >>> 12) & 0x0f
-          if flags == Move.KingCastle || flags == Move.QueenCastle then
+          if Move.fromInt(mv0).isCastling then
             unsolved = applyRootCastle(
               mv0,
               flags,
