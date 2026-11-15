@@ -11,7 +11,7 @@ class KingCaptureReachKernelSuite extends FunSuite:
     val methods = Option(KingCaptureProbability.getClass.getDeclaredMethods).getOrElse(fail("Missing KCP methods"))
     val method  = methods.iterator
       .flatMap(m => Option(m))
-      .find(m => Option(m.getName).contains("exploreLevel1"))
+      .find(m => Option(m.getName).exists(_.startsWith("exploreLevel1")))
       .getOrElse(fail("Missing exploreLevel1"))
     method.setAccessible(true)
     method
@@ -23,38 +23,47 @@ class KingCaptureReachKernelSuite extends FunSuite:
       .foldLeft(0L)((acc, square) => acc | attacks(square).value)
 
   private def evaluate(state: GameState, targets: Bitboard, attacker: Color, unsolved: Long): Long =
-    val occupied   = state.whitePieces | state.blackPieces
-    val mine       = if attacker.isWhite then state.whitePieces else state.blackPieces
-    val enemy      = if attacker.isWhite then state.blackPieces else state.whitePieces
-    val knightMask = Bitboard(union(targets)(LeaperAttacks.knightAttacksFor))
-    val kingMask   = Bitboard(union(targets)(LeaperAttacks.kingAttacksFor))
-    val args       = Array[AnyRef](
-      Int.box(1),
-      Boolean.box(attacker.isWhite),
-      Long.box(mine.value),
-      Long.box(enemy.value),
-      Long.box(occupied.value),
-      Long.box(state.pawns.value),
-      Long.box(state.knights.value),
-      Long.box(state.bishops.value),
-      Long.box(state.rooks.value),
-      Long.box(state.queens.value),
-      Long.box(state.kings.value),
-      Long.box(0L), // No fixture root has an inherited en-passant target.
-      Long.box((state.kings & enemy).value),
-      Long.box(targets.value),
-      Long.box(PawnGeneration.anyAttacks(targets, attacker.opponent).value),
-      Long.box(knightMask.value),
-      Long.box(kingMask.value),
-      Long.box(union(targets)(sq => MagicBitboards.bishopAttacks(sq, Bitboard.empty))),
-      Long.box(union(targets)(sq => MagicBitboards.rookAttacks(sq, Bitboard.empty))),
-      Long.box(union(knightMask)(LeaperAttacks.knightAttacksFor)),
-      Long.box(union(kingMask)(LeaperAttacks.kingAttacksFor)),
-      Long.box(union(targets)(sq => MagicBitboards.bishopAttacks(sq, occupied))),
-      Long.box(union(targets)(sq => MagicBitboards.rookAttacks(sq, occupied))),
-      new Array[Int](256),
-      Long.box(unsolved)
+    val occupied                     = state.whitePieces | state.blackPieces
+    val mine                         = if attacker.isWhite then state.whitePieces else state.blackPieces
+    val enemy                        = if attacker.isWhite then state.blackPieces else state.whitePieces
+    val knightMask                   = Bitboard(union(targets)(LeaperAttacks.knightAttacksFor))
+    val kingMask                     = Bitboard(union(targets)(LeaperAttacks.kingAttacksFor))
+    val context: Map[String, AnyRef] = Map(
+      "d1"               -> Int.box(1),
+      "isWhite"          -> Boolean.box(attacker.isWhite),
+      "myPieces1"        -> Long.box(mine.value),
+      "enemyPieces1"     -> Long.box(enemy.value),
+      "allPieces1"       -> Long.box(occupied.value),
+      "p1"               -> Long.box(state.pawns.value),
+      "n1"               -> Long.box(state.knights.value),
+      "bi1"              -> Long.box(state.bishops.value),
+      "r1"               -> Long.box(state.rooks.value),
+      "q1"               -> Long.box(state.queens.value),
+      "k1"               -> Long.box(state.kings.value),
+      "ep1"              -> Long.box(0L), // No fixture root has an inherited en-passant target.
+      "enemyKings"       -> Long.box((state.kings & enemy).value),
+      "targets"          -> Long.box(targets.value),
+      "targetPawnMask"   -> Long.box(PawnGeneration.anyAttacks(targets, attacker.opponent).value),
+      "targetKnightMask" -> Long.box(knightMask.value),
+      "targetKingMask"   -> Long.box(kingMask.value),
+      "targetDiagMask"   -> Long.box(union(targets)(sq => MagicBitboards.bishopAttacks(sq, Bitboard.empty))),
+      "targetOrthoMask"  -> Long.box(union(targets)(sq => MagicBitboards.rookAttacks(sq, Bitboard.empty))),
+      "knightReach2Mask" -> Long.box(union(knightMask)(LeaperAttacks.knightAttacksFor)),
+      "kingReach2Mask"   -> Long.box(union(kingMask)(LeaperAttacks.kingAttacksFor)),
+      "diagRay1"         -> Long.box(union(targets)(sq => MagicBitboards.bishopAttacks(sq, occupied))),
+      "orthoRay1"        -> Long.box(union(targets)(sq => MagicBitboards.rookAttacks(sq, occupied))),
+      "moves1"           -> new Array[Int](256),
+      "startUnsolved"    -> Long.box(unsolved)
     )
+    val names = Option(kernel.getParameters)
+      .getOrElse(fail("Missing kernel parameters"))
+      .iterator
+      .flatMap(p => Option(p))
+      .map(p => Option(p.getName).getOrElse(fail("Missing parameter name")).takeWhile(_ != '$'))
+      .toList
+    assertEquals(names.toSet, context.keySet)
+    assertEquals(names.size, context.size)
+    val args = names.map(name => context(name)).toArray
     Option(kernel.invoke(KingCaptureProbability, args*))
       .getOrElse(fail("No level-one result"))
       .asInstanceOf[java.lang.Long]
