@@ -30,6 +30,8 @@ class KingCaptureProbabilityBenchmark:
 
   private val DirectRookPosition = "8/2p5/3p4/KP5r/1R5k/8/4P1P1/8 w - - 0 1"
   private val EnPassantPosition  = "4k3/8/8/3pP3/8/8/4Q3/4R1K1 w - d6 0 1"
+  private val WhiteKingUnblocks  = "4k3/8/8/8/8/3nK3/4P3/4R3 w - - 0 1"
+  private val BlackKingUnblocks  = "4r3/4p3/3Nk3/8/8/8/8/4K3 b - - 0 1"
 
   @Param(Array("initial", "kiwipete", "endgame"))
   var position: String = uninitialized
@@ -43,9 +45,11 @@ class KingCaptureProbabilityBenchmark:
   @Setup(Level.Trial)
   def setup(): Unit =
     val fen = position match
-      case "direct-rook" => DirectRookPosition
-      case "en-passant"  => EnPassantPosition
-      case _             => BenchmarkPositions.AllPositions(position)
+      case "direct-rook"         => DirectRookPosition
+      case "en-passant"          => EnPassantPosition
+      case "king-unblocks-white" => WhiteKingUnblocks
+      case "king-unblocks-black" => BlackKingUnblocks
+      case _                     => BenchmarkPositions.AllPositions(position)
     state = BenchmarkPositions.parse(fen)
     defenderColor = if defender == "white" then Color.White else Color.Black
 
