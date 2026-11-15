@@ -474,3 +474,28 @@ class KingCaptureProbabilitySuite extends FunSuite:
     )
     for fen <- fens do assertBitExactOracle(FenParser.parse(fen).fold(fail(_), identity), fen)
   }
+
+  test("a king can clear the second blocker before a third-move rook capture") {
+    val cases = List(
+      ("4k3/8/8/8/8/3nK3/4P3/4R3 w - - 0 1", Color.Black),
+      ("4r3/4p3/3Nk3/8/8/8/8/4K3 b - - 0 1", Color.White)
+    )
+    for (fen, defender) <- cases do
+      val state = FenParser.parse(fen).fold(fail(_), identity)
+      // Pawn x Knight, King off the file, Rook x King: six permutations of [1,4,6].
+      // Three Rook dice also route around both blockers, adding one ordered roll.
+      assertEquals(KingCaptureProbability.kingCaptureProbability(state, defender), 7.0 / 216, fen)
+      assertBitExactOracle(state, fen)
+  }
+
+  test("a second-move promotion leaves the promoted type available for the final capture") {
+    val cases = List(
+      ("2k5/8/4P3/8/8/8/8/4K3 w - - 0 1", Color.Black),
+      ("4k3/8/8/8/8/4p3/8/2K5 b - - 0 1", Color.White)
+    )
+    for (fen, defender) <- cases do
+      val state = FenParser.parse(fen).fold(fail(_), identity)
+      // Two Pawn dice reach promotion; a Rook or Queen die then captures on the same rank.
+      assertEquals(KingCaptureProbability.kingCaptureProbability(state, defender), 6.0 / 216, fen)
+      assertBitExactOracle(state, fen)
+  }
