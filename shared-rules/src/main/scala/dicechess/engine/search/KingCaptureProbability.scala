@@ -151,7 +151,7 @@ object KingCaptureProbability:
       if myPieces0 == 0L then 0.0
       else captureTargetsProbability(state, defenderColor, targets, myPieces0)
 
-  private def captureTargetsProbability(
+  private inline def captureTargetsProbability(
       state: GameState,
       defenderColor: Color,
       targets: Long,
@@ -168,6 +168,7 @@ object KingCaptureProbability:
     val q0       = state.queens.value
     val k0       = state.kings.value
     val ep0      = state.enPassant.value
+    val cr0      = state.flags.castlingRights
 
     val enemyPieces0 = colorPieces(!isWhite, w0, b0)
 
@@ -205,99 +206,79 @@ object KingCaptureProbability:
 
     var d1 = 1
     while d1 <= 6 && unsolved != 0L do
-      val count0 = generateRootMovesInto(state, isWhite, d1, unsolved, moves0)
-      var i0     = 0
-      while i0 < count0 && (unsolved & rollsWithFirstDie(d1)) != 0L do
-        val mv0   = moves0(i0)
-        val flags = (mv0 >>> 12) & 0x0f
-        if flags == Move.KingCastle || flags == Move.QueenCastle then
-          unsolved = applyRootCastle(
-            mv0,
-            flags,
-            isWhite,
-            myPieces0,
-            allPieces0,
-            p0,
-            n0,
-            bi0,
-            r0,
-            q0,
-            k0,
-            targets,
-            targetPawnMask,
-            targetKnightMask,
-            targetKingMask,
-            diagRay0,
-            orthoRay0,
-            unsolved
-          )
-        else
-          unsolved = exploreAfterRootMove(
-            mv0,
-            d1,
-            isWhite,
-            w0,
-            b0,
-            p0,
-            n0,
-            bi0,
-            r0,
-            q0,
-            k0,
-            ep0,
-            enemyKings,
-            targets,
-            targetPawnMask,
-            targetKnightMask,
-            targetKingMask,
-            targetDiagMask,
-            targetOrthoMask,
-            knightReach2Mask,
-            kingReach2Mask,
-            diagRay0,
-            orthoRay0,
-            moves1,
-            unsolved
-          )
-        i0 += 1
+      val active0 = myPieces0 & selectTypeBB(d1, p0, n0, bi0, r0, q0, k0)
+      if active0 != 0L && (unsolved & rollsWithFirstDie(d1)) != 0L then
+        val count0 = MoveGenerator.generatePieceMovesInto(
+          myPieces0,
+          enemyPieces0,
+          active0,
+          enemyKings,
+          myPieces0 & r0,
+          ep0,
+          cr0,
+          isWhite,
+          d1,
+          moves0
+        )
+        var i0 = 0
+        while i0 < count0 && (unsolved & rollsWithFirstDie(d1)) != 0L do
+          val mv0   = moves0(i0)
+          val flags = (mv0 >>> 12) & 0x0f
+          if Move.fromInt(mv0).isCastling then
+            unsolved = applyRootCastle(
+              mv0,
+              flags,
+              isWhite,
+              myPieces0,
+              allPieces0,
+              p0,
+              n0,
+              bi0,
+              r0,
+              q0,
+              k0,
+              targets,
+              targetPawnMask,
+              targetKnightMask,
+              targetKingMask,
+              diagRay0,
+              orthoRay0,
+              unsolved
+            )
+          else
+            unsolved = exploreAfterRootMove(
+              mv0,
+              d1,
+              isWhite,
+              w0,
+              b0,
+              p0,
+              n0,
+              bi0,
+              r0,
+              q0,
+              k0,
+              ep0,
+              enemyKings,
+              targets,
+              targetPawnMask,
+              targetKnightMask,
+              targetKingMask,
+              targetDiagMask,
+              targetOrthoMask,
+              knightReach2Mask,
+              kingReach2Mask,
+              diagRay0,
+              orthoRay0,
+              moves1,
+              unsolved
+            )
+          i0 += 1
       d1 += 1
 
     val solved = AllRollsMask & ~unsolved
     solvedWeightSum(solved).toDouble / DiceRolls.totalOrderedRolls
   }
-
-  private inline def generateRootMovesInto(
-      state: GameState,
-      isWhite: Boolean,
-      die: Int,
-      unsolved: Long,
-      moves: Array[Int]
-  ): Int =
-    val mine   = colorPieces(isWhite, state.whitePieces.value, state.blackPieces.value)
-    val enemy  = colorPieces(!isWhite, state.whitePieces.value, state.blackPieces.value)
-    val active = mine & selectTypeBB(
-      die,
-      state.pawns.value,
-      state.knights.value,
-      state.bishops.value,
-      state.rooks.value,
-      state.queens.value,
-      state.kings.value
-    )
-    if active != 0L && (unsolved & rollsWithFirstDie(die)) != 0L then
-      MoveGenerator.generatePieceMovesInto(
-        mine,
-        enemy,
-        active,
-        enemy & state.kings.value,
-        mine & state.rooks.value,
-        state.enPassant.value,
-        state.flags.castlingRights,
-        isWhite,
-        die,
-        moves
-      )
-    else 0
 
   private inline def selectTypeBB(
       die: Int,
