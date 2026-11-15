@@ -318,6 +318,15 @@ class KingCaptureProbabilitySuite extends FunSuite:
     false
   }
 
+  test("a root king move resolves the last triple after all other types attack directly") {
+    // Types 1-5 already attack the defender. A King move supplies the missing attack for triple Six.
+    val fens = List(
+      "8/8/8/8/b7/3k4/4pn2/r2K3q b - - 0 1",
+      "R2k3Q/4PN2/3K4/B7/8/8/8/8 w - - 0 1"
+    )
+    for fen <- fens do assertBitExactOracle(FenParser.parse(fen).fold(fail(_), identity), fen)
+  }
+
   private def assertBitExactOracle(state: GameState, context: String): Unit =
     for defender <- List(Color.White, Color.Black) do
       val side    = if defender.isWhite then "White" else "Black"
