@@ -352,6 +352,11 @@ class KingCaptureProbabilitySuite extends FunSuite:
     for fen <- fens do assertBitExactOracle(FenParser.parse(fen).fold(fail(_), identity), fen)
   }
 
+  test("all direct attacker subsets preserve the independent DFS probabilities") {
+    val fens = KingCaptureMaskCases.cases.map(_._1) ++ KingCaptureMaskCases.castleCases.map(_._1)
+    for fen <- fens do assertBitExactOracle(FenParser.parse(fen).fold(fail(_), identity), fen)
+  }
+
   private def assertBitExactOracle(state: GameState, context: String): Unit =
     for defender <- List(Color.White, Color.Black) do
       val side    = if defender.isWhite then "White" else "Black"
