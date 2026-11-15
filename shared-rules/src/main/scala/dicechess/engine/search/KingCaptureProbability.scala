@@ -598,26 +598,24 @@ object KingCaptureProbability:
       moves1: Array[Int],
       startUnsolved: Long
   ): Long =
-    var unsolved        = startUnsolved
-    val promoSrcMask    = if isWhite then WhitePromoSrc else BlackPromoSrc
-    val diagUnblockMask =
-      (if (myPieces1 & bi1 & targetDiagMask) != 0L then 4 else 0) |
-        (if (myPieces1 & q1 & targetDiagMask) != 0L then 16 else 0)
-    val orthoUnblockMask =
-      (if (myPieces1 & r1 & targetOrthoMask) != 0L then 8 else 0) |
-        (if (myPieces1 & q1 & targetOrthoMask) != 0L then 16 else 0)
-    val notMyPieces1 = ~myPieces1
+    var unsolved         = startUnsolved
+    val promoSrcMask     = promotionSourceMask(isWhite)
+    val diagUnblockMask  = unblockingTypes(myPieces1, bi1, q1, targetDiagMask, 4)
+    val orthoUnblockMask = unblockingTypes(myPieces1, r1, q1, targetOrthoMask, 8)
+    val notMyPieces1     = ~myPieces1
 
     var d2 = 1
     while d2 <= 6 && (unsolved & rollsWithFirstDie(d1)) != 0L do
       val active1 = myPieces1 & selectTypeBB(d2, p1, n1, bi1, r1, q1, k1)
-      if active1 != 0L then
+      exploreActivePieces(active1) {
         val pairIdx      = d1 * 7 + d2
         var neededD3Mask = computeNeededD3Mask(pairIdx, unsolved)
         if neededD3Mask != 0 then
           val selfBit = 1 << (d2 - 1)
-          if (neededD3Mask & selfBit) != 0 then
-            val hitSelf = canPieceReachAttackInOneMove(
+          resolveSelfReach(
+            neededD3Mask,
+            selfBit,
+            canPieceReachAttackInOneMove(
               d2,
               active1,
               promoSrcMask,
@@ -632,20 +630,29 @@ object KingCaptureProbability:
               kingReach2Mask,
               diagRay1,
               orthoRay1
-            )
-            if hitSelf then
+            ), {
               unsolved &= ~tripleRollBit(pairIdx * 7 + d2)
               neededD3Mask &= ~selfBit
+            }
+          )
 
           if neededD3Mask != 0 then
             var candidatePieces1 = 0L
-            if (neededD3Mask & diagUnblockMask) != 0 then candidatePieces1 |= active1 & diagRay1
-            if (neededD3Mask & orthoUnblockMask) != 0 then candidatePieces1 |= active1 & orthoRay1
-            if d2 == 1 then
-              if (neededD3Mask & 0x1e) != 0 then candidatePieces1 |= active1 & promoSrcMask
-              if ep1 != 0L then candidatePieces1 |= active1
+            includeRayCandidates(neededD3Mask, diagUnblockMask) {
+              candidatePieces1 |= active1 & diagRay1
+            }
+            includeRayCandidates(neededD3Mask, orthoUnblockMask) {
+              candidatePieces1 |= active1 & orthoRay1
+            }
+            includePawnCandidates(
+              d2,
+              neededD3Mask,
+              ep1,
+              candidatePieces1 |= active1 & promoSrcMask,
+              candidatePieces1 |= active1
+            )
 
-            if candidatePieces1 != 0L then
+            exploreCandidateMoves(candidatePieces1) {
               val count1 = MoveGenerator.generatePieceMovesInto(
                 myPieces1,
                 enemyPieces1,
@@ -680,12 +687,59 @@ object KingCaptureProbability:
                   orthoRay1
                 )
                 val hit = mask2 & neededD3Mask
-                if hit != 0 then
+                resolvePairHits(hit) {
                   unsolved &= ~rollsWithTwoDiceAndMask(pairShift(pairIdx) | hit)
                   neededD3Mask &= ~hit
+                }
                 i1 += 1
+            }
+      }
       d2 += 1
     unsolved
+
+  private inline def promotionSourceMask(inline isWhite: Boolean): Long =
+    if isWhite then WhitePromoSrc else BlackPromoSrc
+
+  private inline def unblockingTypes(
+      inline myPieces: Long,
+      inline sliderPieces: Long,
+      inline queens: Long,
+      inline alignmentMask: Long,
+      inline sliderTypeBit: Int
+  ): Int =
+    (if (myPieces & sliderPieces & alignmentMask) != 0L then sliderTypeBit else 0) |
+      (if (myPieces & queens & alignmentMask) != 0L then 16 else 0)
+
+  private inline def includeRayCandidates(inline needed: Int, inline unblockTypes: Int)(inline include: Unit): Unit =
+    if (needed & unblockTypes) != 0 then include
+
+  private inline def includePawnCandidates(
+      inline die: Int,
+      inline needed: Int,
+      inline ep: Long,
+      inline includePromotion: Unit,
+      inline includeEnPassant: Unit
+  ): Unit =
+    if die == 1 then
+      if (needed & 0x1e) != 0 then includePromotion
+      if ep != 0L then includeEnPassant
+
+  private inline def exploreActivePieces(inline active: Long)(inline explore: Unit): Unit =
+    if active != 0L then explore
+
+  private inline def resolveSelfReach(
+      inline needed: Int,
+      inline selfBit: Int,
+      inline canReach: Boolean,
+      inline clearRoll: Unit
+  ): Unit =
+    if (needed & selfBit) != 0 && canReach then clearRoll
+
+  private inline def exploreCandidateMoves(inline candidates: Long)(inline explore: Unit): Unit =
+    if candidates != 0L then explore
+
+  private inline def resolvePairHits(inline hit: Int)(inline clearRolls: Unit): Unit =
+    if hit != 0 then clearRolls
 
   private def canPieceReachAttackInOneMove(
       d2: Int,
