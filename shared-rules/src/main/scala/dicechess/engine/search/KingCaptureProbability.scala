@@ -376,10 +376,7 @@ object KingCaptureProbability:
       val toIdx      = mv0 & 0x3f
       val fromIdx    = (mv0 >>> 6) & 0x3f
       val kingFromTo = (1L << fromIdx) | (1L << toIdx)
-      val rookFromTo =
-        if flags == Move.KingCastle then if isWhite then 0xa0L else 0xa000000000000000L
-        else if isWhite then 0x09L
-        else 0x0900000000000000L
+      val rookFromTo = castleRookFromTo(flags, isWhite)
       val toggled    = kingFromTo | rookFromTo
       val myPieces1  = myPieces0 ^ toggled
       val allPieces1 = allPieces0 ^ toggled
@@ -472,34 +469,33 @@ object KingCaptureProbability:
     var changedSqBB1 = fromToBB
 
     if flags == Move.EnPassantCapture then
-      val rankOffset = if isWhite then -8 else 8
-      val victimBB   = 1L << (toIdx + rankOffset)
+      val victimBB = enPassantVictim(toIdx, isWhite)
       changedSqBB1 |= victimBB
-      w1 = if isWhite then w0 ^ fromToBB else w0 & ~victimBB
-      b1 = if isWhite then b0 & ~victimBB else b0 ^ fromToBB
+      w1 = movedColorBitboard(w0, isWhite, fromToBB, ~victimBB)
+      b1 = movedColorBitboard(b0, !isWhite, fromToBB, ~victimBB)
       p1 = (p0 & ~fromBB & ~victimBB) | toBB
     else if (flags & 8) != 0 then
-      w1 = if isWhite then w0 ^ fromToBB else w0 & notToBB
-      b1 = if isWhite then b0 & notToBB else b0 ^ fromToBB
+      w1 = movedColorBitboard(w0, isWhite, fromToBB, notToBB)
+      b1 = movedColorBitboard(b0, !isWhite, fromToBB, notToBB)
       p1 = p0 & notFromToBB
       val promKind = flags & 3
-      n1 = if promKind == 0 then (n0 & notToBB) | toBB else n0 & notToBB
-      bi1 = if promKind == 1 then (bi0 & notToBB) | toBB else bi0 & notToBB
-      r1 = if promKind == 2 then (r0 & notToBB) | toBB else r0 & notToBB
-      q1 = if promKind == 3 then (q0 & notToBB) | toBB else q0 & notToBB
+      n1 = promotedTypeBitboard(n0, promKind == 0, notToBB, toBB)
+      bi1 = promotedTypeBitboard(bi0, promKind == 1, notToBB, toBB)
+      r1 = promotedTypeBitboard(r0, promKind == 2, notToBB, toBB)
+      q1 = promotedTypeBitboard(q0, promKind == 3, notToBB, toBB)
       k1 = k0 & notToBB
     else
-      w1 = if isWhite then w0 ^ fromToBB else w0 & notToBB
-      b1 = if isWhite then b0 & notToBB else b0 ^ fromToBB
-      p1 = if d1 == 1 then (p0 & notFromToBB) | toBB else p0 & notToBB
-      n1 = if d1 == 2 then (n0 & notFromToBB) | toBB else n0 & notToBB
-      bi1 = if d1 == 3 then (bi0 & notFromToBB) | toBB else bi0 & notToBB
-      r1 = if d1 == 4 then (r0 & notFromToBB) | toBB else r0 & notToBB
-      q1 = if d1 == 5 then (q0 & notFromToBB) | toBB else q0 & notToBB
-      k1 = if d1 == 6 then (k0 & notFromToBB) | toBB else k0 & notToBB
+      w1 = movedColorBitboard(w0, isWhite, fromToBB, notToBB)
+      b1 = movedColorBitboard(b0, !isWhite, fromToBB, notToBB)
+      p1 = movedTypeBitboard(p0, d1 == 1, notFromToBB, notToBB, toBB)
+      n1 = movedTypeBitboard(n0, d1 == 2, notFromToBB, notToBB, toBB)
+      bi1 = movedTypeBitboard(bi0, d1 == 3, notFromToBB, notToBB, toBB)
+      r1 = movedTypeBitboard(r0, d1 == 4, notFromToBB, notToBB, toBB)
+      q1 = movedTypeBitboard(q0, d1 == 5, notFromToBB, notToBB, toBB)
+      k1 = movedTypeBitboard(k0, d1 == 6, notFromToBB, notToBB, toBB)
 
-    val myPieces1    = if isWhite then w1 else b1
-    val enemyPieces1 = if isWhite then b1 else w1
+    val myPieces1    = colorPieces(isWhite, w1, b1)
+    val enemyPieces1 = colorPieces(!isWhite, w1, b1)
     val allPieces1   = w1 | b1
     val diagRay1     = if (changedSqBB1 & diagRay0) != 0L then unionDiagAttacks(targets, allPieces1) else diagRay0
     val orthoRay1    = if (changedSqBB1 & orthoRay0) != 0L then unionOrthoAttacks(targets, allPieces1) else orthoRay0
@@ -523,7 +519,7 @@ object KingCaptureProbability:
       else startUnsolved
 
     if (unsolved & rollsWithFirstDie(d1)) != 0L then
-      val ep1 = computeEp1(ep0, fromIdx, toIdx, flags, d1, isWhite, p0 & (if isWhite then b0 else w0))
+      val ep1 = computeEp1(ep0, fromIdx, toIdx, flags, d1, isWhite, p0 & colorPieces(!isWhite, w0, b0))
       unsolved = exploreLevel1(
         d1,
         isWhite,
@@ -863,6 +859,26 @@ object KingCaptureProbability:
       orthoRay2,
       targetKingMask
     )
+
+  private inline def castleRookFromTo(flags: Int, isWhite: Boolean): Long =
+    if flags == Move.KingCastle then if isWhite then 0xa0L else 0xa000000000000000L
+    else if isWhite then 0x09L
+    else 0x0900000000000000L
+
+  private inline def enPassantVictim(toIdx: Int, isWhite: Boolean): Long =
+    val rankOffset = if isWhite then -8 else 8
+    1L << (toIdx + rankOffset)
+
+  private inline def colorPieces(isWhite: Boolean, white: Long, black: Long): Long =
+    if isWhite then white else black
+
+  private inline def movedColorBitboard(
+      before: Long,
+      isMovingColor: Boolean,
+      fromToBB: Long,
+      notCapturedBB: Long
+  ): Long =
+    if isMovingColor then before ^ fromToBB else before & notCapturedBB
 
   private inline def movedTypeBitboard(
       before: Long,
