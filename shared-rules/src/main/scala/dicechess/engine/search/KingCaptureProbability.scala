@@ -181,6 +181,32 @@ object KingCaptureProbability:
     val diagRay0         = unionDiagAttacks(targets, allPieces0)
     val orthoRay0        = unionOrthoAttacks(targets, allPieces0)
 
+    // Capture only immutable position scalars; pending rolls remain an explicit input.
+    def applyRootCastle(mv0: Int, flags: Int, unsolved: Long): Long =
+      clearCastleCaptureRolls(
+        unsolved, {
+          val toIdx      = mv0 & 0x3f
+          val fromIdx    = (mv0 >>> 6) & 0x3f
+          val kingFromTo = (1L << fromIdx) | (1L << toIdx)
+          val rookFromTo = castleRookFromTo(flags, isWhite)
+          val toggled    = kingFromTo | rookFromTo
+          val myPieces1  = myPieces0 ^ toggled
+          val allPieces1 = allPieces0 ^ toggled
+          val k1         = k0 ^ kingFromTo
+          val r1         = r0 ^ rookFromTo
+          val diagRay1   = updatedAttackRay(toggled, diagRay0, unionDiagAttacks(targets, allPieces1))
+          val orthoRay1  = updatedAttackRay(toggled, orthoRay0, unionOrthoAttacks(targets, allPieces1))
+          computeCaptureMask(
+            pawnHitsTarget = (myPieces1 & p0 & targetPawnMask) != 0L,
+            knightHitsTarget = (myPieces1 & n0 & targetKnightMask) != 0L,
+            bishopHitsTarget = (myPieces1 & bi0 & diagRay1) != 0L,
+            rookHitsTarget = (myPieces1 & r1 & orthoRay1) != 0L,
+            queenHitsTarget = (myPieces1 & q0 & (diagRay1 | orthoRay1)) != 0L,
+            kingHitsTarget = (myPieces1 & k1 & targetKingMask) != 0L
+          )
+        }
+      )
+
     val mask0 = computeCaptureMask(
       pawnHitsTarget = (myPieces0 & p0 & targetPawnMask) != 0L,
       knightHitsTarget = (myPieces0 & n0 & targetKnightMask) != 0L,
@@ -218,27 +244,7 @@ object KingCaptureProbability:
         while i0 < count0 && (unsolved & rollsWithFirstDie(d1)) != 0L do
           val mv0   = moves0(i0)
           val flags = (mv0 >>> 12) & 0x0f
-          if Move.fromInt(mv0).isCastling then
-            unsolved = applyRootCastle(
-              mv0,
-              flags,
-              isWhite,
-              myPieces0,
-              allPieces0,
-              p0,
-              n0,
-              bi0,
-              r0,
-              q0,
-              k0,
-              targets,
-              targetPawnMask,
-              targetKnightMask,
-              targetKingMask,
-              diagRay0,
-              orthoRay0,
-              unsolved
-            )
+          if Move.fromInt(mv0).isCastling then unsolved = applyRootCastle(mv0, flags, unsolved)
           else
             unsolved = exploreAfterRootMove(
               mv0,
@@ -346,49 +352,12 @@ object KingCaptureProbability:
       rem &= rem - 1L
     acc
 
-  private def applyRootCastle(
-      mv0: Int,
-      flags: Int,
-      isWhite: Boolean,
-      myPieces0: Long,
-      allPieces0: Long,
-      p0: Long,
-      n0: Long,
-      bi0: Long,
-      r0: Long,
-      q0: Long,
-      k0: Long,
-      targets: Long,
-      targetPawnMask: Long,
-      targetKnightMask: Long,
-      targetKingMask: Long,
-      diagRay0: Long,
-      orthoRay0: Long,
-      unsolved: Long
-  ): Long =
+  private inline def clearCastleCaptureRolls(inline unsolved: Long, inline captureMask: Int): Long =
     val castlePairIdx = 6 * 7 + 4
     if (unsolved & rollsWithTwoDiceAndMask(pairShift(castlePairIdx) | 0x3f)) == 0L then unsolved
     else
-      val toIdx      = mv0 & 0x3f
-      val fromIdx    = (mv0 >>> 6) & 0x3f
-      val kingFromTo = (1L << fromIdx) | (1L << toIdx)
-      val rookFromTo = castleRookFromTo(flags, isWhite)
-      val toggled    = kingFromTo | rookFromTo
-      val myPieces1  = myPieces0 ^ toggled
-      val allPieces1 = allPieces0 ^ toggled
-      val k1         = k0 ^ kingFromTo
-      val r1         = r0 ^ rookFromTo
-      val diagRay1   = if (toggled & diagRay0) != 0L then unionDiagAttacks(targets, allPieces1) else diagRay0
-      val orthoRay1  = if (toggled & orthoRay0) != 0L then unionOrthoAttacks(targets, allPieces1) else orthoRay0
-      val mask1      = computeCaptureMask(
-        pawnHitsTarget = (myPieces1 & p0 & targetPawnMask) != 0L,
-        knightHitsTarget = (myPieces1 & n0 & targetKnightMask) != 0L,
-        bishopHitsTarget = (myPieces1 & bi0 & diagRay1) != 0L,
-        rookHitsTarget = (myPieces1 & r1 & orthoRay1) != 0L,
-        queenHitsTarget = (myPieces1 & q0 & (diagRay1 | orthoRay1)) != 0L,
-        kingHitsTarget = (myPieces1 & k1 & targetKingMask) != 0L
-      )
-      if mask1 != 0 then unsolved & ~rollsWithTwoDiceAndMask(pairShift(castlePairIdx) | mask1)
+      val mask = captureMask
+      if mask != 0 then unsolved & ~rollsWithTwoDiceAndMask(pairShift(castlePairIdx) | mask)
       else unsolved
 
   private def computeEp1(
@@ -627,8 +596,8 @@ object KingCaptureProbability:
         }
       )
 
-      val diagRay2  = updatedLevel2Ray(changedSqBB2, diagRay1, unionDiagAttacks(targets, allPieces2))
-      val orthoRay2 = updatedLevel2Ray(changedSqBB2, orthoRay1, unionOrthoAttacks(targets, allPieces2))
+      val diagRay2  = updatedAttackRay(changedSqBB2, diagRay1, unionDiagAttacks(targets, allPieces2))
+      val orthoRay2 = updatedAttackRay(changedSqBB2, orthoRay1, unionOrthoAttacks(targets, allPieces2))
 
       computeCaptureMask(
         pawnHitsTarget = (myPieces2 & p2 & targetPawnMask) != 0L,
@@ -845,7 +814,7 @@ object KingCaptureProbability:
   private inline def enPassantRankOffset(inline isWhite: Boolean): Int =
     if isWhite then -8 else 8
 
-  private inline def updatedLevel2Ray(inline changed: Long, inline previous: Long, inline refreshed: Long): Long =
+  private inline def updatedAttackRay(inline changed: Long, inline previous: Long, inline refreshed: Long): Long =
     if (changed & previous) != 0L then refreshed else previous
 
   private inline def castleRookFromTo(flags: Int, isWhite: Boolean): Long =
