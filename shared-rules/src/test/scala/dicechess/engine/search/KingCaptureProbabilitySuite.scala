@@ -464,3 +464,13 @@ class KingCaptureProbabilitySuite extends FunSuite:
             if ply == 2 then assertMoveGenIntoParity(current, s"movegen root=$rootIdx walk=$walk ply=$ply")
     assertEquals(tested, 200)
   }
+
+  test("differential oracle parity for en-passant cleanup at board boundaries") {
+    val fens = List(
+      "4k3/8/8/3pP3/8/8/8/P3K3 w - d6 0 1",
+      "4k2p/8/8/8/3pP3/8/8/4K3 b - e3 0 1",
+      "1p2k3/8/8/3pP3/8/8/8/1R2K3 w - d6 0 1",
+      "1r2k3/8/8/8/3pP3/8/8/1P2K3 b - e3 0 1"
+    )
+    for fen <- fens do assertBitExactOracle(FenParser.parse(fen).fold(fail(_), identity), fen)
+  }

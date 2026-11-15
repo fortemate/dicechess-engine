@@ -69,30 +69,9 @@ object KingCaptureProbability:
 
     var d1 = 1
     while d1 <= 6 do
-      val bit1 = 1 << (d1 - 1)
-      var d2   = 1
+      var d2 = 1
       while d2 <= 6 do
-        val bit2     = 1 << (d2 - 1)
-        val pairIdx  = d1 * 7 + d2
-        val pairMask = PairShift(pairIdx)
-        var d3       = 1
-        while d3 <= 6 do
-          val bit3 = 1 << (d3 - 1)
-          val s1   = math.min(d1, math.min(d2, d3))
-          val s3   = math.max(d1, math.max(d2, d3))
-          val s2   = d1 + d2 + d3 - s1 - s3
-          val bit  = 1L << rollIdx((s1 * 7 + s2) * 7 + s3)
-          byTriple(pairIdx * 7 + d3) = bit
-
-          val all3Bits = bit1 | bit2 | bit3
-          val rem2Bits = bit2 | bit3
-          var m        = 1
-          while m < 64 do
-            if (m & all3Bits) != 0 then byMask(m) |= bit
-            if (m & rem2Bits) != 0 then byPair((d1 << 6) | m) |= bit
-            if (m & bit3) != 0 then byTwo(pairMask | m) |= bit
-            m += 1
-          d3 += 1
+        populateRollMasksForPair(d1, d2, rollIdx, byMask, byPair, byTwo, byTriple)
         d2 += 1
       d1 += 1
 
@@ -112,7 +91,39 @@ object KingCaptureProbability:
       IArray.unsafeFromArray(byTriple)
     )
 
-  private inline def PairShift(pairIdx: Int): Int = pairIdx << 6
+  private inline def populateRollMasksForPair(
+      d1: Int,
+      d2: Int,
+      rollIdx: Array[Int],
+      byMask: Array[Long],
+      byPair: Array[Long],
+      byTwo: Array[Long],
+      byTriple: Array[Long]
+  ): Unit =
+    val bit1     = 1 << (d1 - 1)
+    val bit2     = 1 << (d2 - 1)
+    val pairIdx  = d1 * 7 + d2
+    val pairMask = pairShift(pairIdx)
+    var d3       = 1
+    while d3 <= 6 do
+      val bit3 = 1 << (d3 - 1)
+      val s1   = math.min(d1, math.min(d2, d3))
+      val s3   = math.max(d1, math.max(d2, d3))
+      val s2   = d1 + d2 + d3 - s1 - s3
+      val bit  = 1L << rollIdx((s1 * 7 + s2) * 7 + s3)
+      byTriple(pairIdx * 7 + d3) = bit
+
+      val all3Bits = bit1 | bit2 | bit3
+      val rem2Bits = bit2 | bit3
+      var m        = 1
+      while m < 64 do
+        if (m & all3Bits) != 0 then byMask(m) |= bit
+        if (m & rem2Bits) != 0 then byPair((d1 << 6) | m) |= bit
+        if (m & bit3) != 0 then byTwo(pairMask | m) |= bit
+        m += 1
+      d3 += 1
+
+  private inline def pairShift(pairIdx: Int): Int = pairIdx << 6
 
   private inline def solvedWeightSum(solvedMask: Long): Int =
     java.lang.Long.bitCount(solvedMask & weight1RollsMask) +
@@ -360,7 +371,7 @@ object KingCaptureProbability:
       unsolved: Long
   ): Long =
     val castlePairIdx = 6 * 7 + 4
-    if (unsolved & rollsWithTwoDiceAndMask(PairShift(castlePairIdx) | 0x3f)) == 0L then unsolved
+    if (unsolved & rollsWithTwoDiceAndMask(pairShift(castlePairIdx) | 0x3f)) == 0L then unsolved
     else
       val toIdx      = mv0 & 0x3f
       val fromIdx    = (mv0 >>> 6) & 0x3f
@@ -390,7 +401,7 @@ object KingCaptureProbability:
         orthoRay1,
         targetKingMask
       )
-      if mask1 != 0 then unsolved & ~rollsWithTwoDiceAndMask(PairShift(castlePairIdx) | mask1)
+      if mask1 != 0 then unsolved & ~rollsWithTwoDiceAndMask(pairShift(castlePairIdx) | mask1)
       else unsolved
 
   private def computeEp1(
@@ -407,13 +418,13 @@ object KingCaptureProbability:
       val rankOffset = if isWhite then -8 else 8
       val toBB       = 1L << toIdx
       var res        = if flags == Move.EnPassantCapture then ep0 & ~toBB else ep0
-      if flags != Move.DoublePawnPush && d1 == 1 then
-        val passedIdx = fromIdx + rankOffset
-        if passedIdx >= 0 && passedIdx < 64 then res &= ~(1L << passedIdx)
-      if flags != Move.EnPassantCapture && (enemyPawns0 & toBB) != 0L then
-        val passedIdx = toIdx - rankOffset
-        if passedIdx >= 0 && passedIdx < 64 then res &= ~(1L << passedIdx)
+      if flags != Move.DoublePawnPush && d1 == 1 then res = clearEpSquare(res, fromIdx + rankOffset)
+      if flags != Move.EnPassantCapture && (enemyPawns0 & toBB) != 0L then res = clearEpSquare(res, toIdx - rankOffset)
       res
+
+  private inline def clearEpSquare(targets: Long, squareIdx: Int): Long =
+    if squareIdx >= 0 && squareIdx < 64 then targets & ~(1L << squareIdx)
+    else targets
 
   private def exploreAfterRootMove(
       mv0: Int,
@@ -543,7 +554,7 @@ object KingCaptureProbability:
     unsolved
 
   private def computeNeededD3Mask(pairIdx: Int, unsolved: Long): Int =
-    val rem = unsolved & rollsWithTwoDiceAndMask(PairShift(pairIdx) | 0x3f)
+    val rem = unsolved & rollsWithTwoDiceAndMask(pairShift(pairIdx) | 0x3f)
     if rem == 0L then 0
     else
       val base = pairIdx * 7
@@ -666,7 +677,7 @@ object KingCaptureProbability:
                 )
                 val hit = mask2 & neededD3Mask
                 if hit != 0 then
-                  unsolved &= ~rollsWithTwoDiceAndMask(PairShift(pairIdx) | hit)
+                  unsolved &= ~rollsWithTwoDiceAndMask(pairShift(pairIdx) | hit)
                   neededD3Mask &= ~hit
                 i1 += 1
       d2 += 1
