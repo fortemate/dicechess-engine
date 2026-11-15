@@ -36,6 +36,9 @@ class KingCaptureProbabilityBenchmark:
   private val AllTypesDirect     = "8/8/8/8/b7/8/3kpn2/r2K3q b - - 0 1"
   private val NoAttacker         = "8/8/8/8/8/8/8/4K3 w - - 0 1"
   private val QueenLastRoll      = "8/8/8/8/b7/8/3kpn1q/r2K4 b - - 0 1"
+  private val WhiteLevel1Stop    = "4R3/4N3/1B6/4K3/8/4k2Q/5P2/8 w - - 0 1"
+  private val BlackLevel1Stop    = "8/5p2/4K2q/8/4k3/1b6/4n3/4r3 b - - 0 1"
+  private val PawnLevel1Stop     = "8/4k2Q/2NK4/8/5P1B/8/8/4R3 w - - 0 1"
 
   @Param(Array("initial", "kiwipete", "endgame"))
   var position: String = uninitialized
@@ -57,6 +60,9 @@ class KingCaptureProbabilityBenchmark:
       case "all-types-direct"    => AllTypesDirect
       case "no-attacker"         => NoAttacker
       case "queen-last-roll"     => QueenLastRoll
+      case "level1-stop-white"   => WhiteLevel1Stop
+      case "level1-stop-black"   => BlackLevel1Stop
+      case "level1-stop-pawn"    => PawnLevel1Stop
       case _                     => BenchmarkPositions.AllPositions(position)
     state = BenchmarkPositions.parse(fen)
     defenderColor = if defender == "white" then Color.White else Color.Black
