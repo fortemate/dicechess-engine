@@ -32,6 +32,7 @@ class KingCaptureProbabilityBenchmark:
   private val EnPassantPosition  = "4k3/8/8/3pP3/8/8/4Q3/4R1K1 w - d6 0 1"
   private val WhiteKingUnblocks  = "4k3/8/8/8/8/3nK3/4P3/4R3 w - - 0 1"
   private val BlackKingUnblocks  = "4r3/4p3/3Nk3/8/8/8/8/4K3 b - - 0 1"
+  private val RootLastRoll       = "8/8/8/8/b7/3k4/4pn2/r2K3q b - - 0 1"
 
   @Param(Array("initial", "kiwipete", "endgame"))
   var position: String = uninitialized
@@ -49,6 +50,7 @@ class KingCaptureProbabilityBenchmark:
       case "en-passant"          => EnPassantPosition
       case "king-unblocks-white" => WhiteKingUnblocks
       case "king-unblocks-black" => BlackKingUnblocks
+      case "root-last-roll"      => RootLastRoll
       case _                     => BenchmarkPositions.AllPositions(position)
     state = BenchmarkPositions.parse(fen)
     defenderColor = if defender == "white" then Color.White else Color.Black
