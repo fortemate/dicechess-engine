@@ -6,7 +6,7 @@ import dicechess.engine.movegen.{LeaperAttacks, MagicBitboards, MoveGenerator, P
 import munit.FunSuite
 
 class KingCaptureReachKernelSuite extends FunSuite:
-  // Keep the unchanged level-one boundary observable after its reach dispatcher is inlined.
+  // Keep the unchanged level-one boundary observable as its reach dispatcher is refactored.
   private val kernel =
     val methods = Option(KingCaptureProbability.getClass.getDeclaredMethods).getOrElse(fail("Missing KCP methods"))
     val method  = methods.iterator

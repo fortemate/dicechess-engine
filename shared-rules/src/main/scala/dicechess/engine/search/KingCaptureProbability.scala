@@ -582,7 +582,16 @@ object KingCaptureProbability:
 
     var d2 = 1
     while d2 <= 6 && (unsolved & rollsWithFirstDie(d1)) != 0L do
-      val active1 = myPieces1 & selectTypeBB(d2, p1, n1, bi1, r1, q1, k1)
+      val active1                                         = myPieces1 & selectTypeBB(d2, p1, n1, bi1, r1, q1, k1)
+      def canPieceReachAttackInOneMove(die: Int): Boolean =
+        die match
+          case 1 => canPawnReach(active1 & ~promoSrcMask, ~allPieces1, enemyPieces1, isWhite, targetPawnMask)
+          case 2 => canKnightReach(active1 & knightReach2Mask, targetKnightMask & notMyPieces1)
+          case 3 => canBishopReach(active1, allPieces1, diagRay1 & notMyPieces1)
+          case 4 => canRookReach(active1, allPieces1, orthoRay1 & notMyPieces1)
+          case 5 => canQueenReach(active1, allPieces1, (diagRay1 | orthoRay1) & notMyPieces1)
+          case _ => canKingReach(active1 & kingReach2Mask, targetKingMask & notMyPieces1)
+
       exploreActivePieces(active1) {
         val pairIdx      = d1 * 7 + d2
         var neededD3Mask = computeNeededD3Mask(pairIdx, unsolved)
@@ -591,30 +600,7 @@ object KingCaptureProbability:
           resolveSelfReach(
             neededD3Mask,
             selfBit,
-            canPieceReachAttackInOneMove(
-              d2,
-              activeCandidates = selectReachInput(
-                d2,
-                pawn = active1 & ~promoSrcMask,
-                knight = active1 & knightReach2Mask,
-                bishop = active1,
-                rook = active1,
-                queen = active1,
-                king = active1 & kingReach2Mask
-              ),
-              allPieces1,
-              enemyPieces1,
-              isWhite,
-              validLandings = selectReachInput(
-                d2,
-                pawn = targetPawnMask,
-                knight = targetKnightMask & notMyPieces1,
-                bishop = diagRay1 & notMyPieces1,
-                rook = orthoRay1 & notMyPieces1,
-                queen = (diagRay1 | orthoRay1) & notMyPieces1,
-                king = targetKingMask & notMyPieces1
-              )
-            ), {
+            canPieceReachAttackInOneMove(d2), {
               unsolved &= ~tripleRollBit(pairIdx * 7 + d2)
               neededD3Mask &= ~selfBit
             }
@@ -724,39 +710,6 @@ object KingCaptureProbability:
 
   private inline def resolvePairHits(inline hit: Int)(inline clearRolls: Unit): Unit =
     if hit != 0 then clearRolls
-
-  private inline def selectReachInput(
-      inline die: Int,
-      inline pawn: Long,
-      inline knight: Long,
-      inline bishop: Long,
-      inline rook: Long,
-      inline queen: Long,
-      inline king: Long
-  ): Long =
-    die match
-      case 1 => pawn
-      case 2 => knight
-      case 3 => bishop
-      case 4 => rook
-      case 5 => queen
-      case _ => king
-
-  private def canPieceReachAttackInOneMove(
-      d2: Int,
-      activeCandidates: Long,
-      allPieces: Long,
-      enemyPieces: Long,
-      isWhite: Boolean,
-      validLandings: Long
-  ): Boolean =
-    d2 match
-      case 1 => canPawnReach(activeCandidates, ~allPieces, enemyPieces, isWhite, validLandings)
-      case 2 => canKnightReach(activeCandidates, validLandings)
-      case 3 => canBishopReach(activeCandidates, allPieces, validLandings)
-      case 4 => canRookReach(activeCandidates, allPieces, validLandings)
-      case 5 => canQueenReach(activeCandidates, allPieces, validLandings)
-      case _ => canKingReach(activeCandidates, validLandings)
 
   private def canPawnReach(
       nonPromoPawns: Long,
