@@ -833,18 +833,18 @@ object KingCaptureProbability:
     else if (flags & 8) != 0 then
       p2 = p1 & notFromToBB
       val promKind = flags & 3
-      n2 = if promKind == 0 then (n1 & notToBB) | toBB else n1 & notToBB
-      bi2 = if promKind == 1 then (bi1 & notToBB) | toBB else bi1 & notToBB
-      r2 = if promKind == 2 then (r1 & notToBB) | toBB else r1 & notToBB
-      q2 = if promKind == 3 then (q1 & notToBB) | toBB else q1 & notToBB
+      n2 = promotedTypeBitboard(n1, promKind == 0, notToBB, toBB)
+      bi2 = promotedTypeBitboard(bi1, promKind == 1, notToBB, toBB)
+      r2 = promotedTypeBitboard(r1, promKind == 2, notToBB, toBB)
+      q2 = promotedTypeBitboard(q1, promKind == 3, notToBB, toBB)
       k2 = k1 & notToBB
     else
-      p2 = if d2 == 1 then (p1 & notFromToBB) | toBB else p1 & notToBB
-      n2 = if d2 == 2 then (n1 & notFromToBB) | toBB else n1 & notToBB
-      bi2 = if d2 == 3 then (bi1 & notFromToBB) | toBB else bi1 & notToBB
-      r2 = if d2 == 4 then (r1 & notFromToBB) | toBB else r1 & notToBB
-      q2 = if d2 == 5 then (q1 & notFromToBB) | toBB else q1 & notToBB
-      k2 = if d2 == 6 then (k1 & notFromToBB) | toBB else k1 & notToBB
+      p2 = movedTypeBitboard(p1, d2 == 1, notFromToBB, notToBB, toBB)
+      n2 = movedTypeBitboard(n1, d2 == 2, notFromToBB, notToBB, toBB)
+      bi2 = movedTypeBitboard(bi1, d2 == 3, notFromToBB, notToBB, toBB)
+      r2 = movedTypeBitboard(r1, d2 == 4, notFromToBB, notToBB, toBB)
+      q2 = movedTypeBitboard(q1, d2 == 5, notFromToBB, notToBB, toBB)
+      k2 = movedTypeBitboard(k1, d2 == 6, notFromToBB, notToBB, toBB)
 
     val diagRay2  = if (changedSqBB2 & diagRay1) != 0L then unionDiagAttacks(targets, allPieces2) else diagRay1
     val orthoRay2 = if (changedSqBB2 & orthoRay1) != 0L then unionOrthoAttacks(targets, allPieces2) else orthoRay1
@@ -863,3 +863,20 @@ object KingCaptureProbability:
       orthoRay2,
       targetKingMask
     )
+
+  private inline def movedTypeBitboard(
+      before: Long,
+      isMover: Boolean,
+      notFromToBB: Long,
+      notToBB: Long,
+      toBB: Long
+  ): Long =
+    if isMover then (before & notFromToBB) | toBB else before & notToBB
+
+  private inline def promotedTypeBitboard(
+      before: Long,
+      isPromotedType: Boolean,
+      notToBB: Long,
+      toBB: Long
+  ): Long =
+    if isPromotedType then (before & notToBB) | toBB else before & notToBB
