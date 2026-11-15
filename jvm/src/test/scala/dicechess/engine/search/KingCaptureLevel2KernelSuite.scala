@@ -13,7 +13,7 @@ class KingCaptureLevel2KernelSuite extends FunSuite:
     val methods = Option(KingCaptureProbability.getClass.getDeclaredMethods).getOrElse(fail("Missing KCP methods"))
     val method  = methods.iterator
       .flatMap(m => Option(m))
-      .find(m => Option(m.getName).contains("evaluateLevel2Move"))
+      .find(m => Option(m.getName).exists(_.startsWith("evaluateLevel2Move")))
       .getOrElse(fail("Missing evaluateLevel2Move"))
     method.setAccessible(true)
     method
