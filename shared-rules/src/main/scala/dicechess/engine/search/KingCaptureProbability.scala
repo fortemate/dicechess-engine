@@ -593,19 +593,13 @@ object KingCaptureProbability:
             selfBit,
             canPieceReachAttackInOneMove(
               d2,
-              active1,
-              promoSrcMask,
-              allPieces1,
-              enemyPieces1,
-              notMyPieces1,
-              isWhite,
-              targetPawnMask,
-              targetKnightMask,
-              targetKingMask,
-              knightReach2Mask,
-              kingReach2Mask,
-              diagRay1,
-              orthoRay1
+              pawnReachesAttack =
+                canPawnReach(active1 & ~promoSrcMask, ~allPieces1, enemyPieces1, isWhite, targetPawnMask),
+              knightReachesAttack = canKnightReach(active1 & knightReach2Mask, targetKnightMask & notMyPieces1),
+              bishopReachesAttack = canBishopReach(active1, allPieces1, diagRay1 & notMyPieces1),
+              rookReachesAttack = canRookReach(active1, allPieces1, orthoRay1 & notMyPieces1),
+              queenReachesAttack = canQueenReach(active1, allPieces1, (diagRay1 | orthoRay1) & notMyPieces1),
+              kingReachesAttack = canKingReach(active1 & kingReach2Mask, targetKingMask & notMyPieces1)
             ), {
               unsolved &= ~tripleRollBit(pairIdx * 7 + d2)
               neededD3Mask &= ~selfBit
@@ -717,29 +711,22 @@ object KingCaptureProbability:
   private inline def resolvePairHits(inline hit: Int)(inline clearRolls: Unit): Unit =
     if hit != 0 then clearRolls
 
-  private def canPieceReachAttackInOneMove(
-      d2: Int,
-      active1: Long,
-      promoSrcMask: Long,
-      allPieces1: Long,
-      enemyPieces1: Long,
-      notMyPieces1: Long,
-      isWhite: Boolean,
-      targetPawnMask: Long,
-      targetKnightMask: Long,
-      targetKingMask: Long,
-      knightReach2Mask: Long,
-      kingReach2Mask: Long,
-      diagRay1: Long,
-      orthoRay1: Long
+  private inline def canPieceReachAttackInOneMove(
+      inline d2: Int,
+      inline pawnReachesAttack: Boolean,
+      inline knightReachesAttack: Boolean,
+      inline bishopReachesAttack: Boolean,
+      inline rookReachesAttack: Boolean,
+      inline queenReachesAttack: Boolean,
+      inline kingReachesAttack: Boolean
   ): Boolean =
     d2 match
-      case 1 => canPawnReach(active1 & ~promoSrcMask, ~allPieces1, enemyPieces1, isWhite, targetPawnMask)
-      case 2 => canKnightReach(active1 & knightReach2Mask, targetKnightMask & notMyPieces1)
-      case 3 => canBishopReach(active1, allPieces1, diagRay1 & notMyPieces1)
-      case 4 => canRookReach(active1, allPieces1, orthoRay1 & notMyPieces1)
-      case 5 => canQueenReach(active1, allPieces1, (diagRay1 | orthoRay1) & notMyPieces1)
-      case _ => canKingReach(active1 & kingReach2Mask, targetKingMask & notMyPieces1)
+      case 1 => pawnReachesAttack
+      case 2 => knightReachesAttack
+      case 3 => bishopReachesAttack
+      case 4 => rookReachesAttack
+      case 5 => queenReachesAttack
+      case _ => kingReachesAttack
 
   private def canPawnReach(
       nonPromoPawns: Long,
