@@ -28,20 +28,21 @@ private[search] object KingCaptureMaskCases:
       if attacker.isWhite then (index, piece)
       else (index ^ 56, if piece.isUpper then piece.toLower else piece.toUpper)
     }.toMap
-    val ranks = (7 to 0 by -1).map { rank =>
-      val text  = new StringBuilder
-      var empty = 0
-      for file <- 0 until 8 do
-        oriented.get(rank * 8 + file) match
-          case None        => empty += 1
-          case Some(piece) =>
-            if empty != 0 then text.append(empty)
-            text.append(piece)
-            empty = 0
-      if empty != 0 then text.append(empty)
-      text.toString
-    }
+    val ranks = (7 to 0 by -1).map(rank => encodeRank(oriented, rank))
     s"${ranks.mkString("/")} ${if attacker.isWhite then "w" else "b"} - - 0 1"
+
+  private def encodeRank(pieces: Map[Int, Char], rank: Int): String =
+    val text  = new StringBuilder
+    var empty = 0
+    for file <- 0 until 8 do
+      pieces.get(rank * 8 + file) match
+        case None        => empty += 1
+        case Some(piece) =>
+          if empty != 0 then text.append(empty)
+          text.append(piece)
+          empty = 0
+    if empty != 0 then text.append(empty)
+    text.toString
 
 class KingCaptureMaskContractSuite extends FunSuite:
   for (fen, attacker, mask) <- KingCaptureMaskCases.cases do
