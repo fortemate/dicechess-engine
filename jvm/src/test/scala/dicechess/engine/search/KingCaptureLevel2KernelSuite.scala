@@ -8,7 +8,7 @@ import munit.FunSuite
 class KingCaptureLevel2KernelSuite extends FunSuite:
 
   // Exercise the private kernel independently of the earlier roll-pruning fast paths.
-  // Reflection stays in this JVM test; the production visibility and signature remain unchanged.
+  // Named scalar inputs keep this observer independent of compiler capture ordering.
   private val kernel =
     val methods = Option(KingCaptureProbability.getClass.getDeclaredMethods).getOrElse(fail("Missing KCP methods"))
     val method  = methods.iterator
@@ -25,27 +25,36 @@ class KingCaptureLevel2KernelSuite extends FunSuite:
     squares(targets).foldLeft(0L)((acc, square) => acc | attacks(square).value)
 
   private def evaluate(state: GameState, move: Move, targets: Bitboard, attacker: Color): Int =
-    val occupied = state.whitePieces | state.blackPieces
-    val mine     = if attacker.isWhite then state.whitePieces else state.blackPieces
-    val args     = Array[AnyRef](
-      Int.box(move.toInt),
-      Int.box(state.mailbox(move.fromSquare).pieceType.diceValue),
-      Boolean.box(attacker.isWhite),
-      Long.box(mine.value),
-      Long.box(occupied.value),
-      Long.box(state.pawns.value),
-      Long.box(state.knights.value),
-      Long.box(state.bishops.value),
-      Long.box(state.rooks.value),
-      Long.box(state.queens.value),
-      Long.box(state.kings.value),
-      Long.box(targets.value),
-      Long.box(PawnGeneration.anyAttacks(targets, attacker.opponent).value),
-      Long.box(union(targets)(LeaperAttacks.knightAttacksFor)),
-      Long.box(union(targets)(LeaperAttacks.kingAttacksFor)),
-      Long.box(union(targets)(sq => MagicBitboards.bishopAttacks(sq, occupied))),
-      Long.box(union(targets)(sq => MagicBitboards.rookAttacks(sq, occupied)))
+    val occupied                     = state.whitePieces | state.blackPieces
+    val mine                         = if attacker.isWhite then state.whitePieces else state.blackPieces
+    val context: Map[String, AnyRef] = Map(
+      "mv1"              -> Int.box(move.toInt),
+      "d2"               -> Int.box(state.mailbox(move.fromSquare).pieceType.diceValue),
+      "isWhite"          -> Boolean.box(attacker.isWhite),
+      "myPieces1"        -> Long.box(mine.value),
+      "allPieces1"       -> Long.box(occupied.value),
+      "p1"               -> Long.box(state.pawns.value),
+      "n1"               -> Long.box(state.knights.value),
+      "bi1"              -> Long.box(state.bishops.value),
+      "r1"               -> Long.box(state.rooks.value),
+      "q1"               -> Long.box(state.queens.value),
+      "k1"               -> Long.box(state.kings.value),
+      "targets"          -> Long.box(targets.value),
+      "targetPawnMask"   -> Long.box(PawnGeneration.anyAttacks(targets, attacker.opponent).value),
+      "targetKnightMask" -> Long.box(union(targets)(LeaperAttacks.knightAttacksFor)),
+      "targetKingMask"   -> Long.box(union(targets)(LeaperAttacks.kingAttacksFor)),
+      "diagRay1"         -> Long.box(union(targets)(sq => MagicBitboards.bishopAttacks(sq, occupied))),
+      "orthoRay1"        -> Long.box(union(targets)(sq => MagicBitboards.rookAttacks(sq, occupied)))
     )
+    val names = Option(kernel.getParameters)
+      .getOrElse(fail("Missing kernel parameters"))
+      .iterator
+      .flatMap(p => Option(p))
+      .map(p => Option(p.getName).getOrElse(fail("Missing parameter name")).takeWhile(_ != '$'))
+      .toList
+    assertEquals(names.toSet, context.keySet)
+    assertEquals(names.size, context.size)
+    val args = names.map(name => context(name)).toArray
     Option(kernel.invoke(KingCaptureProbability, args*))
       .getOrElse(fail("The KCP kernel returned no result"))
       .asInstanceOf[java.lang.Integer]
@@ -85,6 +94,42 @@ class KingCaptureLevel2KernelSuite extends FunSuite:
     assertEquals(ordinaryTypes, (1 to 6).toSet)
     assertEquals(promotionFlags, (8 to 15).toSet)
     assertEquals(epColors, Set(Color.White.value, Color.Black.value))
+  }
+
+  test("fixed second-move transitions pin capture bits for both colors and every promotion flag") {
+    for (fixture, attacker) <- KingCaptureLevel2TransitionCases.cases do
+      val state = FenParser.parse(fixture.fen).fold(fail(_), identity)
+      val enemy = if attacker.isWhite then state.blackPieces else state.whitePieces
+      val move  = MoveGenerator
+        .generateAllMoves(state)
+        .find(m => m.fromSquare == fixture.from && m.toSquare == fixture.to && m.flags == fixture.flags)
+        .getOrElse(fail("Missing characterized second move"))
+      assertEquals(evaluate(state, move, state.kings & enemy, attacker), fixture.mask, fixture.name)
+  }
+
+  test("second-move masks union multiple protected Queens without leaking target context") {
+    val cases = List(
+      ("q6k/8/8/8/3q4/8/8/R5NK w - - 0 1", Color.White),
+      ("r5nk/8/8/3Q4/8/8/8/Q6K b - - 0 1", Color.Black)
+    )
+    for (fen, attacker) <- cases do
+      val state   = FenParser.parse(fen).fold(fail(_), identity)
+      val enemy   = if attacker.isWhite then state.blackPieces else state.whitePieces
+      val targets = state.queens & enemy
+      val from    = if attacker.isWhite then Square('g', 1) else Square('g', 8)
+      val to      = if attacker.isWhite then Square('f', 3) else Square('f', 6)
+      val move    = MoveGenerator
+        .generatePieceMoves(state, PieceType.Knight)
+        .find(m => m.fromSquare == from && m.toSquare == to)
+        .getOrElse(fail("Missing characterized Knight move"))
+      val before   = squares(targets).foldLeft(0)((mask, sq) => mask | AttackerTypes.mask(state, sq, attacker))
+      val after    = state.withDicePool(List(2)).makeMove(move)
+      val expected = squares(targets).foldLeft(0)((mask, sq) => mask | AttackerTypes.mask(after, sq, attacker))
+      assertEquals(before, AttackerTypes.bit(PieceType.Rook))
+      assertEquals(expected, AttackerTypes.bit(PieceType.Rook) | AttackerTypes.bit(PieceType.Knight))
+      for protectedTargets <- List(targets) ++ squares(targets).map(Bitboard.fromSquare) ++ List(targets) do
+        val mask = squares(protectedTargets).foldLeft(0)((acc, sq) => acc | AttackerTypes.mask(after, sq, attacker))
+        assertEquals(evaluate(state, move, protectedTargets, attacker), mask, fen)
   }
 
   test("a quiet queen second move creates a Queen capture bit that was absent before the move") {
