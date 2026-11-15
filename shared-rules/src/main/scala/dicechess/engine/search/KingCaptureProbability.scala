@@ -182,18 +182,12 @@ object KingCaptureProbability:
     val orthoRay0        = unionOrthoAttacks(targets, allPieces0)
 
     val mask0 = computeCaptureMask(
-      myPieces0,
-      p0,
-      n0,
-      bi0,
-      r0,
-      q0,
-      k0,
-      targetPawnMask,
-      targetKnightMask,
-      diagRay0,
-      orthoRay0,
-      targetKingMask
+      pawnHitsTarget = (myPieces0 & p0 & targetPawnMask) != 0L,
+      knightHitsTarget = (myPieces0 & n0 & targetKnightMask) != 0L,
+      bishopHitsTarget = (myPieces0 & bi0 & diagRay0) != 0L,
+      rookHitsTarget = (myPieces0 & r0 & orthoRay0) != 0L,
+      queenHitsTarget = (myPieces0 & q0 & (diagRay0 | orthoRay0)) != 0L,
+      kingHitsTarget = (myPieces0 & k0 & targetKingMask) != 0L
     )
     var unsolved = AllRollsMask & ~rollsWithDieMask(mask0)
     if unsolved == 0L then break(1.0)
@@ -298,26 +292,20 @@ object KingCaptureProbability:
       case _ => k
 
   private inline def computeCaptureMask(
-      myPieces: Long,
-      p: Long,
-      n: Long,
-      bi: Long,
-      r: Long,
-      q: Long,
-      k: Long,
-      targetPawnMask: Long,
-      targetKnightMask: Long,
-      diagRay: Long,
-      orthoRay: Long,
-      targetKingMask: Long
+      inline pawnHitsTarget: Boolean,
+      inline knightHitsTarget: Boolean,
+      inline bishopHitsTarget: Boolean,
+      inline rookHitsTarget: Boolean,
+      inline queenHitsTarget: Boolean,
+      inline kingHitsTarget: Boolean
   ): Int =
     var mask = 0
-    if (myPieces & p & targetPawnMask) != 0L then mask |= 1
-    if (myPieces & n & targetKnightMask) != 0L then mask |= 2
-    if (myPieces & bi & diagRay) != 0L then mask |= 4
-    if (myPieces & r & orthoRay) != 0L then mask |= 8
-    if (myPieces & q & (diagRay | orthoRay)) != 0L then mask |= 16
-    if (myPieces & k & targetKingMask) != 0L then mask |= 32
+    if pawnHitsTarget then mask |= 1
+    if knightHitsTarget then mask |= 2
+    if bishopHitsTarget then mask |= 4
+    if rookHitsTarget then mask |= 8
+    if queenHitsTarget then mask |= 16
+    if kingHitsTarget then mask |= 32
     mask
 
   private def unionKnightAttacks(squares: Long): Long =
@@ -393,18 +381,12 @@ object KingCaptureProbability:
       val diagRay1   = if (toggled & diagRay0) != 0L then unionDiagAttacks(targets, allPieces1) else diagRay0
       val orthoRay1  = if (toggled & orthoRay0) != 0L then unionOrthoAttacks(targets, allPieces1) else orthoRay0
       val mask1      = computeCaptureMask(
-        myPieces1,
-        p0,
-        n0,
-        bi0,
-        r1,
-        q0,
-        k1,
-        targetPawnMask,
-        targetKnightMask,
-        diagRay1,
-        orthoRay1,
-        targetKingMask
+        pawnHitsTarget = (myPieces1 & p0 & targetPawnMask) != 0L,
+        knightHitsTarget = (myPieces1 & n0 & targetKnightMask) != 0L,
+        bishopHitsTarget = (myPieces1 & bi0 & diagRay1) != 0L,
+        rookHitsTarget = (myPieces1 & r1 & orthoRay1) != 0L,
+        queenHitsTarget = (myPieces1 & q0 & (diagRay1 | orthoRay1)) != 0L,
+        kingHitsTarget = (myPieces1 & k1 & targetKingMask) != 0L
       )
       if mask1 != 0 then unsolved & ~rollsWithTwoDiceAndMask(pairShift(castlePairIdx) | mask1)
       else unsolved
@@ -509,18 +491,12 @@ object KingCaptureProbability:
     val orthoRay1    = if (changedSqBB1 & orthoRay0) != 0L then unionOrthoAttacks(targets, allPieces1) else orthoRay0
 
     val mask1 = computeCaptureMask(
-      myPieces1,
-      p1,
-      n1,
-      bi1,
-      r1,
-      q1,
-      k1,
-      targetPawnMask,
-      targetKnightMask,
-      diagRay1,
-      orthoRay1,
-      targetKingMask
+      pawnHitsTarget = (myPieces1 & p1 & targetPawnMask) != 0L,
+      knightHitsTarget = (myPieces1 & n1 & targetKnightMask) != 0L,
+      bishopHitsTarget = (myPieces1 & bi1 & diagRay1) != 0L,
+      rookHitsTarget = (myPieces1 & r1 & orthoRay1) != 0L,
+      queenHitsTarget = (myPieces1 & q1 & (diagRay1 | orthoRay1)) != 0L,
+      kingHitsTarget = (myPieces1 & k1 & targetKingMask) != 0L
     )
     var unsolved =
       if mask1 != 0 then startUnsolved & ~rollsWithPairAndMask((d1 << 6) | mask1)
@@ -908,18 +884,12 @@ object KingCaptureProbability:
     val orthoRay2 = if (changedSqBB2 & orthoRay1) != 0L then unionOrthoAttacks(targets, allPieces2) else orthoRay1
 
     computeCaptureMask(
-      myPieces2,
-      p2,
-      n2,
-      bi2,
-      r2,
-      q2,
-      k2,
-      targetPawnMask,
-      targetKnightMask,
-      diagRay2,
-      orthoRay2,
-      targetKingMask
+      pawnHitsTarget = (myPieces2 & p2 & targetPawnMask) != 0L,
+      knightHitsTarget = (myPieces2 & n2 & targetKnightMask) != 0L,
+      bishopHitsTarget = (myPieces2 & bi2 & diagRay2) != 0L,
+      rookHitsTarget = (myPieces2 & r2 & orthoRay2) != 0L,
+      queenHitsTarget = (myPieces2 & q2 & (diagRay2 | orthoRay2)) != 0L,
+      kingHitsTarget = (myPieces2 & k2 & targetKingMask) != 0L
     )
 
   private inline def castleRookFromTo(flags: Int, isWhite: Boolean): Long =
