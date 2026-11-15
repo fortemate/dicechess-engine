@@ -357,6 +357,11 @@ class KingCaptureProbabilitySuite extends FunSuite:
     for fen <- fens do assertBitExactOracle(FenParser.parse(fen).fold(fail(_), identity), fen)
   }
 
+  test("piece reach fixtures preserve the independent DFS probabilities") {
+    for (fixture, _) <- KingCaptureReachCases.cases do
+      assertBitExactOracle(FenParser.parse(fixture.fen).fold(fail(_), identity), fixture.fen)
+  }
+
   private def assertBitExactOracle(state: GameState, context: String): Unit =
     for defender <- List(Color.White, Color.Black) do
       val side    = if defender.isWhite then "White" else "Black"
