@@ -593,13 +593,27 @@ object KingCaptureProbability:
             selfBit,
             canPieceReachAttackInOneMove(
               d2,
-              pawnReachesAttack =
-                canPawnReach(active1 & ~promoSrcMask, ~allPieces1, enemyPieces1, isWhite, targetPawnMask),
-              knightReachesAttack = canKnightReach(active1 & knightReach2Mask, targetKnightMask & notMyPieces1),
-              bishopReachesAttack = canBishopReach(active1, allPieces1, diagRay1 & notMyPieces1),
-              rookReachesAttack = canRookReach(active1, allPieces1, orthoRay1 & notMyPieces1),
-              queenReachesAttack = canQueenReach(active1, allPieces1, (diagRay1 | orthoRay1) & notMyPieces1),
-              kingReachesAttack = canKingReach(active1 & kingReach2Mask, targetKingMask & notMyPieces1)
+              activeCandidates = selectReachInput(
+                d2,
+                pawn = active1 & ~promoSrcMask,
+                knight = active1 & knightReach2Mask,
+                bishop = active1,
+                rook = active1,
+                queen = active1,
+                king = active1 & kingReach2Mask
+              ),
+              allPieces1,
+              enemyPieces1,
+              isWhite,
+              validLandings = selectReachInput(
+                d2,
+                pawn = targetPawnMask,
+                knight = targetKnightMask & notMyPieces1,
+                bishop = diagRay1 & notMyPieces1,
+                rook = orthoRay1 & notMyPieces1,
+                queen = (diagRay1 | orthoRay1) & notMyPieces1,
+                king = targetKingMask & notMyPieces1
+              )
             ), {
               unsolved &= ~tripleRollBit(pairIdx * 7 + d2)
               neededD3Mask &= ~selfBit
@@ -711,22 +725,38 @@ object KingCaptureProbability:
   private inline def resolvePairHits(inline hit: Int)(inline clearRolls: Unit): Unit =
     if hit != 0 then clearRolls
 
-  private inline def canPieceReachAttackInOneMove(
-      inline d2: Int,
-      inline pawnReachesAttack: Boolean,
-      inline knightReachesAttack: Boolean,
-      inline bishopReachesAttack: Boolean,
-      inline rookReachesAttack: Boolean,
-      inline queenReachesAttack: Boolean,
-      inline kingReachesAttack: Boolean
+  private inline def selectReachInput(
+      inline die: Int,
+      inline pawn: Long,
+      inline knight: Long,
+      inline bishop: Long,
+      inline rook: Long,
+      inline queen: Long,
+      inline king: Long
+  ): Long =
+    die match
+      case 1 => pawn
+      case 2 => knight
+      case 3 => bishop
+      case 4 => rook
+      case 5 => queen
+      case _ => king
+
+  private def canPieceReachAttackInOneMove(
+      d2: Int,
+      activeCandidates: Long,
+      allPieces: Long,
+      enemyPieces: Long,
+      isWhite: Boolean,
+      validLandings: Long
   ): Boolean =
     d2 match
-      case 1 => pawnReachesAttack
-      case 2 => knightReachesAttack
-      case 3 => bishopReachesAttack
-      case 4 => rookReachesAttack
-      case 5 => queenReachesAttack
-      case _ => kingReachesAttack
+      case 1 => canPawnReach(activeCandidates, ~allPieces, enemyPieces, isWhite, validLandings)
+      case 2 => canKnightReach(activeCandidates, validLandings)
+      case 3 => canBishopReach(activeCandidates, allPieces, validLandings)
+      case 4 => canRookReach(activeCandidates, allPieces, validLandings)
+      case 5 => canQueenReach(activeCandidates, allPieces, validLandings)
+      case _ => canKingReach(activeCandidates, validLandings)
 
   private def canPawnReach(
       nonPromoPawns: Long,
