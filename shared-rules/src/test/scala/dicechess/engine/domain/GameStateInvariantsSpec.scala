@@ -66,43 +66,47 @@ class GameStateInvariantsSpec extends ScalaCheckSuite:
     while idx < 64 do
       val sq    = Square.fromIndex(idx)
       val piece = state.mailbox(sq)
-      if piece.isEmpty then
-        assert(!state.whitePieces.contains(sq), s"Square $sq is empty in mailbox but in whitePieces")
-        assert(!state.blackPieces.contains(sq), s"Square $sq is empty in mailbox but in blackPieces")
-        assert(!state.pawns.contains(sq), s"Square $sq is empty in mailbox but in pawns")
-        assert(!state.knights.contains(sq), s"Square $sq is empty in mailbox but in knights")
-        assert(!state.bishops.contains(sq), s"Square $sq is empty in mailbox but in bishops")
-        assert(!state.rooks.contains(sq), s"Square $sq is empty in mailbox but in rooks")
-        assert(!state.queens.contains(sq), s"Square $sq is empty in mailbox but in queens")
-        assert(!state.kings.contains(sq), s"Square $sq is empty in mailbox but in kings")
-      else
-        val color = piece.color
-        val pt    = piece.pieceType
-
-        if color.isWhite then
-          assert(state.whitePieces.contains(sq), s"Square $sq has White $pt but not in whitePieces")
-          assert(!state.blackPieces.contains(sq), s"Square $sq has White $pt but in blackPieces")
-        else
-          assert(state.blackPieces.contains(sq), s"Square $sq has Black $pt but not in blackPieces")
-          assert(!state.whitePieces.contains(sq), s"Square $sq has Black $pt but in whitePieces")
-
-        val inExpectedBB = pt match
-          case PieceType.Pawn   => state.pawns.contains(sq)
-          case PieceType.Knight => state.knights.contains(sq)
-          case PieceType.Bishop => state.bishops.contains(sq)
-          case PieceType.Rook   => state.rooks.contains(sq)
-          case PieceType.Queen  => state.queens.contains(sq)
-          case PieceType.King   => state.kings.contains(sq)
-        assert(inExpectedBB, s"Square $sq has $piece but not in $pt bitboard")
-
-        if pt != PieceType.Pawn then assert(!state.pawns.contains(sq), s"Square $sq has $piece but in pawns")
-        if pt != PieceType.Knight then assert(!state.knights.contains(sq), s"Square $sq has $piece but in knights")
-        if pt != PieceType.Bishop then assert(!state.bishops.contains(sq), s"Square $sq has $piece but in bishops")
-        if pt != PieceType.Rook then assert(!state.rooks.contains(sq), s"Square $sq has $piece but in rooks")
-        if pt != PieceType.Queen then assert(!state.queens.contains(sq), s"Square $sq has $piece but in queens")
-        if pt != PieceType.King then assert(!state.kings.contains(sq), s"Square $sq has $piece but in kings")
-
+      if piece.isEmpty then assertEmptyMailboxSquare(state, sq)
+      else assertOccupiedMailboxSquare(state, sq, piece)
       idx += 1
+
+  // Keep the assertion loop intact in bytecode while separating its source-level responsibilities.
+  private inline def assertEmptyMailboxSquare(state: GameState, sq: Square): Unit =
+    assert(!state.whitePieces.contains(sq), s"Square $sq is empty in mailbox but in whitePieces")
+    assert(!state.blackPieces.contains(sq), s"Square $sq is empty in mailbox but in blackPieces")
+    assert(!state.pawns.contains(sq), s"Square $sq is empty in mailbox but in pawns")
+    assert(!state.knights.contains(sq), s"Square $sq is empty in mailbox but in knights")
+    assert(!state.bishops.contains(sq), s"Square $sq is empty in mailbox but in bishops")
+    assert(!state.rooks.contains(sq), s"Square $sq is empty in mailbox but in rooks")
+    assert(!state.queens.contains(sq), s"Square $sq is empty in mailbox but in queens")
+    assert(!state.kings.contains(sq), s"Square $sq is empty in mailbox but in kings")
+
+  private inline def assertOccupiedMailboxSquare(state: GameState, sq: Square, piece: Piece): Unit =
+    val color = piece.color
+    val pt    = piece.pieceType
+
+    if color.isWhite then
+      assert(state.whitePieces.contains(sq), s"Square $sq has White $pt but not in whitePieces")
+      assert(!state.blackPieces.contains(sq), s"Square $sq has White $pt but in blackPieces")
+    else
+      assert(state.blackPieces.contains(sq), s"Square $sq has Black $pt but not in blackPieces")
+      assert(!state.whitePieces.contains(sq), s"Square $sq has Black $pt but in whitePieces")
+
+    val inExpectedBB = pt match
+      case PieceType.Pawn   => state.pawns.contains(sq)
+      case PieceType.Knight => state.knights.contains(sq)
+      case PieceType.Bishop => state.bishops.contains(sq)
+      case PieceType.Rook   => state.rooks.contains(sq)
+      case PieceType.Queen  => state.queens.contains(sq)
+      case PieceType.King   => state.kings.contains(sq)
+    assert(inExpectedBB, s"Square $sq has $piece but not in $pt bitboard")
+
+    if pt != PieceType.Pawn then assert(!state.pawns.contains(sq), s"Square $sq has $piece but in pawns")
+    if pt != PieceType.Knight then assert(!state.knights.contains(sq), s"Square $sq has $piece but in knights")
+    if pt != PieceType.Bishop then assert(!state.bishops.contains(sq), s"Square $sq has $piece but in bishops")
+    if pt != PieceType.Rook then assert(!state.rooks.contains(sq), s"Square $sq has $piece but in rooks")
+    if pt != PieceType.Queen then assert(!state.queens.contains(sq), s"Square $sq has $piece but in queens")
+    if pt != PieceType.King then assert(!state.kings.contains(sq), s"Square $sq has $piece but in kings")
 
   private def removeDice(pool: List[Int], required: List[Int]): List[Int] =
     required.foldLeft(pool) { (acc, d) =>
