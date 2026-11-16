@@ -229,10 +229,7 @@ private[bench] object QueenSafetyProbe:
           if pairs.nonEmpty then hangingQueenRows += 1
           pairs.foreach { pair =>
             eligiblePairs += 1
-            if reservoir.size < wanted then reservoir += pair
-            else
-              val replacement = random.nextLong(eligiblePairs)
-              if replacement < wanted then reservoir(replacement.toInt) = pair
+            retainPair(reservoir, random, wanted, eligiblePairs, pair)
           }
         }
       }
@@ -250,6 +247,18 @@ private[bench] object QueenSafetyProbe:
         reservoir.size
       )
     )
+
+  private inline def retainPair(
+      reservoir: ArrayBuffer[QueenSafetyPair],
+      random: Random,
+      wanted: Int,
+      inline eligiblePairs: Long,
+      pair: QueenSafetyPair
+  ): Unit =
+    if reservoir.size < wanted then reservoir += pair
+    else
+      val replacement = random.nextLong(eligiblePairs)
+      if replacement < wanted then reservoir(replacement.toInt) = pair
 
   private[bench] def pairsFor(state: GameState, mover: Color): List[QueenSafetyPair] =
     val own           = if mover.isWhite then state.whitePieces else state.blackPieces
