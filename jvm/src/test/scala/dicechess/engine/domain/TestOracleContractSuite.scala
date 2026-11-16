@@ -73,6 +73,14 @@ private[engine] object TestOracleContractCases:
     val overlap = named("white and black side boards overlap", initial.copy(whitePieces = initial.whitePieces.add(e7)))
     boardCases.map { case (label, change) => named(s"empty e4 appears in $label", change(empty)) } ++
       sideCases ++ pieceCases ++ additionalTypeCases ++ mailboxCases ++ List(
+        named(
+          "empty e4 in white and pawn boards",
+          empty.copy(whitePieces = empty.whitePieces.add(e4), pawns = empty.pawns.add(e4))
+        ),
+        named(
+          "empty e4 in black and pawn boards",
+          empty.copy(blackPieces = empty.blackPieces.add(e4), pawns = empty.pawns.add(e4))
+        ),
         overlap,
         named("black side overlaps white pawn", initial.copy(blackPieces = initial.blackPieces.add(e2)))
       )
@@ -172,6 +180,63 @@ class TestOracleContractSuite extends FunSuite:
     TestOracleContractCases.turnOnlyViolations.foreach(fixture => assertRejected(fixture, turnValidator))
   }
 
+  test("raw path oracle rejects a move whose mailbox type cannot consume its die") {
+    val base =
+      FenParser.parse("7k/8/8/8/8/2N5/8/6K1 w - - 0 1").getOrElse(fail("Invalid fixture")).withDicePool(List(2))
+    val mailbox = base.mailbox.toArray
+    mailbox(Square('c', 3).index) = Piece(Color.White, PieceType.Rook)
+    val fixture = TestOracleContractCases.NamedState(
+      "knight bitboard with rook mailbox and only a knight die",
+      base.copy(mailbox = Mailbox.fromBuilder(mailbox))
+    )
+    assertRejected(fixture, validator(new dicechess.engine.search.TurnGeneratorPropertySpec, "generateAllPathsOld"))
+  }
+
+  test("reference king-capture continuation preserves its castling dice guards") {
+    val base = FenParser
+      .parse("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1")
+      .getOrElse(fail("Invalid fixture"))
+      .withDicePool(List(6, 4))
+    val move = dicechess.engine.movegen.MoveGenerator
+      .generateMoves(base)
+      .find(_.isCastling)
+      .getOrElse(fail("Missing castle move"))
+    val instance = new dicechess.engine.movegen.MutableLegalMovesFilterSpec
+    val method   = oracleMethod(instance, "hasKingCaptureContinuationRef", 2)
+    for dice <- List(Nil, List(6), List(4), List(6, 4), List(4, 6), List(6, 4, 2)) do
+      val fixture = TestOracleContractCases.NamedState(s"castling dice $dice", base.withDicePool(dice))
+      assertPreserved(
+        fixture,
+        state =>
+          val outcome =
+            method.invoke(instance, state, Int.box(move.toInt)).asInstanceOf[java.lang.Boolean].booleanValue()
+          assertEquals(outcome, false)
+      )
+  }
+
+  test("reference king-capture continuation rejects an empty move origin") {
+    val castle = FenParser
+      .parse("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1")
+      .getOrElse(fail("Invalid fixture"))
+      .withDicePool(List(6, 4))
+    val move = dicechess.engine.movegen.MoveGenerator
+      .generateMoves(castle)
+      .find(_.isCastling)
+      .getOrElse(fail("Missing castle move"))
+    val empty = FenParser
+      .parse("8/8/8/8/8/8/8/8 w - - 0 1")
+      .getOrElse(fail("Invalid fixture"))
+      .withDicePool(List(6, 4))
+    val instance = new dicechess.engine.movegen.MutableLegalMovesFilterSpec
+    val method   = oracleMethod(instance, "hasKingCaptureContinuationRef", 2)
+    assertPreserved(
+      TestOracleContractCases.NamedState("empty castle origin", empty),
+      state =>
+        val invocation = intercept[InvocationTargetException](method.invoke(instance, state, Int.box(move.toInt)))
+        assert(Option(invocation.getCause).exists(_.isInstanceOf[IllegalArgumentException]))
+    )
+  }
+
   private case class Snapshot(state: GameState, mailbox: List[Piece], key: Long)
 
   private def snapshot(state: GameState): Snapshot =
@@ -199,11 +264,15 @@ class TestOracleContractSuite extends FunSuite:
     assertEquals(fixture.state.zobristKey, before.key, fixture.name)
 
   private def validator(instance: AnyRef, suffix: String): GameState => Unit =
+    val method = oracleMethod(instance, suffix, 1)
+    state =>
+      val _ = method.invoke(instance, state)
+
+  private def oracleMethod(instance: AnyRef, suffix: String, arity: Int): java.lang.reflect.Method =
     val declaredMethods = Option(instance.getClass.getDeclaredMethods).getOrElse(fail("Missing declared methods"))
     val candidates      =
-      declaredMethods.filter(m => Option(m.getName).exists(_.endsWith(suffix)) && m.getParameterCount == 1)
+      declaredMethods.filter(m => Option(m.getName).exists(_.endsWith(suffix)) && m.getParameterCount == arity)
     assertEquals(candidates.length, 1, s"Expected one declared $suffix method")
     val method = candidates.head
     method.setAccessible(true)
-    state =>
-      val _ = method.invoke(instance, state)
+    method
