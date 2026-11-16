@@ -71,6 +71,22 @@ class KingThreatSuite extends FunSuite:
     assertEquals(KingThreat.threatWeight(state, Square('a', 4), 3), 0)
   }
 
+  private inline def enemyKingSquare(state: GameState): Option[Square] =
+    if state.activeColor.isWhite then
+      val b = state.blackPieces & state.kings
+      if b.isEmpty then None else Some(Square.fromIndex(java.lang.Long.numberOfTrailingZeros(b.value)))
+    else
+      val w = state.whitePieces & state.kings
+      if w.isEmpty then None else Some(Square.fromIndex(java.lang.Long.numberOfTrailingZeros(w.value)))
+
+  private inline def playSeededTurn(rolled: GameState, chosenPath: List[Move]): GameState =
+    var curr = rolled
+    var p    = chosenPath
+    while p.nonEmpty do
+      curr = curr.makeMove(p.head)
+      p = p.tail
+    curr.endTurn()
+
   // Generates seeded positions from games played by picking legal turn paths
   private def generateSeededPositions(count: Int): List[(GameState, Square)] =
     var seed                 = 365L
@@ -87,14 +103,7 @@ class KingThreatSuite extends FunSuite:
       var turn  = 0
       var alive = true
       while turn < 60 && total < count && alive do
-        val enemyKingSq: Option[Square] =
-          if state.activeColor.isWhite then
-            val b = state.blackPieces & state.kings
-            if b.isEmpty then None else Some(Square.fromIndex(java.lang.Long.numberOfTrailingZeros(b.value)))
-          else
-            val w = state.whitePieces & state.kings
-            if w.isEmpty then None else Some(Square.fromIndex(java.lang.Long.numberOfTrailingZeros(w.value)))
-
+        val enemyKingSq = enemyKingSquare(state)
         enemyKingSq.foreach { target =>
           builder += ((state, target))
           total += 1
@@ -108,14 +117,9 @@ class KingThreatSuite extends FunSuite:
         if paths.isEmpty then alive = false
         else
           val chosenPath = paths((nextRandom() * paths.size).toInt)
-          var curr       = rolled
-          var p          = chosenPath
-          while p.nonEmpty do
-            curr = curr.makeMove(p.head)
-            p = p.tail
-          val next = curr.endTurn()
-          val w    = next.whitePieces & next.kings
-          val b    = next.blackPieces & next.kings
+          val next       = playSeededTurn(rolled, chosenPath)
+          val w          = next.whitePieces & next.kings
+          val b          = next.blackPieces & next.kings
           if w.isEmpty || b.isEmpty then alive = false
           else state = next
         turn += 1
