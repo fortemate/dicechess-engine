@@ -192,6 +192,38 @@ class TestOracleContractSuite extends FunSuite:
     assertRejected(fixture, validator(new dicechess.engine.search.TurnGeneratorPropertySpec, "generateAllPathsOld"))
   }
 
+  test("raw path oracle continues after castling with a remaining rook die") {
+    val state = FenParser
+      .parse("4k3/8/8/8/8/8/8/4K2R w K - 0 1")
+      .getOrElse(fail("Invalid fixture"))
+      .withDicePool(List(6, 4, 4))
+    val instance = new dicechess.engine.search.TurnGeneratorPropertySpec
+    val method   = oracleMethod(instance, "generateAllPathsOld", 1)
+    val castle   = Move(Square('e', 1), Square('g', 1), Move.KingCastle)
+    val targets  = List(
+      Square('a', 1),
+      Square('b', 1),
+      Square('c', 1),
+      Square('d', 1),
+      Square('e', 1),
+      Square('f', 2),
+      Square('f', 3),
+      Square('f', 4),
+      Square('f', 5),
+      Square('f', 6),
+      Square('f', 7),
+      Square('f', 8)
+    )
+    val expected = targets.map(target => List(castle.toInt, Move(Square('f', 1), target, Move.QuietMove).toInt))
+    assertPreserved(
+      TestOracleContractCases.NamedState("castle then rook continuation", state),
+      current =>
+        val paths       = method.invoke(instance, current).asInstanceOf[List[List[Move]]]
+        val castlePaths = paths.filter(_.headOption.exists(_.isCastling)).map(_.map(_.toInt))
+        assertEquals(castlePaths, expected)
+    )
+  }
+
   test("reference king-capture continuation preserves its castling dice guards") {
     val base = FenParser
       .parse("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1")
