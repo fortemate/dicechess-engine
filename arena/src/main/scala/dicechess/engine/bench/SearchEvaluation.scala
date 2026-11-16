@@ -9,6 +9,7 @@ import scala.util.{Random, Try, Using}
 import cats.syntax.all.*
 import dicechess.engine.domain.{FenParser, GameState, Move}
 import dicechess.engine.json.Json
+import dicechess.engine.json.Json.JStr
 import dicechess.engine.search.{BotInfo, BotRegistry, ScoredSequence, SearchAlgorithm, TurnGenerator}
 
 private[bench] enum SearchScenarioCategory(val id: String) derives CanEqual:
@@ -142,6 +143,17 @@ private[bench] object SearchFixtureCatalog:
       _           <- validateExpectation(expectation, state, context)
     yield SearchScenario(id, category, description, dfen, state, expectation)
 
+  private inline def parseExpectedMove(
+      move: Json,
+      turnIndex: Int,
+      moveIndex: Int,
+      context: String
+  ): Either[String, String] =
+    move match
+      case JStr(value) if value.nonEmpty => Right(value)
+      case JStr(_)                       => Left(s"$context.expectedTurns[$turnIndex][$moveIndex] must not be empty")
+      case _                             => Left(s"$context.expectedTurns[$turnIndex][$moveIndex] must be a string")
+
   private def parseExpectation(fields: List[(String, Json)], context: String): Either[String, SearchExpectation] =
     val turns = fields.collectFirst { case ("expectedTurns", value) => value }
     val pass  = fields.collectFirst { case ("expectPass", value) => value }
@@ -158,10 +170,7 @@ private[bench] object SearchFixtureCatalog:
               case Json.JArr(moves) =>
                 for
                   notation <- moves.zipWithIndex.traverse { (move, moveIndex) =>
-                    move match
-                      case Json.JStr(value) if value.nonEmpty => Right(value)
-                      case Json.JStr(_) => Left(s"$context.expectedTurns[$turnIndex][$moveIndex] must not be empty")
-                      case _            => Left(s"$context.expectedTurns[$turnIndex][$moveIndex] must be a string")
+                    parseExpectedMove(move, turnIndex, moveIndex, context)
                   }
                   _ <- Either.cond(notation.nonEmpty, (), s"$context.expectedTurns[$turnIndex] must not be empty")
                 yield notation
