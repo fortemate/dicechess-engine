@@ -151,7 +151,7 @@ object KingCaptureProbability:
       if myPieces0 == 0L then 0.0
       else captureTargetsProbability(state, defenderColor, targets, myPieces0)
 
-  private inline def captureTargetsProbability(
+  private def captureTargetsProbability(
       state: GameState,
       defenderColor: Color,
       targets: Long,
