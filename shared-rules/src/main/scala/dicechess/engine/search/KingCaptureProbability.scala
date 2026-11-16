@@ -16,11 +16,12 @@ import scala.util.boundary, boundary.break
   */
 object KingCaptureProbability:
 
-  private inline val AllRollsMask  = 0x00ffffffffffffffL
-  private inline val LightSquares  = 0x55aa55aa55aa55aaL
-  private inline val DarkSquares   = 0xaa55aa55aa55aa55L
-  private inline val WhitePromoSrc = 0x00ff000000000000L
-  private inline val BlackPromoSrc = 0x000000000000ff00L
+  private inline val AllRollsMask    = 0x00ffffffffffffffL
+  private inline val CastlePairIndex = 6 * 7 + 4
+  private inline val LightSquares    = 0x55aa55aa55aa55aaL
+  private inline val DarkSquares     = 0xaa55aa55aa55aa55L
+  private inline val WhitePromoSrc   = 0x00ff000000000000L
+  private inline val BlackPromoSrc   = 0x000000000000ff00L
 
   // Static bitmask lookup tables over the 56 multisets in DiceRolls.weighted (bits 0..55).
   private val (
@@ -125,10 +126,13 @@ object KingCaptureProbability:
 
   private def pairShift(pairIdx: Int): Int = pairIdx << 6
 
-  private inline def solvedWeightSum(solvedMask: Long): Int =
-    java.lang.Long.bitCount(solvedMask & weight1RollsMask) +
-      java.lang.Long.bitCount(solvedMask & weight3RollsMask) * 3 +
-      java.lang.Long.bitCount(solvedMask & weight6RollsMask) * 6
+  private def probabilityFromUnsolvedRolls(unsolvedMask: Long): Double =
+    val solvedMask = AllRollsMask & ~unsolvedMask
+    val weight     =
+      java.lang.Long.bitCount(solvedMask & weight1RollsMask) +
+        java.lang.Long.bitCount(solvedMask & weight3RollsMask) * 3 +
+        java.lang.Long.bitCount(solvedMask & weight6RollsMask) * 6
+    weight.toDouble / DiceRolls.totalOrderedRolls
 
   /** Returns the probability `[0.0, 1.0]` that the opponent can capture the defender's king on their next turn. */
   def kingCaptureProbability(state: GameState, defenderColor: Color): Double =
@@ -266,12 +270,12 @@ object KingCaptureProbability:
         onOrdinary = {
           w1 = movedColorBitboard(w0, isWhite, fromToBB, notToBB)
           b1 = movedColorBitboard(b0, !isWhite, fromToBB, notToBB)
-          p1 = movedTypeBitboard(p0, d1 == 1, notFromToBB, notToBB, toBB)
-          n1 = movedTypeBitboard(n0, d1 == 2, notFromToBB, notToBB, toBB)
-          bi1 = movedTypeBitboard(bi0, d1 == 3, notFromToBB, notToBB, toBB)
-          r1 = movedTypeBitboard(r0, d1 == 4, notFromToBB, notToBB, toBB)
-          q1 = movedTypeBitboard(q0, d1 == 5, notFromToBB, notToBB, toBB)
-          k1 = movedTypeBitboard(k0, d1 == 6, notFromToBB, notToBB, toBB)
+          p1 = moveTypeBits(p0, d1 == 1, notFromToBB, notToBB, toBB)
+          n1 = moveTypeBits(n0, d1 == 2, notFromToBB, notToBB, toBB)
+          bi1 = moveTypeBits(bi0, d1 == 3, notFromToBB, notToBB, toBB)
+          r1 = moveTypeBits(r0, d1 == 4, notFromToBB, notToBB, toBB)
+          q1 = moveTypeBits(q0, d1 == 5, notFromToBB, notToBB, toBB)
+          k1 = moveTypeBits(k0, d1 == 6, notFromToBB, notToBB, toBB)
         }
       )
 
@@ -466,8 +470,7 @@ object KingCaptureProbability:
           i0 += 1
       d1 += 1
 
-    val solved = AllRollsMask & ~unsolved
-    solvedWeightSum(solved).toDouble / DiceRolls.totalOrderedRolls
+    probabilityFromUnsolvedRolls(unsolved)
   }
 
   private def selectTypeBB(
@@ -553,12 +556,15 @@ object KingCaptureProbability:
     acc
 
   private inline def clearCastleCaptureRolls(inline unsolved: Long, inline captureMask: Int): Long =
-    val castlePairIdx = 6 * 7 + 4
-    if (unsolved & rollsWithTwoDiceAndMask(pairShift(castlePairIdx) | 0x3f)) == 0L then unsolved
-    else
-      val mask = captureMask
-      if mask != 0 then unsolved & ~rollsWithTwoDiceAndMask(pairShift(castlePairIdx) | mask)
-      else unsolved
+    if noPendingCastleCapture(unsolved) then unsolved
+    else clearCastleHits(unsolved, captureMask)
+
+  private def noPendingCastleCapture(unsolved: Long): Boolean =
+    (unsolved & rollsWithTwoDiceAndMask(pairShift(CastlePairIndex) | 0x3f)) == 0L
+
+  private def clearCastleHits(unsolved: Long, mask: Int): Long =
+    if mask != 0 then unsolved & ~rollsWithTwoDiceAndMask(pairShift(CastlePairIndex) | mask)
+    else unsolved
 
   private def computeEp1(
       ep0: Long,
@@ -782,9 +788,9 @@ object KingCaptureProbability:
   private def colorPieces(isWhite: Boolean, white: Long, black: Long): Long =
     if isWhite then white else black
 
-  private def movedColorBitboard(
+  private inline def movedColorBitboard(
       before: Long,
-      isMovingColor: Boolean,
+      inline isMovingColor: Boolean,
       fromToBB: Long,
       notCapturedBB: Long
   ): Long =
@@ -793,6 +799,15 @@ object KingCaptureProbability:
   private def movedTypeBitboard(
       before: Long,
       isMover: Boolean,
+      notFromToBB: Long,
+      notToBB: Long,
+      toBB: Long
+  ): Long =
+    moveTypeBits(before, isMover, notFromToBB, notToBB, toBB)
+
+  private inline def moveTypeBits(
+      before: Long,
+      inline isMover: Boolean,
       notFromToBB: Long,
       notToBB: Long,
       toBB: Long
