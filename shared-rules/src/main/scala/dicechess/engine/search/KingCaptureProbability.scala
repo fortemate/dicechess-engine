@@ -207,7 +207,7 @@ object KingCaptureProbability:
         }
       )
 
-    val mask0 = computeCaptureMask(
+    val mask0 = captureMaskFromHits(
       pawnHits = myPieces0 & p0 & targetPawnMask,
       knightHits = myPieces0 & n0 & targetKnightMask,
       bishopHits = myPieces0 & bi0 & diagRay0,
@@ -281,7 +281,7 @@ object KingCaptureProbability:
       val diagRay1     = updatedAttackRay(changedSqBB1, diagRay0, unionDiagAttacks(targets, allPieces1))
       val orthoRay1    = updatedAttackRay(changedSqBB1, orthoRay0, unionOrthoAttacks(targets, allPieces1))
 
-      val mask1 = computeCaptureMask(
+      val mask1 = captureMaskFromHits(
         pawnHits = myPieces1 & p1 & targetPawnMask,
         knightHits = myPieces1 & n1 & targetKnightMask,
         bishopHits = myPieces1 & bi1 & diagRay1,
@@ -358,7 +358,7 @@ object KingCaptureProbability:
             val diagRay2  = updatedAttackRay(changedSqBB2, diagRay1, unionDiagAttacks(targets, allPieces2))
             val orthoRay2 = updatedAttackRay(changedSqBB2, orthoRay1, unionOrthoAttacks(targets, allPieces2))
 
-            computeCaptureMask(
+            captureMaskFromHits(
               pawnHits = myPieces2 & p2 & targetPawnMask,
               knightHits = myPieces2 & n2 & targetKnightMask,
               bishopHits = myPieces2 & bi2 & diagRay2,
@@ -367,18 +367,18 @@ object KingCaptureProbability:
               kingHits = myPieces2 & k2 & targetKingMask
             )
 
-          forEachPendingDie((unsolved & rollsWithFirstDie(d1)) != 0L) { d2 =>
-            val active1                                         = myPieces1 & selectTypeBB(d2, p1, n1, bi1, r1, q1, k1)
-            def canPieceReachAttackInOneMove(die: Int): Boolean =
-              dispatchReachType(die)(
-                canPawnReach(active1 & ~promoSrcMask, ~allPieces1, enemyPieces1, isWhite, targetPawnMask),
-                canKnightReach(active1 & knightReach2Mask, targetKnightMask & notMyPieces1),
-                canBishopReach(active1, allPieces1, diagRay1 & notMyPieces1),
-                canRookReach(active1, allPieces1, orthoRay1 & notMyPieces1),
-                canQueenReach(active1, allPieces1, (diagRay1 | orthoRay1) & notMyPieces1),
-                canKingReach(active1 & kingReach2Mask, targetKingMask & notMyPieces1)
-              )
+          def canPieceReachAttackInOneMove(die: Int, active1: Long): Boolean =
+            dispatchReachType(die)(
+              canPawnReach(active1 & ~promoSrcMask, ~allPieces1, enemyPieces1, isWhite, targetPawnMask),
+              canKnightReach(active1 & knightReach2Mask, targetKnightMask & notMyPieces1),
+              canBishopReach(active1, allPieces1, diagRay1 & notMyPieces1),
+              canRookReach(active1, allPieces1, orthoRay1 & notMyPieces1),
+              canQueenReach(active1, allPieces1, (diagRay1 | orthoRay1) & notMyPieces1),
+              canKingReach(active1 & kingReach2Mask, targetKingMask & notMyPieces1)
+            )
 
+          forEachPendingDie((unsolved & rollsWithFirstDie(d1)) != 0L) { d2 =>
+            val active1 = myPieces1 & selectTypeBB(d2, p1, n1, bi1, r1, q1, k1)
             exploreIfNonEmpty(active1) {
               val pairIdx      = d1 * 7 + d2
               var neededD3Mask = computeNeededD3Mask(pairIdx, unsolved)
@@ -387,7 +387,7 @@ object KingCaptureProbability:
                 resolveSelfReach(
                   neededD3Mask,
                   selfBit,
-                  canPieceReachAttackInOneMove(d2), {
+                  canPieceReachAttackInOneMove(d2, active1), {
                     unsolved &= ~tripleRollBit(pairIdx * 7 + d2)
                     neededD3Mask &= ~selfBit
                   }
@@ -494,6 +494,16 @@ object KingCaptureProbability:
       rookHits: Long,
       queenHits: Long,
       kingHits: Long
+  ): Int =
+    captureMaskFromHits(pawnHits, knightHits, bishopHits, rookHits, queenHits, kingHits)
+
+  private inline def captureMaskFromHits(
+      inline pawnHits: Long,
+      inline knightHits: Long,
+      inline bishopHits: Long,
+      inline rookHits: Long,
+      inline queenHits: Long,
+      inline kingHits: Long
   ): Int =
     var mask = 0
     if pawnHits != 0L then mask |= 1
