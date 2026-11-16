@@ -172,12 +172,15 @@ object BotMatchRunner:
         victimTally.punishedCaptures += punished.count
         victimTally.punishedMaterial += PieceSafety.materialOn(state, punished)
       val moverHanging = PieceSafety.hangingSquares(next, mover)
+      recordMoverTurn(next, moverHanging, moverTally)
+      if mover.isWhite then whiteHanging = moverHanging else blackHanging = moverHanging
+
+    private inline def recordMoverTurn(next: GameState, moverHanging: Bitboard, moverTally: HangTally): Unit =
       moverTally.turns += 1
       if !moverHanging.isEmpty then
         moverTally.hangTurns += 1
         moverTally.hangingMaterial += PieceSafety.materialOn(next, moverHanging)
         if !(moverHanging & next.queens).isEmpty then moverTally.queenHangTurns += 1
-      if mover.isWhite then whiteHanging = moverHanging else blackHanging = moverHanging
 
   /** Package-private visibility (`private[bench]`) allows [[BotMatchRunnerSpec]] to verify individual turn executions,
     * random seed reproducibility, and the 50-move rule draw condition.
