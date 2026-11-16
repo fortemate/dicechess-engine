@@ -74,6 +74,12 @@ class KingThreatSeededPositionsContractSuite extends FunSuite:
     assertEquals(digest(rows), baselineSha256)
   }
 
+  test("the extended seeded corpus preserves outcomes beyond the 200-position oracle prefix") {
+    val rows = canonicalRows(new KingThreatSuite, 1000)
+    assertEquals(rows.size, 1000)
+    assertEquals(digest(rows), "94861f69b10f857da7b9f5fe03743218ad4517a94af8b2111c477d527066dee3")
+  }
+
   test("each invocation resets the seed, on both reused and new suite instances") {
     val suite = new KingThreatSuite
     val first = canonicalRows(suite, 200)
