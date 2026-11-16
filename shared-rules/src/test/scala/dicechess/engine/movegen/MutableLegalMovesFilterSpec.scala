@@ -498,11 +498,10 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
       if !survived.isValid then false
       else
         val next = state.makeMove(move).withDiceSlotsOf(survived)
-        if next.flags.isDicePoolEmpty then false
-        else
-          MoveGenerator.generateMoves(next).exists { nextMove =>
-            hasKingCaptureContinuationRef(next, nextMove)
-          }
+        !next.flags.isDicePoolEmpty &&
+        MoveGenerator.generateMoves(next).exists { nextMove =>
+          hasKingCaptureContinuationRef(next, nextMove)
+        }
 
   private def referenceFilter(state: GameState): List[Move] =
     if state.flags.isDicePoolEmpty then Nil
@@ -510,20 +509,24 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
       val moves = MoveGenerator.generateMoves(state)
       if moves.isEmpty then Nil
       else
-        var maxLen = 0
-        for move <- moves do
-          val depth =
-            if isKingCaptureRef(state, move) then 1
-            else continuationLengthRef(state, move)
-          if depth > maxLen then maxLen = depth
-
+        val maxLen = maximumReferenceDepth(state, moves)
         if maxLen == 0 then Nil
-        else
-          val result = List.newBuilder[Move]
-          for move <- moves do
-            if hasKingCaptureContinuationRef(state, move) || continuationLengthRef(state, move) == maxLen then
-              result += move
-          result.result()
+        else retainReferenceMoves(state, moves, maxLen)
+
+  private inline def maximumReferenceDepth(state: GameState, moves: List[Move]): Int =
+    var maxLen = 0
+    for move <- moves do
+      val depth =
+        if isKingCaptureRef(state, move) then 1
+        else continuationLengthRef(state, move)
+      if depth > maxLen then maxLen = depth
+    maxLen
+
+  private inline def retainReferenceMoves(state: GameState, moves: List[Move], maxLen: Int): List[Move] =
+    val result = List.newBuilder[Move]
+    for move <- moves do
+      if hasKingCaptureContinuationRef(state, move) || continuationLengthRef(state, move) == maxLen then result += move
+    result.result()
 
   private def continuationLengthRef(state: GameState, move: Move): Int =
     val survived = state.diceAfter(move)

@@ -42,30 +42,45 @@ class TurnGeneratorPropertySpec extends ScalaCheckSuite:
     if state.dicePool.isEmpty then List(Nil)
     else
       val branches = List.newBuilder[List[Move]]
-
       for move <- dicechess.engine.movegen.MoveGenerator.generateMoves(state) do
-        val moverType = state.mailbox(move.fromSquare).pieceType
-        if isKingCaptureOld(state, move) then branches += List(move)
-        else if move.isCastling then
-          if state.dicePool.contains(PieceType.King.diceValue) && state.dicePool.contains(PieceType.Rook.diceValue) then
-            val afterCastle = state.dicePool.diff(List(PieceType.King.diceValue, PieceType.Rook.diceValue))
-            val next        = state.makeMove(move).withDicePool(afterCastle)
-            val subPaths    = generateAllPathsOld(next)
-            if subPaths.isEmpty || subPaths == List(Nil) then branches += List(move)
-            else for p <- subPaths if p.nonEmpty do branches += (move :: p)
-        else
-          val afterMove = state.dicePool.diff(List(moverType.diceValue))
-          assert(
-            afterMove.size < state.dicePool.size,
-            s"CRITICAL: Dice pool ${state.dicePool} does not decrease! moverType=$moverType"
-          )
-          val next     = state.makeMove(move).withDicePool(afterMove)
-          val subPaths = generateAllPathsOld(next)
-          if subPaths.isEmpty || subPaths == List(Nil) then branches += List(move)
-          else for p <- subPaths if p.nonEmpty do branches += (move :: p)
-
+        appendMovePathsOld(state, move, branches)
       val res = branches.result()
       if res.isEmpty then List(Nil) else res
+
+  private def appendMovePathsOld(
+      state: GameState,
+      move: Move,
+      branches: scala.collection.mutable.Builder[List[Move], List[List[Move]]]
+  ): Unit =
+    val moverType = state.mailbox(move.fromSquare).pieceType
+    if isKingCaptureOld(state, move) then branches += List(move)
+    else if move.isCastling then
+      val dicePool = state.dicePool
+      if hasCastlingDiceOld(dicePool) then
+        val afterCastle = dicePool.diff(List(PieceType.King.diceValue, PieceType.Rook.diceValue))
+        val next        = state.makeMove(move).withDicePool(afterCastle)
+        val subPaths    = generateAllPathsOld(next)
+        appendSubPathsOld(subPaths, move, branches)
+    else
+      val afterMove = state.dicePool.diff(List(moverType.diceValue))
+      assert(
+        afterMove.size < state.dicePool.size,
+        s"CRITICAL: Dice pool ${state.dicePool} does not decrease! moverType=$moverType"
+      )
+      val next     = state.makeMove(move).withDicePool(afterMove)
+      val subPaths = generateAllPathsOld(next)
+      appendSubPathsOld(subPaths, move, branches)
+
+  private inline def hasCastlingDiceOld(dicePool: List[Int]): Boolean =
+    dicePool.contains(PieceType.King.diceValue) && dicePool.contains(PieceType.Rook.diceValue)
+
+  private inline def appendSubPathsOld(
+      subPaths: List[List[Move]],
+      move: Move,
+      branches: scala.collection.mutable.Builder[List[Move], List[List[Move]]]
+  ): Unit =
+    if subPaths.isEmpty || subPaths == List(Nil) then branches += List(move)
+    else for p <- subPaths if p.nonEmpty do branches += (move :: p)
 
   private def assertConsistent(state: GameState): Unit =
     val mailbox = state.mailbox
@@ -83,53 +98,68 @@ class TurnGeneratorPropertySpec extends ScalaCheckSuite:
     while idx < 64 do
       val sq    = Square.fromIndex(idx)
       val piece = mailbox(sq)
-      if piece.isEmpty then
-        assert(!white.contains(sq), s"Square $sq has empty piece but is in whitePieces")
-        assert(!black.contains(sq), s"Square $sq has empty piece but is in blackPieces")
-        assert(!state.pawns.contains(sq), s"Square $sq has empty piece but is in pawns")
-        assert(!state.knights.contains(sq), s"Square $sq has empty piece but is in knights")
-        assert(!state.bishops.contains(sq), s"Square $sq has empty piece but is in bishops")
-        assert(!state.rooks.contains(sq), s"Square $sq has empty piece but is in rooks")
-        assert(!state.queens.contains(sq), s"Square $sq has empty piece but is in queens")
-        assert(!state.kings.contains(sq), s"Square $sq has empty piece but is in kings")
-      else
-        val pt  = piece.pieceType
-        val col = piece.color
-        if col.isWhite then
-          assert(white.contains(sq), s"Square $sq has White $pt but is not in whitePieces")
-          assert(!black.contains(sq), s"Square $sq has White $pt but is in blackPieces")
-        else
-          assert(black.contains(sq), s"Square $sq has Black $pt but is not in blackPieces")
-          assert(!white.contains(sq), s"Square $sq has Black $pt but is in whitePieces")
-
-        val inCorrectBB = pt match
-          case PieceType.Pawn   => state.pawns.contains(sq)
-          case PieceType.Knight => state.knights.contains(sq)
-          case PieceType.Bishop => state.bishops.contains(sq)
-          case PieceType.Rook   => state.rooks.contains(sq)
-          case PieceType.Queen  => state.queens.contains(sq)
-          case PieceType.King   => state.kings.contains(sq)
-        assert(inCorrectBB, s"Square $sq has $piece but is not in $pt bitboard")
-
-        // Check other bitboards are disjoint
-        if pt != PieceType.Pawn then assert(!state.pawns.contains(sq), s"Square $sq has $piece but is in pawns")
-        if pt != PieceType.Knight then assert(!state.knights.contains(sq), s"Square $sq has $piece but is in knights")
-        if pt != PieceType.Bishop then assert(!state.bishops.contains(sq), s"Square $sq has $piece but is in bishops")
-        if pt != PieceType.Rook then assert(!state.rooks.contains(sq), s"Square $sq has $piece but is in rooks")
-        if pt != PieceType.Queen then assert(!state.queens.contains(sq), s"Square $sq has $piece but is in queens")
-        if pt != PieceType.King then assert(!state.kings.contains(sq), s"Square $sq has $piece but is in kings")
+      if piece.isEmpty then assertEmptyMailboxSquare(state, sq, white, black)
+      else assertOccupiedMailboxSquare(state, sq, piece, white, black)
       idx += 1
 
     // 3. Pawns cannot be on back ranks
-    var pawnsVal = state.pawns.value
+    assertNoBackRankPawns(state.pawns)
+    // 4. Validate castling rights
+    assertCastlingRights(mailbox, state.flags.castlingRights)
+
+  // Inline preserves the per-square assertion loop and its lazy clues.
+  private inline def assertEmptyMailboxSquare(state: GameState, sq: Square, white: Bitboard, black: Bitboard): Unit =
+    assert(!white.contains(sq), s"Square $sq has empty piece but is in whitePieces")
+    assert(!black.contains(sq), s"Square $sq has empty piece but is in blackPieces")
+    assert(!state.pawns.contains(sq), s"Square $sq has empty piece but is in pawns")
+    assert(!state.knights.contains(sq), s"Square $sq has empty piece but is in knights")
+    assert(!state.bishops.contains(sq), s"Square $sq has empty piece but is in bishops")
+    assert(!state.rooks.contains(sq), s"Square $sq has empty piece but is in rooks")
+    assert(!state.queens.contains(sq), s"Square $sq has empty piece but is in queens")
+    assert(!state.kings.contains(sq), s"Square $sq has empty piece but is in kings")
+
+  private inline def assertOccupiedMailboxSquare(
+      state: GameState,
+      sq: Square,
+      piece: Piece,
+      white: Bitboard,
+      black: Bitboard
+  ): Unit =
+    val pt  = piece.pieceType
+    val col = piece.color
+    if col.isWhite then
+      assert(white.contains(sq), s"Square $sq has White $pt but is not in whitePieces")
+      assert(!black.contains(sq), s"Square $sq has White $pt but is in blackPieces")
+    else
+      assert(black.contains(sq), s"Square $sq has Black $pt but is not in blackPieces")
+      assert(!white.contains(sq), s"Square $sq has Black $pt but is in whitePieces")
+
+    val inCorrectBB = pt match
+      case PieceType.Pawn   => state.pawns.contains(sq)
+      case PieceType.Knight => state.knights.contains(sq)
+      case PieceType.Bishop => state.bishops.contains(sq)
+      case PieceType.Rook   => state.rooks.contains(sq)
+      case PieceType.Queen  => state.queens.contains(sq)
+      case PieceType.King   => state.kings.contains(sq)
+    assert(inCorrectBB, s"Square $sq has $piece but is not in $pt bitboard")
+
+    // Check other bitboards are disjoint
+    if pt != PieceType.Pawn then assert(!state.pawns.contains(sq), s"Square $sq has $piece but is in pawns")
+    if pt != PieceType.Knight then assert(!state.knights.contains(sq), s"Square $sq has $piece but is in knights")
+    if pt != PieceType.Bishop then assert(!state.bishops.contains(sq), s"Square $sq has $piece but is in bishops")
+    if pt != PieceType.Rook then assert(!state.rooks.contains(sq), s"Square $sq has $piece but is in rooks")
+    if pt != PieceType.Queen then assert(!state.queens.contains(sq), s"Square $sq has $piece but is in queens")
+    if pt != PieceType.King then assert(!state.kings.contains(sq), s"Square $sq has $piece but is in kings")
+
+  private inline def assertNoBackRankPawns(pawns: Bitboard): Unit =
+    var pawnsVal = pawns.value
     while pawnsVal != 0 do
       val pIdx = java.lang.Long.numberOfTrailingZeros(pawnsVal)
       val rank = pIdx / 8
       assert(rank != 0 && rank != 7, s"Pawn on invalid rank $rank at index $pIdx")
       pawnsVal &= pawnsVal - 1
 
-    // 4. Validate castling rights
-    val rights          = state.flags.castlingRights
+  private inline def assertCastlingRights(mailbox: Mailbox, rights: Int): Unit =
     val whiteKingOnHome =
       mailbox(Square.fromIndex(4)).pieceType == PieceType.King && mailbox(Square.fromIndex(4)).color == Color.White
     val blackKingOnHome =
