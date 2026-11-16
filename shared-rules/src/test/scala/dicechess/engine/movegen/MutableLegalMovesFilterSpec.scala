@@ -513,7 +513,7 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
         if maxLen == 0 then Nil
         else retainReferenceMoves(state, moves, maxLen)
 
-  private def maximumReferenceDepth(state: GameState, moves: List[Move]): Int =
+  private inline def maximumReferenceDepth(state: GameState, moves: List[Move]): Int =
     var maxLen = 0
     for move <- moves do
       val depth =
@@ -522,7 +522,7 @@ class MutableLegalMovesFilterSpec extends ScalaCheckSuite:
       if depth > maxLen then maxLen = depth
     maxLen
 
-  private def retainReferenceMoves(state: GameState, moves: List[Move], maxLen: Int): List[Move] =
+  private inline def retainReferenceMoves(state: GameState, moves: List[Move], maxLen: Int): List[Move] =
     val result = List.newBuilder[Move]
     for move <- moves do
       if hasKingCaptureContinuationRef(state, move) || continuationLengthRef(state, move) == maxLen then result += move

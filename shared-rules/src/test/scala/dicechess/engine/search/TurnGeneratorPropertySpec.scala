@@ -43,43 +43,42 @@ class TurnGeneratorPropertySpec extends ScalaCheckSuite:
     else
       val branches = List.newBuilder[List[Move]]
       for move <- dicechess.engine.movegen.MoveGenerator.generateMoves(state) do
-        val moverType = state.mailbox(move.fromSquare).pieceType
-        if isKingCaptureOld(state, move) then branches += List(move)
-        else if move.isCastling then appendCastlePathsOld(state, move, branches)
-        else appendOrdinaryPathsOld(state, move, moverType, branches)
+        appendMovePathsOld(state, move, branches)
       val res = branches.result()
       if res.isEmpty then List(Nil) else res
 
-  private def appendCastlePathsOld(
+  private def appendMovePathsOld(
       state: GameState,
       move: Move,
       branches: scala.collection.mutable.Builder[List[Move], List[List[Move]]]
   ): Unit =
-    if state.dicePool.contains(PieceType.King.diceValue) && state.dicePool.contains(PieceType.Rook.diceValue) then
-      val afterCastle = state.dicePool.diff(List(PieceType.King.diceValue, PieceType.Rook.diceValue))
-      val next        = state.makeMove(move).withDicePool(afterCastle)
-      appendSubPathsOld(next, move, branches)
+    val moverType = state.mailbox(move.fromSquare).pieceType
+    if isKingCaptureOld(state, move) then branches += List(move)
+    else if move.isCastling then
+      val dicePool = state.dicePool
+      if hasCastlingDiceOld(dicePool) then
+        val afterCastle = dicePool.diff(List(PieceType.King.diceValue, PieceType.Rook.diceValue))
+        val next        = state.makeMove(move).withDicePool(afterCastle)
+        val subPaths    = generateAllPathsOld(next)
+        appendSubPathsOld(subPaths, move, branches)
+    else
+      val afterMove = state.dicePool.diff(List(moverType.diceValue))
+      assert(
+        afterMove.size < state.dicePool.size,
+        s"CRITICAL: Dice pool ${state.dicePool} does not decrease! moverType=$moverType"
+      )
+      val next     = state.makeMove(move).withDicePool(afterMove)
+      val subPaths = generateAllPathsOld(next)
+      appendSubPathsOld(subPaths, move, branches)
 
-  private def appendOrdinaryPathsOld(
-      state: GameState,
+  private inline def hasCastlingDiceOld(dicePool: List[Int]): Boolean =
+    dicePool.contains(PieceType.King.diceValue) && dicePool.contains(PieceType.Rook.diceValue)
+
+  private inline def appendSubPathsOld(
+      subPaths: List[List[Move]],
       move: Move,
-      moverType: PieceType,
       branches: scala.collection.mutable.Builder[List[Move], List[List[Move]]]
   ): Unit =
-    val afterMove = state.dicePool.diff(List(moverType.diceValue))
-    assert(
-      afterMove.size < state.dicePool.size,
-      s"CRITICAL: Dice pool ${state.dicePool} does not decrease! moverType=$moverType"
-    )
-    val next = state.makeMove(move).withDicePool(afterMove)
-    appendSubPathsOld(next, move, branches)
-
-  private def appendSubPathsOld(
-      next: GameState,
-      move: Move,
-      branches: scala.collection.mutable.Builder[List[Move], List[List[Move]]]
-  ): Unit =
-    val subPaths = generateAllPathsOld(next)
     if subPaths.isEmpty || subPaths == List(Nil) then branches += List(move)
     else for p <- subPaths if p.nonEmpty do branches += (move :: p)
 

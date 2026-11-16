@@ -271,7 +271,7 @@ class TestOracleContractSuite extends FunSuite:
   private def oracleMethod(instance: AnyRef, suffix: String, arity: Int): java.lang.reflect.Method =
     val declaredMethods = Option(instance.getClass.getDeclaredMethods).getOrElse(fail("Missing declared methods"))
     val candidates      =
-      declaredMethods.filter(m => Option(m.getName).exists(_.endsWith(suffix)) && m.getParameterCount == arity)
+      declaredMethods.filter(m => Option(m.getName).contains(suffix) && m.getParameterCount == arity)
     assertEquals(candidates.length, 1, s"Expected one declared $suffix method")
     val method = candidates.head
     method.setAccessible(true)
