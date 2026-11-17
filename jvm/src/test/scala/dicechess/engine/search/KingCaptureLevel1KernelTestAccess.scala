@@ -12,13 +12,13 @@ private[search] object KingCaptureLevel1KernelTestAccess extends munit.Assertion
       .getOrElse(fail("Missing KCP methods"))
     val matches = methods.iterator
       .flatMap(m => Option(m))
-      .filter(m => Option(m.getName).contains("exploreLevel1") && m.getParameterCount == 25)
+      .filter(m => Option(m.getName).contains("exploreLevel1$1") && m.getParameterCount == 25)
       .toList
     matches match
       case method :: Nil =>
         method.setAccessible(true)
         method
-      case _ => fail("Expected exactly one 25-argument exploreLevel1 method")
+      case _ => fail("Expected exactly one 25-argument lifted exploreLevel1 method")
 
   private def union(targets: Bitboard)(attacks: Square => Bitboard): Long =
     (0 until 64)
@@ -36,26 +36,26 @@ private[search] object KingCaptureLevel1KernelTestAccess extends munit.Assertion
       Int.box(1),
       Boolean.box(attacker.isWhite),
       Long.box(mine.value),
-      Long.box(enemy.value),
+      Long.box(state.bishops.value),
+      Long.box(union(targets)(sq => MagicBitboards.bishopAttacks(sq, Bitboard.empty))),
+      Long.box(state.queens.value),
+      Long.box(state.rooks.value),
+      Long.box(union(targets)(sq => MagicBitboards.rookAttacks(sq, Bitboard.empty))),
       Long.box(occupied.value),
       Long.box(state.pawns.value),
       Long.box(state.knights.value),
-      Long.box(state.bishops.value),
-      Long.box(state.rooks.value),
-      Long.box(state.queens.value),
       Long.box(state.kings.value),
-      Long.box(0L), // No fixture root has an inherited en-passant target.
-      Long.box((state.kings & enemy).value),
+      Long.box(union(targets)(sq => MagicBitboards.bishopAttacks(sq, occupied))),
       Long.box(targets.value),
+      Long.box(union(targets)(sq => MagicBitboards.rookAttacks(sq, occupied))),
       Long.box(PawnGeneration.anyAttacks(targets, attacker.opponent).value),
       Long.box(knightMask.value),
       Long.box(kingMask.value),
-      Long.box(union(targets)(sq => MagicBitboards.bishopAttacks(sq, Bitboard.empty))),
-      Long.box(union(targets)(sq => MagicBitboards.rookAttacks(sq, Bitboard.empty))),
+      Long.box(enemy.value),
       Long.box(union(knightMask)(LeaperAttacks.knightAttacksFor)),
       Long.box(union(kingMask)(LeaperAttacks.kingAttacksFor)),
-      Long.box(union(targets)(sq => MagicBitboards.bishopAttacks(sq, occupied))),
-      Long.box(union(targets)(sq => MagicBitboards.rookAttacks(sq, occupied))),
+      Long.box(0L), // No fixture root has an inherited en-passant target.
+      Long.box((state.kings & enemy).value),
       moves,
       Long.box(unsolved)
     )
