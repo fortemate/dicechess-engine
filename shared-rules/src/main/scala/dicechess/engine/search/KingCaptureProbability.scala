@@ -168,7 +168,6 @@ object KingCaptureProbability:
     val q0       = state.queens.value
     val k0       = state.kings.value
     val ep0      = state.enPassant.value
-    val cr0      = state.flags.castlingRights
 
     val enemyPieces0 = colorPieces(!isWhite, w0, b0)
 
@@ -327,19 +326,8 @@ object KingCaptureProbability:
     while d1 <= 6 && unsolved != 0L do
       val active0 = myPieces0 & selectTypeBB(d1, p0, n0, bi0, r0, q0, k0)
       if active0 != 0L && (unsolved & rollsWithFirstDie(d1)) != 0L then
-        val count0 = MoveGenerator.generatePieceMovesInto(
-          myPieces0,
-          enemyPieces0,
-          active0,
-          enemyKings,
-          myPieces0 & r0,
-          ep0,
-          cr0,
-          isWhite,
-          d1,
-          moves0
-        )
-        var i0 = 0
+        val count0 = MoveGenerator.generatePieceMovesInto(state, opponent, active0, d1, moves0)
+        var i0     = 0
         while i0 < count0 && (unsolved & rollsWithFirstDie(d1)) != 0L do
           val mv0   = moves0(i0)
           val flags = (mv0 >>> 12) & 0x0f
@@ -612,11 +600,8 @@ object KingCaptureProbability:
                 enemyPieces1,
                 candidatePieces1,
                 enemyKings,
-                0L,
                 ep1,
-                0,
-                isWhite,
-                d2,
+                pieceForDie(isWhite, d2),
                 moves1
               )
               var i1 = 0
@@ -784,6 +769,9 @@ object KingCaptureProbability:
 
   private inline def colorPieces(isWhite: Boolean, white: Long, black: Long): Long =
     if isWhite then white else black
+
+  private inline def pieceForDie(isWhite: Boolean, die: Int): Piece =
+    Piece(if isWhite then Color.White else Color.Black, PieceType(die))
 
   private inline def movedColorBitboard(
       before: Long,

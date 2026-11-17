@@ -487,24 +487,63 @@ object MoveGenerator {
   private inline def packMove(fromIdx: Int, toIdx: Int, flags: Int): Int =
     (flags << 12) | (fromIdx << 6) | toIdx
 
-  /** Zero-allocation pseudo-legal move generator for a single piece type (`die` in `1..6`).
+  /** Zero-allocation pseudo-legal move generator for a selected root-position piece subset (`die` in `1..6`).
     *
-    * Writes encoded 16-bit moves (`Move.toInt`) into `out` starting at index 0 and returns the number of moves written.
-    * Emits moves in the exact same order as [[generatePieceMoves]] with `eligibleEpPawns = Bitboard.full`. When
-    * `castlingRights == 0`, castling moves are omitted.
+    * The explicit `color` selects the moving side independently of `state.activeColor`. Writes encoded 16-bit moves
+    * (`Move.toInt`) into `out` starting at index 0 and returns the number written. Preserves [[generatePieceMoves]]
+    * order with full EP eligibility, including castling permitted by the root state's rooks and rights.
+    */
+  private[engine] def generatePieceMovesInto(
+      state: GameState,
+      color: Color,
+      activePieces: Long,
+      die: Int,
+      out: Array[Int]
+  ): Int =
+    val isWhite     = color.isWhite
+    val myPieces    = if isWhite then state.whitePieces.value else state.blackPieces.value
+    val enemyPieces = if isWhite then state.blackPieces.value else state.whitePieces.value
+    die match
+      case 1 =>
+        generatePawnMovesInto(
+          activePieces,
+          ~(myPieces | enemyPieces),
+          enemyPieces,
+          enemyPieces & state.kings.value,
+          state.enPassant.value,
+          isWhite,
+          out
+        )
+      case 2 | 3 | 4 | 5 => dispatchNonKingPieceMovesInto(myPieces, enemyPieces, activePieces, die, out)
+      case _             =>
+        generateKingMovesInto(
+          myPieces,
+          enemyPieces,
+          activePieces,
+          myPieces & state.rooks.value,
+          state.flags.castlingRights,
+          isWhite,
+          out
+        )
+
+  /** Zero-allocation pseudo-legal continuation generator for a selected subset of one colored piece type.
+    *
+    * Full side occupancies remain separate from `activePieces`, which may be a filtered candidate subset. Writes the
+    * same encoded move prefix and order as root generation, using the carried EP target and enemy kings. Castling is
+    * disabled for continuation moves. The packed `piece` supplies the color and valid piece type without allocating a
+    * context object.
     */
   private[engine] def generatePieceMovesInto(
       myPieces: Long,
       enemyPieces: Long,
       activePieces: Long,
       enemyKings: Long,
-      myRooks: Long,
       enPassant: Long,
-      castlingRights: Int,
-      isWhite: Boolean,
-      die: Int,
+      piece: Piece,
       out: Array[Int]
   ): Int =
+    val isWhite = piece.color.isWhite
+    val die     = piece.pieceType.diceValue
     die match
       case 1 =>
         generatePawnMovesInto(
@@ -517,7 +556,7 @@ object MoveGenerator {
           out
         )
       case 2 | 3 | 4 | 5 => dispatchNonKingPieceMovesInto(myPieces, enemyPieces, activePieces, die, out)
-      case _ => generateKingMovesInto(myPieces, enemyPieces, activePieces, myRooks, castlingRights, isWhite, out)
+      case _             => generateKingMovesInto(myPieces, enemyPieces, activePieces, 0L, 0, isWhite, out)
 
   /** Dispatches move generation for knight, bishop, rook, or queen dice (`2` through `5`). */
   private inline def dispatchNonKingPieceMovesInto(
