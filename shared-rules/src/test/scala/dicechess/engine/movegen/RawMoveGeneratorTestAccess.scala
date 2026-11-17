@@ -7,7 +7,7 @@ import dicechess.engine.domain.*
 private[engine] object RawMoveGeneratorTestAccess:
 
   def root(state: GameState, color: Color, active: Long, die: Int, out: Array[Int]): Int =
-    MoveGenerator.generatePieceMovesInto(state, color, active, die, out)
+    MoveGenerator.generateRootPieceMovesInto(state, color, active, die, out)
 
   def continuation(
       myPieces: Long,

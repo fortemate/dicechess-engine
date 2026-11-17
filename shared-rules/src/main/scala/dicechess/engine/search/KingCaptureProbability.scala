@@ -326,7 +326,7 @@ object KingCaptureProbability:
     while d1 <= 6 && unsolved != 0L do
       val active0 = myPieces0 & selectTypeBB(d1, p0, n0, bi0, r0, q0, k0)
       if active0 != 0L && (unsolved & rollsWithFirstDie(d1)) != 0L then
-        val count0 = MoveGenerator.generatePieceMovesInto(state, opponent, active0, d1, moves0)
+        val count0 = MoveGenerator.generateRootPieceMovesInto(state, opponent, active0, d1, moves0)
         var i0     = 0
         while i0 < count0 && (unsolved & rollsWithFirstDie(d1)) != 0L do
           val mv0   = moves0(i0)

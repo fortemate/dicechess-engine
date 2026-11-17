@@ -493,7 +493,7 @@ object MoveGenerator {
     * (`Move.toInt`) into `out` starting at index 0 and returns the number written. Preserves [[generatePieceMoves]]
     * order with full EP eligibility, including castling permitted by the root state's rooks and rights.
     */
-  private[engine] def generatePieceMovesInto(
+  private[engine] inline def generateRootPieceMovesInto(
       state: GameState,
       color: Color,
       activePieces: Long,
