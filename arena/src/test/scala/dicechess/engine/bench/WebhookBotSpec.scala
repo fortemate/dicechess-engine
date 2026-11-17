@@ -47,49 +47,58 @@ class WebhookBotSpec extends FunSuite:
       "/api/webhook",
       new HttpHandler:
         override def handle(exchange: HttpExchange): Unit =
-          val body               = new String(exchange.getRequestBody.readAllBytes(), UTF_8)
-          val json               = Json.parse(body).getOrElse(Json.JNull)
-          val kind               = json.field("type").flatMap(_.asStr).getOrElse("")
-          val (status, response) = kind match
-            case "verification" =>
-              val nonce  = json.field("nonce").flatMap(_.asStr).getOrElse("")
-              val echoed = mode match
-                case Mode.WrongNonce => nonce + "-tampered"
-                case _               => nonce
-              (200, Json.render(Json.obj("nonce" -> Json.str(echoed))))
-            case "yourTurn" =>
-              turnDeliveries.incrementAndGet()
-              val timestamp = Option(exchange.getRequestHeaders.getFirst("X-DiceChess-Timestamp"))
-              val signature = Option(exchange.getRequestHeaders.getFirst("X-DiceChess-Signature"))
-              val signedOk  = (for
-                ts  <- timestamp.flatMap(_.toLongOption)
-                sig <- signature
-              yield WebhookBot.sign(Secret, ts, body) == sig).getOrElse(false)
-              if !signedOk then (401, """{"error":"bad signature"}""")
-              else
-                mode match
-                  case Mode.ServerError => (500, """{"error":"boom"}""")
-                  case Mode.Illegal     => (200, """{"moves":["a1a1"]}""")
-                  case _                =>
-                    val stateObj  = json.field("state")
-                    val versionOk = stateObj.flatMap(_.field("version")).exists {
-                      case Json.JInt(_) => true
-                      case _            => false
-                    }
-                    if !versionOk then (400, """{"error":"missing or invalid state.version"}""")
-                    else
-                      val tree = stateObj.flatMap(_.field("legalMoves")).getOrElse(Json.JObj(Nil))
-                      val path = firstPath(tree)
-                      (200, Json.render(Json.obj("moves" -> Json.JArr(path.map(Json.str)))))
-            case _ => (400, """{"error":"unrecognized type"}""")
-          val bytes = response.getBytes(UTF_8)
-          exchange.getResponseHeaders.set("Content-Type", "application/json")
-          exchange.sendResponseHeaders(status, bytes.length.toLong)
-          val out = exchange.getResponseBody
-          out.write(bytes)
-          out.close()
+          val body = new String(exchange.getRequestBody.readAllBytes(), UTF_8)
+          val json = Json.parse(body).getOrElse(Json.JNull)
+          respondTo(exchange, json, body)
     )
     server.start()
+
+    private def respondTo(exchange: HttpExchange, json: Json, body: String): Unit =
+      val kind = json.field("type").flatMap(_.asStr).getOrElse("")
+      kind match
+        case "verification" => writeResponse(exchange, 200, verificationResponse(json))
+        case "yourTurn"     => respondToTurn(exchange, json, body)
+        case _              => writeResponse(exchange, 400, """{"error":"unrecognized type"}""")
+
+    private def writeResponse(exchange: HttpExchange, status: Int, response: String): Unit =
+      val bytes = response.getBytes(UTF_8)
+      exchange.getResponseHeaders.set("Content-Type", "application/json")
+      exchange.sendResponseHeaders(status, bytes.length.toLong)
+      val out = exchange.getResponseBody
+      out.write(bytes)
+      out.close()
+
+    private def verificationResponse(json: Json): String =
+      val nonce  = json.field("nonce").flatMap(_.asStr).getOrElse("")
+      val echoed = mode match
+        case Mode.WrongNonce => nonce + "-tampered"
+        case _               => nonce
+      Json.render(Json.obj("nonce" -> Json.str(echoed)))
+
+    private def respondToTurn(exchange: HttpExchange, json: Json, body: String): Unit =
+      turnDeliveries.incrementAndGet()
+      val timestamp = Option(exchange.getRequestHeaders.getFirst("X-DiceChess-Timestamp"))
+      val signature = Option(exchange.getRequestHeaders.getFirst("X-DiceChess-Signature"))
+      val signedOk  = (for
+        ts  <- timestamp.flatMap(_.toLongOption)
+        sig <- signature
+      yield WebhookBot.sign(Secret, ts, body) == sig).getOrElse(false)
+      if !signedOk then writeResponse(exchange, 401, """{"error":"bad signature"}""")
+      else
+        mode match
+          case Mode.ServerError => writeResponse(exchange, 500, """{"error":"boom"}""")
+          case Mode.Illegal     => writeResponse(exchange, 200, """{"moves":["a1a1"]}""")
+          case _                =>
+            val stateObj  = json.field("state")
+            val versionOk = stateObj.flatMap(_.field("version")).exists {
+              case Json.JInt(_) => true
+              case _            => false
+            }
+            if !versionOk then writeResponse(exchange, 400, """{"error":"missing or invalid state.version"}""")
+            else
+              val tree = stateObj.flatMap(_.field("legalMoves")).getOrElse(Json.JObj(Nil))
+              val path = firstPath(tree)
+              writeResponse(exchange, 200, Json.render(Json.obj("moves" -> Json.JArr(path.map(Json.str)))))
 
     /** Walks the prefix tree taking the first branch at every level — always a complete legal turn (leaf = turn). */
     private def firstPath(tree: Json): List[String] = tree match
