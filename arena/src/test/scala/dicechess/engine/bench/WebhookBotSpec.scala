@@ -8,8 +8,12 @@ import dicechess.engine.search.*
 import munit.FunSuite
 
 import java.net.InetSocketAddress
+import java.net.URI
+import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 import java.nio.charset.StandardCharsets.UTF_8
+import java.time.Duration
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.Locale
 
 /** Webhook opponents for the timed arena (#526): signing, envelope/tree shape, and the full delivery loop against a
   * mock endpoint that verifies signatures and answers from the `legalMoves` tree it was sent — so a regression in
@@ -17,7 +21,18 @@ import java.util.concurrent.atomic.AtomicInteger
   */
 class WebhookBotSpec extends FunSuite:
 
-  private val Secret = "test-secret"
+  private val Secret                                = "test-secret"
+  private var createdHttpClient: Option[HttpClient] = None
+  private lazy val Http: HttpClient                 =
+    val client = HttpClient.newHttpClient()
+    createdHttpClient = Some(client)
+    client
+
+  final private case class RawReply(status: Int, body: Array[Byte], contentType: String, contentLength: Long)
+
+  override def afterAll(): Unit =
+    try createdHttpClient.foreach(_.close())
+    finally super.afterAll()
 
   /** A minimal in-process bot endpoint speaking the platform webhook protocol, with switchable failure modes. */
   final private class MockEndpoint:
@@ -89,6 +104,47 @@ class WebhookBotSpec extends FunSuite:
     try test(endpoint)
     finally endpoint.stop()
 
+  private def rawPost(
+      endpoint: MockEndpoint,
+      body: String,
+      timestamp: Option[String] = None,
+      signature: Option[String] = None
+  ): RawReply =
+    val builder = HttpRequest
+      .newBuilder(URI.create(endpoint.url))
+      .timeout(Duration.ofSeconds(5))
+      .header("Content-Type", "application/json")
+    timestamp.foreach(value => builder.header("X-DiceChess-Timestamp", value))
+    signature.foreach(value => builder.header("X-DiceChess-Signature", value))
+    val request  = builder.POST(HttpRequest.BodyPublishers.ofString(body, UTF_8)).build()
+    val response = Http.send(request, HttpResponse.BodyHandlers.ofByteArray())
+    RawReply(
+      response.statusCode(),
+      response.body(),
+      response.headers().firstValue("Content-Type").orElse(""),
+      response.headers().firstValue("Content-Length").orElse("-1").toLong
+    )
+
+  private def signedPost(endpoint: MockEndpoint, body: String, timestamp: Long = 42L): RawReply =
+    rawPost(
+      endpoint,
+      body,
+      Some(timestamp.toString),
+      Some(WebhookBot.sign(Secret, timestamp, body))
+    )
+
+  private def assertReply(reply: RawReply, status: Int, body: String): Unit =
+    val expectedBytes = body.getBytes(UTF_8)
+    assertEquals(reply.status, status)
+    assertEquals(new String(reply.body, UTF_8), body)
+    assertEquals(reply.body.length, expectedBytes.length)
+    assertEquals(reply.contentType, "application/json")
+    assertEquals(reply.contentLength, expectedBytes.length.toLong)
+
+  private val BadSignatureReply = """{"error":"bad signature"}"""
+  private val UnknownTypeReply  = """{"error":"unrecognized type"}"""
+  private val BadVersionReply   = """{"error":"missing or invalid state.version"}"""
+
   /** Runs a timed match through the algorithm-level overload — the process-wide [[BotRegistry]] singleton stays
     * untouched, since [[dicechess.engine.search.BotRegistrySpec]] asserts its exact contents.
     */
@@ -129,6 +185,160 @@ class WebhookBotSpec extends FunSuite:
     }
     // Port 1 on loopback: nothing listens there, so the connection is refused.
     assert(new WebhookBot("http://127.0.0.1:1/api/webhook", Secret).handshake().isLeft)
+  }
+
+  test("mock handler: malformed and unknown events return the same error without counting turns") {
+    val bodies = List(
+      "",
+      "{not-json",
+      "[]",
+      "17",
+      "{}",
+      """{"type":17}""",
+      """{"type":"other"}"""
+    )
+    withMockEndpoint { endpoint =>
+      bodies.foreach { body =>
+        assertReply(rawPost(endpoint, body), 400, UnknownTypeReply)
+        assertEquals(endpoint.turnDeliveries.get(), 0)
+      }
+    }
+  }
+
+  test("mock handler: verification echoes or tampers with nonce without signing or turn delivery") {
+    val verification  = """{"type":"verification","nonce":"n-7"}"""
+    val emptyNonce    = """{"nonce":""}"""
+    val echoedNonce   = """{"nonce":"n-7"}"""
+    val tamperedNonce = """{"nonce":"n-7-tampered"}"""
+
+    withMockEndpoint { endpoint =>
+      List(endpoint.Mode.FirstLegal, endpoint.Mode.Illegal, endpoint.Mode.ServerError).foreach { mode =>
+        endpoint.mode = mode
+        assertReply(rawPost(endpoint, verification), 200, echoedNonce)
+      }
+      assertEquals(endpoint.turnDeliveries.get(), 0)
+      assertReply(rawPost(endpoint, """{"type":"verification"}"""), 200, emptyNonce)
+      assertReply(rawPost(endpoint, """{"type":"verification","nonce":3}"""), 200, emptyNonce)
+      assertReply(
+        rawPost(endpoint, """{"type":"verification","nonce":"Aé"}"""),
+        200,
+        """{"nonce":"Aé"}"""
+      )
+      endpoint.mode = endpoint.Mode.WrongNonce
+      assertReply(rawPost(endpoint, verification), 200, tamperedNonce)
+      assertEquals(endpoint.turnDeliveries.get(), 0)
+    }
+  }
+
+  test("mock handler: timestamp and signature failures increment before auth and precede mode responses") {
+    val body           = """{"type":"yourTurn","state":{"version":2}}"""
+    val validSignature = WebhookBot.sign(Secret, 42L, body)
+    val badSignature   = WebhookBot.sign("other-secret", 42L, body)
+    val upperSignature = validSignature.toUpperCase(Locale.ROOT)
+    assertNotEquals(upperSignature, validSignature)
+    withMockEndpoint { endpoint =>
+      val cases = List(
+        (endpoint.Mode.Illegal, None, Some(validSignature)),
+        (endpoint.Mode.ServerError, Some("not-a-number"), Some(validSignature)),
+        (endpoint.Mode.FirstLegal, Some("9223372036854775808"), Some(validSignature)),
+        (endpoint.Mode.FirstLegal, Some("42"), None),
+        (endpoint.Mode.FirstLegal, Some("42"), Some(badSignature)),
+        (endpoint.Mode.FirstLegal, Some("42"), Some(upperSignature))
+      )
+      cases.zipWithIndex.foreach { case ((mode, timestamp, signature), index) =>
+        endpoint.mode = mode
+        assertReply(rawPost(endpoint, body, timestamp, signature), 401, BadSignatureReply)
+        assertEquals(endpoint.turnDeliveries.get(), index + 1)
+      }
+      val original  = """ { "type" : "yourTurn", "state" : { "version" : 2, "legalMoves" : { "e2e4" : {} } } } """
+      val timestamp = 73L
+      assertReply(signedPost(endpoint, original, timestamp), 200, """{"moves":["e2e4"]}""")
+      val compact = Json.render(Json.parse(original).fold(fail(_), identity))
+      assertNotEquals(original, compact)
+      assertReply(
+        rawPost(endpoint, original, Some(timestamp.toString), Some(WebhookBot.sign(Secret, timestamp, compact))),
+        401,
+        BadSignatureReply
+      )
+      val modified = original + " "
+      assertReply(
+        rawPost(endpoint, modified, Some(timestamp.toString), Some(WebhookBot.sign(Secret, timestamp, original))),
+        401,
+        BadSignatureReply
+      )
+      assertEquals(endpoint.turnDeliveries.get(), 9)
+    }
+  }
+
+  test("mock handler: signed error modes run before state version validation") {
+    val body = """{"type":"yourTurn"}"""
+    withMockEndpoint { endpoint =>
+      endpoint.mode = endpoint.Mode.ServerError
+      assertReply(signedPost(endpoint, body), 500, """{"error":"boom"}""")
+      assertEquals(endpoint.turnDeliveries.get(), 1)
+      endpoint.mode = endpoint.Mode.Illegal
+      assertReply(signedPost(endpoint, body), 200, """{"moves":["a1a1"]}""")
+      assertEquals(endpoint.turnDeliveries.get(), 2)
+    }
+  }
+
+  test("mock handler: only integer state versions pass and all signed turns are counted") {
+    val invalidBodies = List(
+      """{"type":"yourTurn"}""",
+      """{"type":"yourTurn","state":null}""",
+      """{"type":"yourTurn","state":false}""",
+      """{"type":"yourTurn","state":1}""",
+      """{"type":"yourTurn","state":2.5}""",
+      """{"type":"yourTurn","state":[]}""",
+      """{"type":"yourTurn","state":"bad"}""",
+      """{"type":"yourTurn","state":{}}""",
+      """{"type":"yourTurn","state":{"version":"2"}}""",
+      """{"type":"yourTurn","state":{"version":2.5}}""",
+      """{"type":"yourTurn","state":{"version":null}}""",
+      """{"type":"yourTurn","state":{"version":true}}""",
+      """{"type":"yourTurn","state":{"version":[]}}""",
+      """{"type":"yourTurn","state":{"version":{}}}"""
+    )
+    withMockEndpoint { endpoint =>
+      invalidBodies.zipWithIndex.foreach { case (body, index) =>
+        assertReply(signedPost(endpoint, body), 400, BadVersionReply)
+        assertEquals(endpoint.turnDeliveries.get(), index + 1)
+      }
+      val acceptedVersions = List(0L, -1L, 999L)
+      acceptedVersions.zipWithIndex.foreach { case (version, index) =>
+        val body =
+          s"""{"type":"yourTurn","state":{"version":$version,"legalMoves":{"e2e4":{}}}}"""
+        assertReply(signedPost(endpoint, body), 200, """{"moves":["e2e4"]}""")
+        assertEquals(endpoint.turnDeliveries.get(), invalidBodies.length + index + 1)
+      }
+      assertEquals(endpoint.turnDeliveries.get(), invalidBodies.length + acceptedVersions.length)
+    }
+  }
+
+  test("mock handler: legal move trees use the first field path and empty fallbacks") {
+    val cases = List(
+      ("""{"type":"yourTurn","state":{"version":2}}""", """{"moves":[]}"""),
+      ("""{"type":"yourTurn","state":{"version":2,"legalMoves":{}}}""", """{"moves":[]}"""),
+      ("""{"type":"yourTurn","state":{"version":2,"legalMoves":[]}}""", """{"moves":[]}"""),
+      (
+        """{"type":"yourTurn","state":{"version":2,"legalMoves":{"a2a3":{"b2b3":{},"c2c3":{}},"e2e4":{"g1f3":{}}}}}""",
+        """{"moves":["a2a3","b2b3"]}"""
+      ),
+      (
+        """{"type":"yourTurn","state":{"version":2,"legalMoves":{"e2e4":null}}}""",
+        """{"moves":["e2e4"]}"""
+      )
+    )
+    withMockEndpoint { endpoint =>
+      cases.zipWithIndex.foreach { case ((body, expected), index) =>
+        assertReply(signedPost(endpoint, body), 200, expected)
+        assertEquals(endpoint.turnDeliveries.get(), index + 1)
+      }
+      endpoint.mode = endpoint.Mode.WrongNonce
+      val fallback = """{"type":"yourTurn","state":{"version":2,"legalMoves":{"e2e4":{}}}}"""
+      assertReply(signedPost(endpoint, fallback, timestamp = -7L), 200, """{"moves":["e2e4"]}""")
+      assertEquals(endpoint.turnDeliveries.get(), cases.length + 1)
+    }
   }
 
   test("a full timed match against a mock endpoint completes with legal play and webhook latency samples") {
