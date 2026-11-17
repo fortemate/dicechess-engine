@@ -149,7 +149,16 @@ object KingCaptureProbability:
     else
       val myPieces0 = if defenderColor.opponent.isWhite then state.whitePieces.value else state.blackPieces.value
       if myPieces0 == 0L then 0.0
-      else captureTargetsProbability(state, defenderColor, targets, myPieces0)
+      else capturePreparedTargets(state, defenderColor, targets, myPieces0)
+
+  // Keep target-availability guards separate from the expanded roll search.
+  private def capturePreparedTargets(
+      state: GameState,
+      defenderColor: Color,
+      targets: Long,
+      myPieces0: Long
+  ): Double =
+    captureTargetsProbability(state, defenderColor, targets, myPieces0)
 
   private inline def captureTargetsProbability(
       state: GameState,
@@ -326,8 +335,16 @@ object KingCaptureProbability:
     while d1 <= 6 && unsolved != 0L do
       val active0 = myPieces0 & selectTypeBB(d1, p0, n0, bi0, r0, q0, k0)
       if active0 != 0L && (unsolved & rollsWithFirstDie(d1)) != 0L then
-        val count0 = MoveGenerator.generateRootPieceMovesInto(state, opponent, active0, d1, moves0)
-        var i0     = 0
+        val count0 = MoveGenerator.generateRootPieceMovesInto(
+          state,
+          myPieces0,
+          enemyPieces0,
+          active0,
+          isWhite,
+          d1,
+          moves0
+        )
+        var i0 = 0
         while i0 < count0 && (unsolved & rollsWithFirstDie(d1)) != 0L do
           val mv0   = moves0(i0)
           val flags = (mv0 >>> 12) & 0x0f
@@ -487,6 +504,7 @@ object KingCaptureProbability:
       moves1: Array[Int],
       startUnsolved: Long
   ): Long =
+    val color            = attackerColor(isWhite)
     var unsolved         = startUnsolved
     val promoSrcMask     = promotionSourceMask(isWhite)
     val diagUnblockMask  = unblockingTypes(myPieces1, bi1, q1, targetDiagMask, 4)
@@ -595,13 +613,13 @@ object KingCaptureProbability:
             )
 
             exploreCandidateMoves(candidatePieces1) {
-              val count1 = MoveGenerator.generatePieceMovesInto(
+              val count1 = MoveGenerator.generateContinuationPieceMovesInto(
                 myPieces1,
                 enemyPieces1,
                 candidatePieces1,
                 enemyKings,
                 ep1,
-                pieceForDie(isWhite, d2),
+                Piece(color, PieceType(d2)),
                 moves1
               )
               var i1 = 0
@@ -770,8 +788,8 @@ object KingCaptureProbability:
   private inline def colorPieces(isWhite: Boolean, white: Long, black: Long): Long =
     if isWhite then white else black
 
-  private inline def pieceForDie(isWhite: Boolean, die: Int): Piece =
-    Piece(if isWhite then Color.White else Color.Black, PieceType(die))
+  private inline def attackerColor(isWhite: Boolean): Color =
+    if isWhite then Color.White else Color.Black
 
   private inline def movedColorBitboard(
       before: Long,
