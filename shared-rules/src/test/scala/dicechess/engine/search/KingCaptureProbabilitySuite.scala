@@ -2,7 +2,7 @@
 package dicechess.engine.search
 
 import dicechess.engine.domain.*
-import dicechess.engine.movegen.{MoveGenFixtures, MoveGenerator}
+import dicechess.engine.movegen.{MoveGenFixtures, MoveGenerator, RawMoveGeneratorTestAccess}
 import munit.FunSuite
 import scala.concurrent.duration.*
 import scala.util.Random
@@ -381,14 +381,8 @@ class KingCaptureProbabilitySuite extends FunSuite:
   private def assertMoveGenIntoParity(state: GameState, context: String): Unit =
     val buf = new Array[Int](256)
     for color <- List(Color.White, Color.Black) do
-      val st          = state.withActiveColor(color)
-      val isWhite     = color.isWhite
-      val myPieces    = if isWhite then st.whitePieces.value else st.blackPieces.value
-      val enemyPieces = if isWhite then st.blackPieces.value else st.whitePieces.value
-      val enemyKings  = enemyPieces & st.kings.value
-      val myRooks     = myPieces & st.rooks.value
-      val ep          = st.enPassant.value
-      val cr          = st.flags.castlingRights
+      val st       = state.withActiveColor(color)
+      val myPieces = if color.isWhite then st.whitePieces.value else st.blackPieces.value
 
       for die <- 1 to 6 do
         val active = myPieces & (die match
@@ -398,18 +392,7 @@ class KingCaptureProbabilitySuite extends FunSuite:
           case 4 => st.rooks.value
           case 5 => st.queens.value
           case _ => st.kings.value)
-        val count = MoveGenerator.generatePieceMovesInto(
-          myPieces,
-          enemyPieces,
-          active,
-          enemyKings,
-          myRooks,
-          ep,
-          cr,
-          isWhite,
-          die,
-          buf
-        )
+        val count    = RawMoveGeneratorTestAccess.root(st, color, active, die, buf)
         val actual   = (0 until count).map(buf(_)).toList
         val expected = MoveGenerator.generatePieceMoves(st, PieceType(die)).map(_.toInt)
         assertEquals(actual, expected, s"$context [color=$color, die=$die]")
