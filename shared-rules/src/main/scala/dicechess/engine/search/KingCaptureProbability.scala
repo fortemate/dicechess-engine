@@ -379,32 +379,32 @@ object KingCaptureProbability:
             )
 
           var d2 = 1
-          while d2 <= 6 && (unsolved & firstDieRolls) != 0L do
-            val active1                                         = myPieces1 & selectTypeBB(d2, p1, n1, bi1, r1, q1, k1)
-            def canPieceReachAttackInOneMove(die: Int): Boolean =
-              die match
-                case 1 => canPawnReach(active1 & ~promoSrcMask, ~allPieces1, enemyPieces1, isWhite, targetPawnMask)
-                case 2 => canKnightReach(active1 & knightReach2Mask, targetKnightMask & notMyPieces1)
-                case 3 => canBishopReach(active1, allPieces1, diagRay1 & notMyPieces1)
-                case 4 => canRookReach(active1, allPieces1, orthoRay1 & notMyPieces1)
-                case 5 => canQueenReach(active1, allPieces1, (diagRay1 | orthoRay1) & notMyPieces1)
-                case _ => canKingReach(active1 & kingReach2Mask, targetKingMask & notMyPieces1)
+          exploreWhile(d2 <= 6, (unsolved & firstDieRolls) != 0L):
+            val active1 = myPieces1 & selectTypeBB(d2, p1, n1, bi1, r1, q1, k1)
 
             exploreIfNonEmpty(active1) {
               val pairIdx      = pairBase + d2
               var neededD3Mask = computeNeededD3Mask(pairIdx, unsolved)
-              if neededD3Mask != 0 then
+              exploreIfNonEmpty(neededD3Mask):
                 val selfBit = 1 << (d2 - 1)
                 resolveSelfReach(
                   neededD3Mask,
                   selfBit,
-                  canPieceReachAttackInOneMove(d2), {
+                  selectPieceReach(
+                    d2,
+                    pawn = canPawnReach(active1 & ~promoSrcMask, ~allPieces1, enemyPieces1, isWhite, targetPawnMask),
+                    knight = canKnightReach(active1 & knightReach2Mask, targetKnightMask & notMyPieces1),
+                    bishop = canBishopReach(active1, allPieces1, diagRay1 & notMyPieces1),
+                    rook = canRookReach(active1, allPieces1, orthoRay1 & notMyPieces1),
+                    queen = canQueenReach(active1, allPieces1, (diagRay1 | orthoRay1) & notMyPieces1),
+                    king = canKingReach(active1 & kingReach2Mask, targetKingMask & notMyPieces1)
+                  ), {
                     unsolved &= ~tripleRollBit(pairIdx * 7 + d2)
                     neededD3Mask &= ~selfBit
                   }
                 )
 
-                if neededD3Mask != 0 then
+                exploreIfNonEmpty(neededD3Mask):
                   var candidatePieces1 = 0L
                   includeRayCandidates(neededD3Mask, diagUnblockMask) {
                     candidatePieces1 |= active1 & diagRay1
@@ -412,13 +412,7 @@ object KingCaptureProbability:
                   includeRayCandidates(neededD3Mask, orthoUnblockMask) {
                     candidatePieces1 |= active1 & orthoRay1
                   }
-                  includePawnCandidates(
-                    d2,
-                    neededD3Mask,
-                    ep1,
-                    candidatePieces1 |= active1 & promoSrcMask,
-                    candidatePieces1 |= active1
-                  )
+                  candidatePieces1 |= pawnMoveCandidates(d2, neededD3Mask, ep1, active1, promoSrcMask)
 
                   exploreCandidateMoves(candidatePieces1) {
                     val count1 = generateContinuationMoves(
@@ -431,7 +425,7 @@ object KingCaptureProbability:
                       moves1
                     )
                     var i1 = 0
-                    while i1 < count1 && neededD3Mask != 0 do
+                    exploreWhile(i1 < count1, neededD3Mask != 0):
                       val mask2 = evaluateLevel2Move(moves1(i1), d2)
                       val hit   = mask2 & neededD3Mask
                       resolvePairHits(hit) {
@@ -642,19 +636,39 @@ object KingCaptureProbability:
   private inline def includeRayCandidates(inline needed: Int, inline unblockTypes: Int)(inline include: Unit): Unit =
     if (needed & unblockTypes) != 0 then include
 
-  private inline def includePawnCandidates(
-      inline die: Int,
-      inline needed: Int,
-      inline ep: Long,
-      inline includePromotion: Unit,
-      inline includeEnPassant: Unit
-  ): Unit =
-    if die == 1 then
-      if (needed & 0x1e) != 0 then includePromotion
-      if ep != 0L then includeEnPassant
+  private def pawnMoveCandidates(die: Int, needed: Int, ep: Long, active: Long, promoSrcMask: Long): Long =
+    if die != 1 then 0L
+    else
+      var candidates = 0L
+      if (needed & 0x1e) != 0 then candidates |= active & promoSrcMask
+      if ep != 0L then candidates |= active
+      candidates
 
   private inline def exploreIfNonEmpty(inline active: Long)(inline explore: Unit): Unit =
     if active != 0L then explore
+
+  private inline def exploreIfNonEmpty(inline active: Int)(inline explore: Unit): Unit =
+    resolvePairHits(active)(explore)
+
+  private inline def exploreWhile(inline inRange: Boolean, inline hasPending: Boolean)(inline explore: Unit): Unit =
+    while inRange && hasPending do explore
+
+  private inline def selectPieceReach(
+      inline die: Int,
+      inline pawn: Boolean,
+      inline knight: Boolean,
+      inline bishop: Boolean,
+      inline rook: Boolean,
+      inline queen: Boolean,
+      inline king: Boolean
+  ): Boolean =
+    die match
+      case 1 => pawn
+      case 2 => knight
+      case 3 => bishop
+      case 4 => rook
+      case 5 => queen
+      case _ => king
 
   private inline def resolveSelfReach(
       inline needed: Int,
