@@ -243,12 +243,12 @@ object KingCaptureProbability:
       val notToBB      = ~toBB
       var w1           = w0
       var b1           = b0
-      var p1           = p0
-      var n1           = n0
-      var bi1          = bi0
-      var r1           = r0
-      var q1           = q0
-      var k1           = k0
+      var rootPawns    = p0
+      var rootKnights  = n0
+      var rootBishops  = bi0
+      var rootRooks    = r0
+      var rootQueens   = q0
+      var rootKings    = k0
       var changedSqBB1 = fromToBB
 
       applyMoveKind(
@@ -258,28 +258,28 @@ object KingCaptureProbability:
           changedSqBB1 |= victimBB
           w1 = movedColorBitboard(w0, isWhite, fromToBB, ~victimBB)
           b1 = movedColorBitboard(b0, !isWhite, fromToBB, ~victimBB)
-          p1 = (p0 & ~fromBB & ~victimBB) | toBB
+          rootPawns = (p0 & ~fromBB & ~victimBB) | toBB
         },
         onPromotion = {
           w1 = movedColorBitboard(w0, isWhite, fromToBB, notToBB)
           b1 = movedColorBitboard(b0, !isWhite, fromToBB, notToBB)
-          p1 = p0 & notFromToBB
+          rootPawns = p0 & notFromToBB
           val promKind = flags & 3
-          n1 = promotedTypeBitboard(n0, promKind == 0, notToBB, toBB)
-          bi1 = promotedTypeBitboard(bi0, promKind == 1, notToBB, toBB)
-          r1 = promotedTypeBitboard(r0, promKind == 2, notToBB, toBB)
-          q1 = promotedTypeBitboard(q0, promKind == 3, notToBB, toBB)
-          k1 = k0 & notToBB
+          rootKnights = promotedTypeBitboard(n0, promKind == 0, notToBB, toBB)
+          rootBishops = promotedTypeBitboard(bi0, promKind == 1, notToBB, toBB)
+          rootRooks = promotedTypeBitboard(r0, promKind == 2, notToBB, toBB)
+          rootQueens = promotedTypeBitboard(q0, promKind == 3, notToBB, toBB)
+          rootKings = k0 & notToBB
         },
         onOrdinary = {
           w1 = movedColorBitboard(w0, isWhite, fromToBB, notToBB)
           b1 = movedColorBitboard(b0, !isWhite, fromToBB, notToBB)
-          p1 = movedTypeBitboard(p0, d1 == 1, notFromToBB, notToBB, toBB)
-          n1 = movedTypeBitboard(n0, d1 == 2, notFromToBB, notToBB, toBB)
-          bi1 = movedTypeBitboard(bi0, d1 == 3, notFromToBB, notToBB, toBB)
-          r1 = movedTypeBitboard(r0, d1 == 4, notFromToBB, notToBB, toBB)
-          q1 = movedTypeBitboard(q0, d1 == 5, notFromToBB, notToBB, toBB)
-          k1 = movedTypeBitboard(k0, d1 == 6, notFromToBB, notToBB, toBB)
+          rootPawns = movedTypeBitboard(p0, d1 == 1, notFromToBB, notToBB, toBB)
+          rootKnights = movedTypeBitboard(n0, d1 == 2, notFromToBB, notToBB, toBB)
+          rootBishops = movedTypeBitboard(bi0, d1 == 3, notFromToBB, notToBB, toBB)
+          rootRooks = movedTypeBitboard(r0, d1 == 4, notFromToBB, notToBB, toBB)
+          rootQueens = movedTypeBitboard(q0, d1 == 5, notFromToBB, notToBB, toBB)
+          rootKings = movedTypeBitboard(k0, d1 == 6, notFromToBB, notToBB, toBB)
         }
       )
 
@@ -290,52 +290,164 @@ object KingCaptureProbability:
       val orthoRay1    = updatedAttackRay(changedSqBB1, orthoRay0, unionOrthoAttacks(targets, allPieces1))
 
       val mask1 = computeCaptureMask(
-        pawnHitsTarget = (myPieces1 & p1 & targetPawnMask) != 0L,
-        knightHitsTarget = (myPieces1 & n1 & targetKnightMask) != 0L,
-        bishopHitsTarget = (myPieces1 & bi1 & diagRay1) != 0L,
-        rookHitsTarget = (myPieces1 & r1 & orthoRay1) != 0L,
-        queenHitsTarget = (myPieces1 & q1 & (diagRay1 | orthoRay1)) != 0L,
-        kingHitsTarget = (myPieces1 & k1 & targetKingMask) != 0L
+        pawnHitsTarget = (myPieces1 & rootPawns & targetPawnMask) != 0L,
+        knightHitsTarget = (myPieces1 & rootKnights & targetKnightMask) != 0L,
+        bishopHitsTarget = (myPieces1 & rootBishops & diagRay1) != 0L,
+        rookHitsTarget = (myPieces1 & rootRooks & orthoRay1) != 0L,
+        queenHitsTarget = (myPieces1 & rootQueens & (diagRay1 | orthoRay1)) != 0L,
+        kingHitsTarget = (myPieces1 & rootKings & targetKingMask) != 0L
       )
       var unsolved = clearRootCaptureRolls(d1, startUnsolved, mask1)
 
       exploreIfNonEmpty(unsolved & rollsWithFirstDie(d1)) {
         val ep1 = computeEp1(ep0, fromIdx, toIdx, flags, d1, isWhite, p0 & colorPieces(!isWhite, w0, b0))
-        unsolved = exploreLevel1(
-          d1,
-          isWhite,
-          myPieces1,
-          enemyPieces1,
-          allPieces1,
-          p1,
-          n1,
-          bi1,
-          r1,
-          q1,
-          k1,
-          ep1,
-          enemyKings,
-          targets,
-          targetPawnMask,
-          targetKnightMask,
-          targetKingMask,
-          targetDiagMask,
-          targetOrthoMask,
-          knightReach2Mask,
-          kingReach2Mask,
-          diagRay1,
-          orthoRay1,
-          moves1,
+        // Keep the continuation's captured board immutable after applying the root move.
+        val p1  = rootPawns
+        val n1  = rootKnights
+        val bi1 = rootBishops
+        val r1  = rootRooks
+        val q1  = rootQueens
+        val k1  = rootKings
+
+        def exploreLevel1(startUnsolved: Long): Long =
+          val firstDieRolls    = rollsWithFirstDie(d1)
+          val pairBase         = d1 * 7
+          val color            = attackerColor(isWhite)
+          var unsolved         = startUnsolved
+          val promoSrcMask     = promotionSourceMask(isWhite)
+          val diagUnblockMask  = unblockingTypes(myPieces1, bi1, q1, targetDiagMask, 4)
+          val orthoUnblockMask = unblockingTypes(myPieces1, r1, q1, targetOrthoMask, 8)
+          val notMyPieces1     = ~myPieces1
+
+          def evaluateLevel2Move(mv1: Int, d2: Int): Int =
+            val toIdx        = mv1 & 0x3f
+            val fromIdx      = (mv1 >>> 6) & 0x3f
+            val flags        = (mv1 >>> 12) & 0x0f
+            val fromBB       = 1L << fromIdx
+            val toBB         = 1L << toIdx
+            val fromToBB     = fromBB | toBB
+            val notFromToBB  = ~fromToBB
+            val notToBB      = ~toBB
+            val myPieces2    = myPieces1 ^ fromToBB
+            var allPieces2   = (allPieces1 & ~fromBB) | toBB
+            var p2           = p1
+            var n2           = n1
+            var bi2          = bi1
+            var r2           = r1
+            var q2           = q1
+            var k2           = k1
+            var changedSqBB2 = fromToBB
+
+            applyMoveKind(
+              flags,
+              onEnPassant = {
+                val rankOffset = enPassantRankOffset(isWhite)
+                val victimBB   = 1L << (toIdx + rankOffset)
+                allPieces2 &= ~victimBB
+                changedSqBB2 |= victimBB
+                p2 = (p1 & ~fromBB & ~victimBB) | toBB
+              },
+              onPromotion = {
+                p2 = p1 & notFromToBB
+                val promKind = flags & 3
+                n2 = promotedTypeBitboard(n1, promKind == 0, notToBB, toBB)
+                bi2 = promotedTypeBitboard(bi1, promKind == 1, notToBB, toBB)
+                r2 = promotedTypeBitboard(r1, promKind == 2, notToBB, toBB)
+                q2 = promotedTypeBitboard(q1, promKind == 3, notToBB, toBB)
+                k2 = k1 & notToBB
+              },
+              onOrdinary = {
+                p2 = movedTypeBitboard(p1, d2 == 1, notFromToBB, notToBB, toBB)
+                n2 = movedTypeBitboard(n1, d2 == 2, notFromToBB, notToBB, toBB)
+                bi2 = movedTypeBitboard(bi1, d2 == 3, notFromToBB, notToBB, toBB)
+                r2 = movedTypeBitboard(r1, d2 == 4, notFromToBB, notToBB, toBB)
+                q2 = movedTypeBitboard(q1, d2 == 5, notFromToBB, notToBB, toBB)
+                k2 = movedTypeBitboard(k1, d2 == 6, notFromToBB, notToBB, toBB)
+              }
+            )
+
+            val diagRay2  = updatedAttackRay(changedSqBB2, diagRay1, unionDiagAttacks(targets, allPieces2))
+            val orthoRay2 = updatedAttackRay(changedSqBB2, orthoRay1, unionOrthoAttacks(targets, allPieces2))
+
+            computeCaptureMask(
+              pawnHitsTarget = (myPieces2 & p2 & targetPawnMask) != 0L,
+              knightHitsTarget = (myPieces2 & n2 & targetKnightMask) != 0L,
+              bishopHitsTarget = (myPieces2 & bi2 & diagRay2) != 0L,
+              rookHitsTarget = (myPieces2 & r2 & orthoRay2) != 0L,
+              queenHitsTarget = (myPieces2 & q2 & (diagRay2 | orthoRay2)) != 0L,
+              kingHitsTarget = (myPieces2 & k2 & targetKingMask) != 0L
+            )
+
+          var d2 = 1
+          exploreWhile(d2 <= 6, (unsolved & firstDieRolls) != 0L):
+            val active1 = myPieces1 & selectTypeBB(d2, p1, n1, bi1, r1, q1, k1)
+
+            exploreIfNonEmpty(active1) {
+              val pairIdx      = pairBase + d2
+              var neededD3Mask = computeNeededD3Mask(pairIdx, unsolved)
+              exploreIfNonEmpty(neededD3Mask):
+                val selfBit = 1 << (d2 - 1)
+                resolveSelfReach(
+                  neededD3Mask,
+                  selfBit,
+                  selectPieceReach(
+                    d2,
+                    pawn = canPawnReach(active1 & ~promoSrcMask, ~allPieces1, enemyPieces1, isWhite, targetPawnMask),
+                    knight = canKnightReach(active1 & knightReach2Mask, targetKnightMask & notMyPieces1),
+                    bishop = canBishopReach(active1, allPieces1, diagRay1 & notMyPieces1),
+                    rook = canRookReach(active1, allPieces1, orthoRay1 & notMyPieces1),
+                    queen = canQueenReach(active1, allPieces1, (diagRay1 | orthoRay1) & notMyPieces1),
+                    king = canKingReach(active1 & kingReach2Mask, targetKingMask & notMyPieces1)
+                  ), {
+                    unsolved &= ~tripleRollBit(pairIdx * 7 + d2)
+                    neededD3Mask &= ~selfBit
+                  }
+                )
+
+                exploreIfNonEmpty(neededD3Mask):
+                  var candidatePieces1 = 0L
+                  includeRayCandidates(neededD3Mask, diagUnblockMask) {
+                    candidatePieces1 |= active1 & diagRay1
+                  }
+                  includeRayCandidates(neededD3Mask, orthoUnblockMask) {
+                    candidatePieces1 |= active1 & orthoRay1
+                  }
+                  candidatePieces1 |= pawnMoveCandidates(d2, neededD3Mask, ep1, active1, promoSrcMask)
+
+                  exploreCandidateMoves(candidatePieces1) {
+                    val count1 = generateContinuationMoves(
+                      myPieces1,
+                      enemyPieces1,
+                      candidatePieces1,
+                      enemyKings,
+                      ep1,
+                      Piece(color, PieceType(d2)),
+                      moves1
+                    )
+                    var i1 = 0
+                    exploreWhile(i1 < count1, neededD3Mask != 0):
+                      val mask2 = evaluateLevel2Move(moves1(i1), d2)
+                      val hit   = mask2 & neededD3Mask
+                      resolvePairHits(hit) {
+                        unsolved &= ~rollsWithTwoDiceAndMask(pairShift(pairIdx) | hit)
+                        neededD3Mask &= ~hit
+                      }
+                      i1 += 1
+                  }
+            }
+            d2 += 1
           unsolved
-        )
+
+        unsolved = exploreLevel1(unsolved)
       }
       unsolved
 
     var d1 = 1
     while d1 <= 6 && unsolved != 0L do
-      val active0 = myPieces0 & selectTypeBB(d1, p0, n0, bi0, r0, q0, k0)
-      if active0 != 0L && (unsolved & rollsWithFirstDie(d1)) != 0L then
-        val count0 = MoveGenerator.generateRootPieceMovesInto(
+      val active0   = myPieces0 & selectTypeBB(d1, p0, n0, bi0, r0, q0, k0)
+      val rootRolls = rollsWithFirstDie(d1)
+      if active0 != 0L && (unsolved & rootRolls) != 0L then
+        val count0 = generateRootMoves(
           state,
           myPieces0,
           enemyPieces0,
@@ -345,7 +457,7 @@ object KingCaptureProbability:
           moves0
         )
         var i0 = 0
-        while i0 < count0 && (unsolved & rollsWithFirstDie(d1)) != 0L do
+        while i0 < count0 && (unsolved & rootRolls) != 0L do
           val mv0   = moves0(i0)
           val flags = (mv0 >>> 12) & 0x0f
           if Move.fromInt(mv0).isCastling then unsolved = applyRootCastle(mv0, flags, unsolved)
@@ -357,7 +469,38 @@ object KingCaptureProbability:
     solvedWeightSum(solved).toDouble / DiceRolls.totalOrderedRolls
   }
 
-  private inline def selectTypeBB(
+  // Bound each expanded move generator separately from the continuation search.
+  private def generateRootMoves(
+      state: GameState,
+      myPieces: Long,
+      enemyPieces: Long,
+      activePieces: Long,
+      isWhite: Boolean,
+      die: Int,
+      out: Array[Int]
+  ): Int =
+    MoveGenerator.generateRootPieceMovesInto(state, myPieces, enemyPieces, activePieces, isWhite, die, out)
+
+  private def generateContinuationMoves(
+      myPieces: Long,
+      enemyPieces: Long,
+      activePieces: Long,
+      enemyKings: Long,
+      enPassant: Long,
+      piece: Piece,
+      out: Array[Int]
+  ): Int =
+    MoveGenerator.generateContinuationPieceMovesInto(
+      myPieces,
+      enemyPieces,
+      activePieces,
+      enemyKings,
+      enPassant,
+      piece,
+      out
+    )
+
+  private def selectTypeBB(
       die: Int,
       p: Long,
       n: Long,
@@ -374,13 +517,13 @@ object KingCaptureProbability:
       case 5 => q
       case _ => k
 
-  private inline def computeCaptureMask(
-      inline pawnHitsTarget: Boolean,
-      inline knightHitsTarget: Boolean,
-      inline bishopHitsTarget: Boolean,
-      inline rookHitsTarget: Boolean,
-      inline queenHitsTarget: Boolean,
-      inline kingHitsTarget: Boolean
+  private def computeCaptureMask(
+      pawnHitsTarget: Boolean,
+      knightHitsTarget: Boolean,
+      bishopHitsTarget: Boolean,
+      rookHitsTarget: Boolean,
+      queenHitsTarget: Boolean,
+      kingHitsTarget: Boolean
   ): Int =
     var mask = 0
     if pawnHitsTarget then mask |= 1
@@ -477,165 +620,6 @@ object KingCaptureProbability:
       if (rem & tripleRollBit(base + 6)) != 0L then mask |= 32
       mask
 
-  private def exploreLevel1(
-      d1: Int,
-      isWhite: Boolean,
-      myPieces1: Long,
-      enemyPieces1: Long,
-      allPieces1: Long,
-      p1: Long,
-      n1: Long,
-      bi1: Long,
-      r1: Long,
-      q1: Long,
-      k1: Long,
-      ep1: Long,
-      enemyKings: Long,
-      targets: Long,
-      targetPawnMask: Long,
-      targetKnightMask: Long,
-      targetKingMask: Long,
-      targetDiagMask: Long,
-      targetOrthoMask: Long,
-      knightReach2Mask: Long,
-      kingReach2Mask: Long,
-      diagRay1: Long,
-      orthoRay1: Long,
-      moves1: Array[Int],
-      startUnsolved: Long
-  ): Long =
-    val color            = attackerColor(isWhite)
-    var unsolved         = startUnsolved
-    val promoSrcMask     = promotionSourceMask(isWhite)
-    val diagUnblockMask  = unblockingTypes(myPieces1, bi1, q1, targetDiagMask, 4)
-    val orthoUnblockMask = unblockingTypes(myPieces1, r1, q1, targetOrthoMask, 8)
-    val notMyPieces1     = ~myPieces1
-
-    def evaluateLevel2Move(mv1: Int, d2: Int): Int =
-      val toIdx        = mv1 & 0x3f
-      val fromIdx      = (mv1 >>> 6) & 0x3f
-      val flags        = (mv1 >>> 12) & 0x0f
-      val fromBB       = 1L << fromIdx
-      val toBB         = 1L << toIdx
-      val fromToBB     = fromBB | toBB
-      val notFromToBB  = ~fromToBB
-      val notToBB      = ~toBB
-      val myPieces2    = myPieces1 ^ fromToBB
-      var allPieces2   = (allPieces1 & ~fromBB) | toBB
-      var p2           = p1
-      var n2           = n1
-      var bi2          = bi1
-      var r2           = r1
-      var q2           = q1
-      var k2           = k1
-      var changedSqBB2 = fromToBB
-
-      applyMoveKind(
-        flags,
-        onEnPassant = {
-          val rankOffset = enPassantRankOffset(isWhite)
-          val victimBB   = 1L << (toIdx + rankOffset)
-          allPieces2 &= ~victimBB
-          changedSqBB2 |= victimBB
-          p2 = (p1 & ~fromBB & ~victimBB) | toBB
-        },
-        onPromotion = {
-          p2 = p1 & notFromToBB
-          val promKind = flags & 3
-          n2 = promotedTypeBitboard(n1, promKind == 0, notToBB, toBB)
-          bi2 = promotedTypeBitboard(bi1, promKind == 1, notToBB, toBB)
-          r2 = promotedTypeBitboard(r1, promKind == 2, notToBB, toBB)
-          q2 = promotedTypeBitboard(q1, promKind == 3, notToBB, toBB)
-          k2 = k1 & notToBB
-        },
-        onOrdinary = {
-          p2 = movedTypeBitboard(p1, d2 == 1, notFromToBB, notToBB, toBB)
-          n2 = movedTypeBitboard(n1, d2 == 2, notFromToBB, notToBB, toBB)
-          bi2 = movedTypeBitboard(bi1, d2 == 3, notFromToBB, notToBB, toBB)
-          r2 = movedTypeBitboard(r1, d2 == 4, notFromToBB, notToBB, toBB)
-          q2 = movedTypeBitboard(q1, d2 == 5, notFromToBB, notToBB, toBB)
-          k2 = movedTypeBitboard(k1, d2 == 6, notFromToBB, notToBB, toBB)
-        }
-      )
-
-      val diagRay2  = updatedAttackRay(changedSqBB2, diagRay1, unionDiagAttacks(targets, allPieces2))
-      val orthoRay2 = updatedAttackRay(changedSqBB2, orthoRay1, unionOrthoAttacks(targets, allPieces2))
-
-      computeCaptureMask(
-        pawnHitsTarget = (myPieces2 & p2 & targetPawnMask) != 0L,
-        knightHitsTarget = (myPieces2 & n2 & targetKnightMask) != 0L,
-        bishopHitsTarget = (myPieces2 & bi2 & diagRay2) != 0L,
-        rookHitsTarget = (myPieces2 & r2 & orthoRay2) != 0L,
-        queenHitsTarget = (myPieces2 & q2 & (diagRay2 | orthoRay2)) != 0L,
-        kingHitsTarget = (myPieces2 & k2 & targetKingMask) != 0L
-      )
-
-    var d2 = 1
-    while d2 <= 6 && (unsolved & rollsWithFirstDie(d1)) != 0L do
-      val active1                                         = myPieces1 & selectTypeBB(d2, p1, n1, bi1, r1, q1, k1)
-      def canPieceReachAttackInOneMove(die: Int): Boolean =
-        die match
-          case 1 => canPawnReach(active1 & ~promoSrcMask, ~allPieces1, enemyPieces1, isWhite, targetPawnMask)
-          case 2 => canKnightReach(active1 & knightReach2Mask, targetKnightMask & notMyPieces1)
-          case 3 => canBishopReach(active1, allPieces1, diagRay1 & notMyPieces1)
-          case 4 => canRookReach(active1, allPieces1, orthoRay1 & notMyPieces1)
-          case 5 => canQueenReach(active1, allPieces1, (diagRay1 | orthoRay1) & notMyPieces1)
-          case _ => canKingReach(active1 & kingReach2Mask, targetKingMask & notMyPieces1)
-
-      exploreIfNonEmpty(active1) {
-        val pairIdx      = d1 * 7 + d2
-        var neededD3Mask = computeNeededD3Mask(pairIdx, unsolved)
-        if neededD3Mask != 0 then
-          val selfBit = 1 << (d2 - 1)
-          resolveSelfReach(
-            neededD3Mask,
-            selfBit,
-            canPieceReachAttackInOneMove(d2), {
-              unsolved &= ~tripleRollBit(pairIdx * 7 + d2)
-              neededD3Mask &= ~selfBit
-            }
-          )
-
-          if neededD3Mask != 0 then
-            var candidatePieces1 = 0L
-            includeRayCandidates(neededD3Mask, diagUnblockMask) {
-              candidatePieces1 |= active1 & diagRay1
-            }
-            includeRayCandidates(neededD3Mask, orthoUnblockMask) {
-              candidatePieces1 |= active1 & orthoRay1
-            }
-            includePawnCandidates(
-              d2,
-              neededD3Mask,
-              ep1,
-              candidatePieces1 |= active1 & promoSrcMask,
-              candidatePieces1 |= active1
-            )
-
-            exploreCandidateMoves(candidatePieces1) {
-              val count1 = MoveGenerator.generateContinuationPieceMovesInto(
-                myPieces1,
-                enemyPieces1,
-                candidatePieces1,
-                enemyKings,
-                ep1,
-                Piece(color, PieceType(d2)),
-                moves1
-              )
-              var i1 = 0
-              while i1 < count1 && neededD3Mask != 0 do
-                val mask2 = evaluateLevel2Move(moves1(i1), d2)
-                val hit   = mask2 & neededD3Mask
-                resolvePairHits(hit) {
-                  unsolved &= ~rollsWithTwoDiceAndMask(pairShift(pairIdx) | hit)
-                  neededD3Mask &= ~hit
-                }
-                i1 += 1
-            }
-      }
-      d2 += 1
-    unsolved
-
   private inline def promotionSourceMask(inline isWhite: Boolean): Long =
     if isWhite then WhitePromoSrc else BlackPromoSrc
 
@@ -652,19 +636,39 @@ object KingCaptureProbability:
   private inline def includeRayCandidates(inline needed: Int, inline unblockTypes: Int)(inline include: Unit): Unit =
     if (needed & unblockTypes) != 0 then include
 
-  private inline def includePawnCandidates(
-      inline die: Int,
-      inline needed: Int,
-      inline ep: Long,
-      inline includePromotion: Unit,
-      inline includeEnPassant: Unit
-  ): Unit =
-    if die == 1 then
-      if (needed & 0x1e) != 0 then includePromotion
-      if ep != 0L then includeEnPassant
+  private def pawnMoveCandidates(die: Int, needed: Int, ep: Long, active: Long, promoSrcMask: Long): Long =
+    if die != 1 then 0L
+    else
+      var candidates = 0L
+      if (needed & 0x1e) != 0 then candidates |= active & promoSrcMask
+      if ep != 0L then candidates |= active
+      candidates
 
   private inline def exploreIfNonEmpty(inline active: Long)(inline explore: Unit): Unit =
     if active != 0L then explore
+
+  private inline def exploreIfNonEmpty(inline active: Int)(inline explore: Unit): Unit =
+    resolvePairHits(active)(explore)
+
+  private inline def exploreWhile(inline inRange: Boolean, inline hasPending: Boolean)(inline explore: Unit): Unit =
+    while inRange && hasPending do explore
+
+  private inline def selectPieceReach(
+      inline die: Int,
+      inline pawn: Boolean,
+      inline knight: Boolean,
+      inline bishop: Boolean,
+      inline rook: Boolean,
+      inline queen: Boolean,
+      inline king: Boolean
+  ): Boolean =
+    die match
+      case 1 => pawn
+      case 2 => knight
+      case 3 => bishop
+      case 4 => rook
+      case 5 => queen
+      case _ => king
 
   private inline def resolveSelfReach(
       inline needed: Int,
@@ -776,7 +780,7 @@ object KingCaptureProbability:
   private inline def updatedAttackRay(inline changed: Long, inline previous: Long, inline refreshed: Long): Long =
     if (changed & previous) != 0L then refreshed else previous
 
-  private inline def castleRookFromTo(flags: Int, isWhite: Boolean): Long =
+  private def castleRookFromTo(flags: Int, isWhite: Boolean): Long =
     if flags == Move.KingCastle then if isWhite then 0xa0L else 0xa000000000000000L
     else if isWhite then 0x09L
     else 0x0900000000000000L
@@ -799,7 +803,7 @@ object KingCaptureProbability:
   ): Long =
     if isMovingColor then before ^ fromToBB else before & notCapturedBB
 
-  private inline def movedTypeBitboard(
+  private def movedTypeBitboard(
       before: Long,
       isMover: Boolean,
       notFromToBB: Long,
@@ -808,7 +812,7 @@ object KingCaptureProbability:
   ): Long =
     if isMover then (before & notFromToBB) | toBB else before & notToBB
 
-  private inline def promotedTypeBitboard(
+  private def promotedTypeBitboard(
       before: Long,
       isPromotedType: Boolean,
       notToBB: Long,
