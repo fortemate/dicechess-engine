@@ -43,7 +43,7 @@ ThisBuild / developers := List(
 // GPG key is imported by the CI step and unlocked via PGP_PASSPHRASE (sbt-pgp reads this).
 // Local publishing (publishM2, publishLocal) bypasses signing and needs no env vars.
 
-val OnnxRuntimeV = "1.31.1"
+val OnnxRuntimeV = "1.32.0"
 // Previous release of com.fortemate:dicechess-rules_3 that the current rules row must stay binary
 // compatible with (#246). release.yaml moves it to the version it has just released; keep the
 // literal on this one line so that sed finds it.
