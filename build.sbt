@@ -185,6 +185,16 @@ def licenceMapping = Def.task {
   fileConverter.value.toVirtualFile(((ThisBuild / baseDirectory).value / "LICENSE").toPath) -> "META-INF/LICENSE"
 }
 
+lazy val engineCompilerOptions = Seq(
+  "-Werror",                  // Fail compilation on warnings
+  "-Wunused:all",             // Fail on unused imports, privates, locals, and implicits
+  "-language:strictEquality", // Prevent comparing different types
+  "-Yexplicit-nulls",         // Make null explicit
+  "-explain",                 // Explain type errors in detail
+  "-feature",                 // Emit warning for usages of features that should be imported explicitly
+  "-deprecation"              // Emit warning for usages of deprecated APIs
+)
+
 lazy val commonSettings = Seq(
   name := "dicechess-engine",
   libraryDependencies ++= Seq(
@@ -199,15 +209,7 @@ lazy val commonSettings = Seq(
   coverageExcludedFiles    := ".*Main\\.scala",
   coverageMinimumStmtTotal := 85,
   coverageFailOnMinimum    := true,
-  scalacOptions ++= Seq(
-    "-Werror",                  // Fail compilation on warnings
-    "-Wunused:all",             // Fail on unused imports, privates, locals, and implicits
-    "-language:strictEquality", // Prevent comparing different types
-    "-Yexplicit-nulls",         // Make null explicit
-    "-explain",                 // Explain type errors in detail
-    "-feature",                 // Emit warning for usages of features that should be imported explicitly
-    "-deprecation"              // Emit warning for usages of deprecated APIs
-  )
+  scalacOptions ++= engineCompilerOptions
 )
 
 // =============================================================================
@@ -762,6 +764,22 @@ lazy val cli = project
              |  mise run coverage""".stripMargin
         )
       streams.value.log.info(s"Coverage instrumentation metadata present: $metadata")
+    }
+  )
+
+lazy val writePilotClasspath = taskKey[Unit]("Write the local JVM classpath for the pre-release rules pilot")
+
+lazy val rulesPilot = project
+  .in(file("rules-pilot"))
+  .dependsOn(rulesJVM)
+  .settings(
+    publish / skip  := true,
+    coverageEnabled := false,
+    scalacOptions ++= engineCompilerOptions,
+    writePilotClasspath := Def.uncached {
+      val converter = fileConverter.value
+      val paths     = (Compile / fullClasspath).value.map(entry => converter.toPath(entry.data).toString)
+      IO.write(baseDirectory.value / "target" / "classpath.txt", paths.mkString(java.io.File.pathSeparator))
     }
   )
 
