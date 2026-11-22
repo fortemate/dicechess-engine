@@ -80,7 +80,7 @@ object PieceType:
       case PieceType.Queen  => "q"
       case PieceType.King   => "k"
 
-opaque type Piece = Int
+opaque type Piece = Byte
 
 /** A packed chess piece combining [[dicechess.engine.domain.Color]] and [[dicechess.engine.domain.PieceType]].
   *
@@ -94,7 +94,7 @@ object Piece:
   val Empty: Piece = 0
 
   def apply(color: Color, pieceType: PieceType): Piece =
-    (color << 3) | pieceType
+    ((color << 3) | pieceType).toByte
 
   extension (piece: Piece)
     inline def color: Color         = piece >>> 3
@@ -412,7 +412,7 @@ case class GameState(
       this.rooks == that.rooks &&
       this.queens == that.queens &&
       this.kings == that.kings &&
-      java.util.Arrays.equals(this.mailbox.asInstanceOf[Array[Int]], that.mailbox.asInstanceOf[Array[Int]]) &&
+      java.util.Arrays.equals(this.mailbox.asInstanceOf[Array[Byte]], that.mailbox.asInstanceOf[Array[Byte]]) &&
       this.flags == that.flags &&
       this.enPassant == that.enPassant &&
       this.fullMoveNumber == that.fullMoveNumber
@@ -428,7 +428,7 @@ case class GameState(
     h = h * 31 + rooks.##
     h = h * 31 + queens.##
     h = h * 31 + kings.##
-    h = h * 31 + java.util.Arrays.hashCode(mailbox.asInstanceOf[Array[Int]])
+    h = h * 31 + java.util.Arrays.hashCode(mailbox.asInstanceOf[Array[Byte]])
     h = h * 31 + flags.##
     h = h * 31 + enPassant.##
     h = h * 31 + fullMoveNumber.##
