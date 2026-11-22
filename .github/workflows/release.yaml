@@ -165,6 +165,12 @@ jobs:
             console.log(`Release version: ${releaseVersion} (${releaseTag})`);
             console.log(`Next snapshot: ${nextSnapshot}`);
 
+      - name: Check rules ABI for the release version
+        env:
+          RELEASE_VERSION: ${{ steps.bump_version.outputs.new_version }}
+        run: |
+          sbt --server "set ThisBuild / version := \"$RELEASE_VERSION\"; rulesJVM/assertRulesBinaryCompatible"
+
       - name: Create and push Git tag
         run: |
           git tag ${{ steps.bump_version.outputs.new_tag }}

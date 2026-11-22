@@ -217,6 +217,15 @@ jobs:
         # `rootJVM/coverageDataCheck` fails the build loudly if metadata is missing anyway.
         run: bash .mise/lib/sbt-cold-cache.sh 'scalafmtCheckAll; scalafmtSbtCheck; scalafixAll --check; clean; coverage; testOnly *; rulesJVM/coverageDataCheck; rootJVM/coverageDataCheck; arena/coverageDataCheck; cli/coverageDataCheck; coverageReport'
 
+      - name: Check rules ABI for the release version
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          # A recovery dispatch may check out a tag from before the rules ABI gate was introduced.
+          if grep -q '^lazy val assertRulesBinaryCompatible' build.sbt; then
+            sbt --server "set ThisBuild / version := \"$RELEASE_VERSION\"; rulesJVM/assertRulesBinaryCompatible"
+          fi
+
       - name: Check GitHub Packages for both coordinates
         id: github_maven
         env:

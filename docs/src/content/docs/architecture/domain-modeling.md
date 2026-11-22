@@ -9,7 +9,7 @@ The core engine is built to traverse millions of game states rapidly during the 
 
 We strictly avoid `case class` or `AnyVal` wrappers for fundamental domain objects to prevent JVM heap allocations and Garbage Collector (GC) pressure. 
 
-Instead, we use Scala 3 `opaque type`s. At compile-time, they provide strict type safety. At runtime, they are completely erased, leaving only the underlying primitive (`Int` or `Long`).
+Instead, we use Scala 3 `opaque type`s. At compile-time, they provide strict type safety. At runtime, they are completely erased, leaving only the underlying primitive (`Byte`, `Int` or `Long`).
 
 *   `Color`: An `Int` (0 = White, 1 = Black). Toggled instantly using bitwise XOR (`^ 1`).
 *   `PieceType`: An `Int` directly corresponding to the dice value (1 = Pawn, 6 = King).
@@ -20,7 +20,8 @@ Instead, we use Scala 3 `opaque type`s. At compile-time, they provide strict typ
 When an object logically requires multiple fields, we pack them into a single primitive integer using bitwise operations, rather than allocating a container object.
 
 ### The `Piece` (4 bits)
-A `Piece` needs both a `Color` and a `PieceType`. We pack them into 4 bits of a standard `Int`:
+A `Piece` needs both a `Color` and a `PieceType`. The low four bits of a `Byte` encode both values. Zero denotes an empty square.
+
 *   **Bit 3**: Color (0 for White, 1 for Black)
 *   **Bits 0-2**: PieceType (1 to 6)
 
@@ -47,7 +48,7 @@ Instead of maintaining 12 individual bitboards (White Pawns, Black Pawns, etc.),
 *   **Intersection:** To find all White Knights, we perform a single bitwise AND: `whitePieces & knights`.
 *   **Occupancy:** To find all pieces on the board: `whitePieces | blackPieces`.
 *   **Hardware Acceleration:** Counting pieces uses the JVM intrinsic `java.lang.Long.bitCount`, which maps directly to the CPU's `POPCNT` instruction (executing in 1 clock cycle).
-*   **Memory Footprint:** The entire board state is exactly 64 bytes (8 x 8 bytes), fitting perfectly into a single L1 CPU cache line.
+*   **Memory Footprint:** The eight bitboard values occupy 64 bytes. The mailbox holds another 64 bytes of element data.
 
 ## 4. The Hybrid Mailbox Approach
 
