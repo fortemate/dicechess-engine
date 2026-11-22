@@ -21,7 +21,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  rules-pilot:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/rules-pilot.yaml
+
   create-release:
+    needs: rules-pilot
     runs-on: ubuntu-latest
     permissions:
       actions: write # To dispatch CI for the automatically opened snapshot PR

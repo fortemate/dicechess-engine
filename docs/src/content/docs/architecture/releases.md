@@ -39,7 +39,10 @@ The repository has two supported release entry points:
 
 * `release.yaml` is the owner-triggered release workflow. It calculates the next version, validates
   the repository, creates the tag, publishes the registries, creates the GitHub Release, and opens
-  the next-snapshot pull request.
+  the next-snapshot pull request. Before tagging, its read-only rules pilot replays the saved
+  DFEN and move corpus on the candidate SHA and explores each property for five minutes.
+  The **Pre-release rules pilot** workflow also runs independently for troubleshooting.
+  Download its Actions artifact for the seed, inputs and phase logs.
 * `publish.yaml` runs for a directly pushed tag and can be manually rerun at an existing tag. This is
   the recovery path after a partial release.
 

@@ -765,6 +765,21 @@ lazy val cli = project
     }
   )
 
+lazy val writePilotClasspath = taskKey[Unit]("Write the local JVM classpath for the pre-release rules pilot")
+
+lazy val rulesPilot = project
+  .in(file("rules-pilot"))
+  .dependsOn(rulesJVM)
+  .settings(
+    publish / skip      := true,
+    coverageEnabled     := false,
+    writePilotClasspath := Def.uncached {
+      val converter = fileConverter.value
+      val paths     = (Compile / fullClasspath).value.map(entry => converter.toPath(entry.data).toString)
+      IO.write(baseDirectory.value / "target" / "classpath.txt", paths.mkString(java.io.File.pathSeparator))
+    }
+  )
+
 // Consumer smoke check for the rules artifact (#218): compiles and runs against rulesJVM ALONE, so a
 // rules-only program must work without a single search class or onnxruntime on the classpath.
 lazy val rulesSmoke = project

@@ -1,0 +1,39 @@
+name: "Pre-release rules pilot"
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  check-rules:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: sbt
+      - uses: sbt/setup-sbt@67d461eba2c4753196c230e02da850757ba4775e # v1.5.14
+      - name: Install Jazzer
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl -fsSL --retry 3 -o jazzer.tar.gz https://github.com/CodeIntelligenceTesting/jazzer/releases/download/v0.30.0/jazzer-linux-x86-64.tar.gz
+          echo "6eeaf0026d75599b07527d93b576593ce847cfca8b337a579971a5a9cdf792d0  jazzer.tar.gz" | sha256sum -c -
+          tar -xzf jazzer.tar.gz
+      - name: Replay rules corpus and check both properties
+        run: python3 rules-pilot/run.py "$RUNNER_TEMP/jazzer" "$RUNNER_TEMP/rules-results" --seconds 300
+      - name: Preserve candidate, seed, inputs and logs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rules-pilot-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rules-results/
+          retention-days: 14
