@@ -199,6 +199,9 @@ object GameFlags:
     inline def containsDie(die: Int): Boolean =
       diceSlot1 == die || diceSlot2 == die || diceSlot3 == die
 
+    private[engine] inline def hasCastlingDice: Boolean =
+      flags.containsDie(PieceType.King.diceValue) && flags.containsDie(PieceType.Rook.diceValue)
+
     /** Replaces the entire dice pool. */
     def withDicePool(dice: List[Int]): GameFlags =
       val base = flags & ~((0x7 << 13) | (0x7 << 16) | (0x7 << 19))
@@ -238,8 +241,7 @@ object GameFlags:
       val dieValue = moverType.diceValue
       require(dieValue != 0, s"Move generated from an empty square: $move")
       if move.isCastling then
-        if flags.containsDie(PieceType.King.diceValue) && flags.containsDie(PieceType.Rook.diceValue) then
-          flags.removeDie(PieceType.King.diceValue).removeDie(PieceType.Rook.diceValue)
+        if flags.hasCastlingDice then flags.removeDie(PieceType.King.diceValue).removeDie(PieceType.Rook.diceValue)
         else GameFlags.Invalid
       else
         val survived = flags.removeDie(dieValue)

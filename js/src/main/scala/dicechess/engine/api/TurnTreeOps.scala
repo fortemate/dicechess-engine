@@ -2,7 +2,7 @@
 package dicechess.engine.api
 
 import dicechess.engine.domain.*
-import dicechess.engine.search.{PlayableDice, TurnGenerator}
+import dicechess.engine.search.{Chess960TurnGenerator, PlayableDice, TurnGenerator}
 import scala.scalajs.js
 import scala.scalajs.js.JSConverters.*
 
@@ -100,6 +100,17 @@ private[engine] object TurnTreeOps:
             i += 1
         }
       }
+    inUciOrder(tree)
+
+  def getChess960LegalTurnTree(dfen: String): js.Dictionary[js.Any] =
+    val tree = js.Dictionary.empty[js.Any]
+    FenParser
+      .parseChess960(dfen)
+      .foreach: snapshot =>
+        Chess960TurnGenerator
+          .legalPaths(snapshot)
+          .foreach: path =>
+            path.foldLeft(tree)(child)
     inUciOrder(tree)
 
   private def child(node: js.Dictionary[js.Any], uci: String): js.Dictionary[js.Any] =

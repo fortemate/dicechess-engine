@@ -63,6 +63,26 @@ public final class JvmApiSmokeCheck {
 		} catch (IllegalArgumentException expected) {
 			// expected: FenParser's own parse error, surfaced as an exception a Java caller can catch directly
 		}
+
+		checkChess960TurnPaths();
+	}
+
+	private static void checkChess960TurnPaths() {
+		var dfen = "6k1/8/8/8/8/8/P7/5KR1 w K - 0 1";
+		List<List<String>> paths = JvmApi.chess960LegalTurnPaths(dfen + " KRP");
+		require(paths.contains(List.of("f1g1", "a2a4")), "expected a castle targeting the rook, followed by a pawn move");
+		require(paths.contains(List.of("a2a4", "f1g1")), "expected the pawn move before castling as well");
+		require(!paths.contains(List.of("f1g1")), "castling alone leaves a playable pawn die");
+		require(paths.contains(List.of("g1g8")), "capturing the king must end the turn immediately");
+		require(JvmApi.chess960LegalTurnPaths(dfen).isEmpty(), "an absent roll must have no paths");
+		require(JvmApi.chess960LegalTurnPaths(dfen + " Q").isEmpty(), "a forced pass must have no paths");
+
+		try {
+			JvmApi.chess960LegalTurnPaths("invalid-fen");
+			throw new AssertionError("expected chess960LegalTurnPaths to reject an invalid DFEN");
+		} catch (IllegalArgumentException expected) {
+			// expected: the Chess960 parsing error is surfaced to Java callers
+		}
 	}
 
 	private static void require(boolean condition, String message) {
