@@ -35,6 +35,9 @@ import scala.scalajs.js.JSConverters.*
 @JSExportTopLevel("DiceChess")
 object JsApi:
 
+  @JSExportTopLevel("getChess960LegalTurnTree")
+  def getChess960LegalTurnTree(dfen: String): js.Dictionary[js.Any] = TurnTreeOps.getChess960LegalTurnTree(dfen)
+
   @JSExportTopLevel("applyChess960Castle")
   def applyChess960Castle(dfen: String, rook: String): js.UndefOr[String] = RulesOps.applyChess960Castle(dfen, rook)
 

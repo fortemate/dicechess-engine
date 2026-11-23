@@ -7,7 +7,7 @@ import scala.util.boundary, boundary.break
   * stands farther from the king on the same side. Move generation takes a classical GameState.
   */
 final class Chess960Dfen private (
-    private val position: GameState,
+    private[engine] val position: GameState,
     val castlingRooks: Bitboard,
     private val rightsField: String
 ):
@@ -20,27 +20,47 @@ final class Chess960Dfen private (
       .find(_.rook == rook)
       .toRight("Castling unavailable for selected rook")
       .map: move =>
-        val color   = position.activeColor
-        val mailbox = position.mailbox.toArray
-        mailbox(move.king.index) = Piece.Empty
-        mailbox(rook.index) = Piece.Empty
-        mailbox(move.kingTo.index) = Piece(color, PieceType.King)
-        mailbox(move.rookTo.index) = Piece(color, PieceType.Rook)
-        val own   = if color.isWhite then position.whitePieces else position.blackPieces
-        val moved = own.remove(move.king).remove(rook).add(move.kingTo).add(move.rookTo)
-        val after = position.copy(
-          whitePieces = if color.isWhite then moved else position.whitePieces,
-          blackPieces = if color.isBlack then moved else position.blackPieces,
-          kings = position.kings.remove(move.king).add(move.kingTo),
-          rooks = position.rooks.remove(rook).add(move.rookTo),
-          mailbox = Mailbox.fromBuilder(mailbox),
-          flags = move.remaining.withHalfMoveClock(position.halfMoveClock + 1),
-          zobristKey = 0L
-        )
+        val after           = afterCastle(move)
+        val color           = position.activeColor
+        val own             = if color.isWhite then position.whitePieces else position.blackPieces
         val remainingRights = rightsField.filter(c => if color.isWhite then c.isLower else c.isUpper)
         new Chess960Dfen(after, castlingRooks & ~own, if remainingRights.isEmpty then "-" else remainingRights)
 
-  private def castles: List[Chess960Dfen.Castle] =
+  private[engine] def afterCastle(move: Chess960Dfen.Castle): GameState =
+    val rook    = move.rook
+    val color   = position.activeColor
+    val mailbox = position.mailbox.toArray
+    mailbox(move.king.index) = Piece.Empty
+    mailbox(rook.index) = Piece.Empty
+    mailbox(move.kingTo.index) = Piece(color, PieceType.King)
+    mailbox(move.rookTo.index) = Piece(color, PieceType.Rook)
+    val own   = if color.isWhite then position.whitePieces else position.blackPieces
+    val moved = own.remove(move.king).remove(rook).add(move.kingTo).add(move.rookTo)
+    position.copy(
+      whitePieces = if color.isWhite then moved else position.whitePieces,
+      blackPieces = if color.isBlack then moved else position.blackPieces,
+      kings = position.kings.remove(move.king).add(move.kingTo),
+      rooks = position.rooks.remove(rook).add(move.rookTo),
+      mailbox = Mailbox.fromBuilder(mailbox),
+      flags = move.remaining.withHalfMoveClock(position.halfMoveClock + 1),
+      zobristKey = 0L
+    )
+
+  private def castles = Chess960Dfen.castles(position, castlingRooks)
+
+  def serialize: String = FenParser.serializeFields(position, Some(rightsField))
+
+object Chess960Dfen:
+  final private[engine] case class Castle(
+      king: Square,
+      rook: Square,
+      kingTo: Square,
+      rookTo: Square,
+      remaining: GameFlags
+  ):
+    def encoded: Move = Move(king, rook, if rook.file > king.file then Move.KingCastle else Move.QueenCastle)
+
+  private[engine] def castles(position: GameState, castlingRooks: Bitboard): List[Castle] =
     val white = position.activeColor.isWhite
     val home  = if white then 1 else 8
     val files = ('a' to 'h').map(Square(_, home))
@@ -63,11 +83,6 @@ final class Chess960Dfen private (
       blockers = (position.whitePieces | position.blackPieces).remove(from).remove(rook)
       if clear(from, kingTo, blockers) && clear(rook, rookTo, blockers)
     yield Chess960Dfen.Castle(from, rook, kingTo, rookTo, remaining)
-
-  def serialize: String = FenParser.serializeFields(position, Some(rightsField))
-
-object Chess960Dfen:
-  private case class Castle(king: Square, rook: Square, kingTo: Square, rookTo: Square, remaining: GameFlags)
 
   /** Applies a rolled Chess960 castle using the eligible rook's algebraic square. */
   def applyCastle(dfen: String, rook: String): Either[String, String] =

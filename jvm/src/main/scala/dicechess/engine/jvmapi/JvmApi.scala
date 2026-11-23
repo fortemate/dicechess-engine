@@ -2,7 +2,15 @@
 package dicechess.engine.jvmapi
 
 import dicechess.engine.domain.*
-import dicechess.engine.search.{BotRegistry, Evaluator, KingThreat, TacticianConfig, TimeBudgetedSearch, TurnGenerator}
+import dicechess.engine.search.{
+  BotRegistry,
+  Chess960TurnGenerator,
+  Evaluator,
+  KingThreat,
+  TacticianConfig,
+  TimeBudgetedSearch,
+  TurnGenerator
+}
 
 import java.util as ju
 import scala.jdk.CollectionConverters.*
@@ -40,6 +48,13 @@ import scala.util.Random
   * more than `java.util.Random`, and a platform game gets its dice from the platform.
   */
 object JvmApi:
+
+  /** Complete legal paths from a rolled Chess960 DFEN. Castling targets the participating rook. */
+  def chess960LegalTurnPaths(dfen: String): ju.List[ju.List[String]] =
+    val snapshot = FenParser
+      .parseChess960(dfen)
+      .fold(msg => throw IllegalArgumentException(msg), identity) // scalafix:ok(DisableSyntax.throw)
+    Chess960TurnGenerator.legalPaths(snapshot).map(_.asJava).asJava
 
   /** Plays the rolled Chess960 castling micro-move identified by the rook's square. */
   def applyChess960Castle(dfen: String, rook: String): String =

@@ -442,3 +442,10 @@ required, including when one piece already occupies its destination. Both paths 
 of other pieces. Dice Chess allows castling through attacked squares. The result keeps the
 active player and the remaining dice. An unavailable castle yields `undefined`.
 Whole-turn maximality belongs to the turn generator.
+
+Use the named export `getChess960LegalTurnTree(dfen)` from the full JavaScript or WebAssembly package to
+follow a complete turn from its initial roll. The keys are UCI moves. A castle names the king's start
+and the participating rook's start (for example, `f1g1` when the two pieces swap). Every leaf
+captures the opposing king or spends the maximum available dice across all paths. The empty tree
+covers invalid input, an absent roll and a forced pass. JVM callers can enumerate the same paths
+with `JvmApi.chess960LegalTurnPaths(dfen)`.
