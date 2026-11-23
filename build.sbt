@@ -12,7 +12,7 @@ ThisBuild / organizationName     := "Fortemate"
 ThisBuild / organizationHomepage := Some(uri("https://fortemate.com"))
 ThisBuild / homepage             := Some(uri("https://fortemate.com"))
 ThisBuild / startYear            := Some(2026)
-ThisBuild / version              := "0.18.5-SNAPSHOT"
+ThisBuild / version              := "0.19.0-SNAPSHOT"
 ThisBuild / scalaVersion         := ScalaV
 
 ThisBuild / description   := "Cross-platform high-performance Dice Chess engine, move generator, and AI search."
@@ -486,7 +486,61 @@ lazy val rules = (projectMatrix in file("shared-rules"))
               "(Ldicechess/engine/domain/GameState;Lscala/Function4<[ILjava/lang/Integer;Ldicechess/engine/domain/GameState;Ljava/lang/Boolean;Ljava/lang/Boolean;>;)I"
             )
           )
-        else Seq.empty
+        // #530: rebuilding consumers is required for the 0.19 minor release. Accept only the
+        // listed members and their specific byte descriptors against the last published baseline.
+        else if (RulesMimaBaseline == "0.18.4" && version.value.startsWith("0.19.")) {
+          import com.typesafe.tools.mima.core.{IncompatibleMethTypeProblem, IncompatibleResultTypeProblem}
+          def result(member: String, descriptor: String): Problem => Boolean = {
+            val keep = ProblemFilters.exclude[IncompatibleResultTypeProblem](member)
+            problem =>
+              problem match {
+                case p: IncompatibleResultTypeProblem if p.newmeth.descriptor == descriptor => keep(p)
+                case _                                                                      => true
+              }
+          }
+          def parameters(member: String, descriptor: String): Problem => Boolean = {
+            val keep = ProblemFilters.exclude[IncompatibleMethTypeProblem](member)
+            problem =>
+              problem match {
+                case p: IncompatibleMethTypeProblem
+                    if p.newmeths.exists(_.descriptor.replace('.', '/') == descriptor) =>
+                  keep(p)
+                case _ => true
+              }
+          }
+          val state     = "dicechess.engine.domain.GameState"
+          val piece     = "dicechess.engine.domain.Models#package#Piece"
+          val scratch   = "dicechess.engine.search.KcpScratchBoard"
+          val undo      = "dicechess.engine.search.KcpUndoInfo"
+          val stateArgs = "(Long,Long,Long,Long,Long,Long,Long,Long,Array[Int],Int,Long,Int,Long)"
+          val stateDesc = "(JJJJJJJJ[BIJIJ)"
+          Seq(
+            parameters(s"$state.this${stateArgs}Unit", stateDesc + "V"),
+            parameters(s"$state.copy$stateArgs$state", stateDesc + "Ldicechess/engine/domain/GameState;"),
+            parameters(s"$state.apply$stateArgs$state", stateDesc + "Ldicechess/engine/domain/GameState;"),
+            result(s"$state.mailbox()Array[Int]", "()[B"),
+            result(state + ".copy$default$9()Array[Int]", "()[B"),
+            result(s"$state._9()Array[Int]", "()[B"),
+            result("dicechess.engine.domain.Models#package#Mailbox.empty()Array[Int]", "()[B"),
+            result(s"$piece.Empty()Int", "()B"),
+            result(s"$piece.apply(Int,Int)Int", "(II)B"),
+            signatureChange(
+              s"$piece.given_CanEqual_Piece_Piece()scala.CanEqual",
+              "()Lscala/CanEqual<Ljava/lang/Integer;Ljava/lang/Integer;>;",
+              "()Lscala/CanEqual<Ljava/lang/Byte;Ljava/lang/Byte;>;"
+            ),
+            parameters(
+              s"$scratch.this(Long,Long,Long,Long,Long,Long,Long,Long,Long,Array[Int],Int,Int)Unit",
+              "(JJJJJJJJJ[BII)V"
+            ),
+            result(s"$scratch.mailbox()Array[Int]", "()[B"),
+            parameters(s"$undo.this(Int,Int,Long)Unit", "(BIJ)V"),
+            parameters(s"$undo.copy(Int,Int,Long)$undo", "(BIJ)Ldicechess/engine/search/KcpUndoInfo;"),
+            result(s"$undo.capturedPiece()Int", "()B"),
+            result(undo + ".copy$default$1()Int", "()B"),
+            result(s"$undo._1()Int", "()B")
+          )
+        } else Seq.empty
       },
       assertRulesBinaryCompatible := Def.uncached {
         import com.typesafe.tools.mima.lib.MiMaLib
@@ -529,7 +583,7 @@ lazy val rules = (projectMatrix in file("shared-rules"))
                |${remaining.flatMap(_.howToFilter).distinct.map("  " + _).mkString("\n")}""".stripMargin
           )
         log.info(
-          s"dicechess-rules ${version.value} is binary compatible with $RulesMimaBaseline (${problems.size} problem(s) reported, ${problems.size - remaining.size} accepted by filters)"
+          s"dicechess-rules ${version.value} passed the MiMa check against $RulesMimaBaseline (${problems.size} problem(s) reported, ${problems.size - remaining.size} accepted by filters)"
         )
       },
       Test / exportJars := false,

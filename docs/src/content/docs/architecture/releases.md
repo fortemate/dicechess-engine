@@ -33,6 +33,22 @@ change that alters the jar (a Scala version bump, for example) gets the label by
 Maven Central and npmjs.org are the public canonical registries. GitHub Packages remains a mirror
 for consumers who already use GitHub authentication.
 
+## Upgrading JVM consumers to 0.19.0
+
+The 0.19 rules jar stores packed pieces in bytes. This changes JVM signatures including
+`Piece.apply` and `GameState.mailbox`. Code compiled against 0.18.x can throw
+`NoSuchMethodError` when it calls one of these methods with the new jar on its classpath.
+
+Upgrade `dicechess-rules_3` and `dicechess-engine_3` together wherever both are present.
+Clean-build libraries that call the engine first, then rebuild the applications that depend
+on them. Use the resolved dependency tree to check that the distribution contains a single
+version of each coordinate. In code that reads the board directly, use `Mailbox` and
+`Array[Piece]` instead of assuming an `Array[Int]`. A smoke test that parses a saved DFEN,
+generates a legal turn and applies it exercises the new representation in the packaged application.
+
+An application bundled with its original dependencies can continue to run on 0.18.x while
+other services upgrade. DFEN, move notation and the JavaScript facade keep their existing formats.
+
 ## Release workflow architecture
 
 The repository has two supported release entry points:
