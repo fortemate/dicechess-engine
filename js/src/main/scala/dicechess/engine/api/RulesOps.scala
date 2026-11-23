@@ -22,6 +22,10 @@ import scala.scalajs.js.JSConverters.*
   */
 private[engine] object RulesOps:
 
+  def chess960StartingDfen(number: Double): js.UndefOr[String] =
+    if number.isValidInt then Chess960Dfen.startingPosition(number.toInt).toOption.orUndefined
+    else js.undefined
+
   def normalizeChess960Dfen(dfen: String): js.UndefOr[String] =
     FenParser.parseChess960(dfen).toOption.map(_.serialize).orUndefined
 

@@ -430,3 +430,8 @@ This operation returns canonical DFEN or `undefined` on invalid input. Scala cal
 `FenParser.parseChess960(dfen)` to inspect the eligible rook squares and serialize the snapshot.
 The JVM facade exposes `JvmApi.normalizeChess960Dfen(dfen)`. Gameplay APIs currently use classical
 castling rules.
+
+The named export `chess960StartingDfen(number)` builds a reproducible starting position from a
+Scharnagl number (0 through 959). Position 518 is the classical array. White is to roll, both
+players retain both castling rights, and the dice field is absent. Invalid numbers yield
+`undefined`.

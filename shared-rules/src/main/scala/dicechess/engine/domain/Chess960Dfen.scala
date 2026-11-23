@@ -14,6 +14,23 @@ final class Chess960Dfen private (
   def serialize: String = FenParser.serializeFields(position, Some(rightsField))
 
 object Chess960Dfen:
+  /** The Scharnagl starting position (0 to 959), before White rolls the first turn. */
+  def startingPosition(number: Int): Either[String, String] =
+    if number < 0 || number >= 960 then Left("Chess960 position number must be between 0 and 959")
+    else
+      val rank      = Array.fill(8)(' ')
+      def openFiles = rank.indices.filter(file => rank(file) == ' ')
+
+      // Successive digits select the light bishop, dark bishop, queen and pair of knights.
+      rank(2 * (number % 4) + 1) = 'B'
+      rank(2 * ((number / 4) % 4)) = 'B'
+      rank(openFiles((number / 16) % 6)) = 'Q'
+      val knights = openFiles.combinations(2).drop(number / 96).next()
+      knights.foreach(file => rank(file) = 'N')
+      openFiles.zip("RKR").foreach((file, piece) => rank(file) = piece)
+      val white = rank.mkString
+      Right(s"${white.toLowerCase}/pppppppp/8/8/8/8/PPPPPPPP/$white w KQkq - 0 1")
+
   def parse(dfen: String): Either[String, Chess960Dfen] =
     Option(dfen)
       .toRight("Missing DFEN")

@@ -248,3 +248,6 @@ export const DiceChess: DiceChessApi;
 
 /** Normalizes Chess960 DFEN for interchange. Invalid input yields undefined. */
 export function normalizeChess960Dfen(dfen: string): string | undefined;
+
+/** Returns the starting DFEN for a Scharnagl number (0–959), or undefined for invalid input. */
+export function chess960StartingDfen(number: number): string | undefined;

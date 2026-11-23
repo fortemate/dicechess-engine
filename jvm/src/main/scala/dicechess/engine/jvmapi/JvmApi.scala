@@ -41,6 +41,12 @@ import scala.util.Random
   */
 object JvmApi:
 
+  /** Returns the starting DFEN for a Scharnagl position number from 0 to 959. */
+  def chess960StartingDfen(number: Int): String =
+    Chess960Dfen
+      .startingPosition(number)
+      .fold(msg => throw IllegalArgumentException(msg), identity) // scalafix:ok(DisableSyntax.throw)
+
   /** Normalizes Chess960 DFEN castling notation for interchange, throwing on invalid input. */
   def normalizeChess960Dfen(dfen: String): String =
     FenParser

@@ -35,6 +35,9 @@ import scala.scalajs.js.JSConverters.*
 @JSExportTopLevel("DiceChess")
 object JsApi:
 
+  @JSExportTopLevel("chess960StartingDfen")
+  def chess960StartingDfen(number: Double): js.UndefOr[String] = RulesOps.chess960StartingDfen(number)
+
   /** Normalizes Chess960 DFEN castling notation for interchange. */
   @JSExportTopLevel("normalizeChess960Dfen")
   def normalizeChess960Dfen(dfen: String): js.UndefOr[String] = RulesOps.normalizeChess960Dfen(dfen)
