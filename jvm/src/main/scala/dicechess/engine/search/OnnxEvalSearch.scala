@@ -6,7 +6,7 @@ import dicechess.engine.domain.*
 import dicechess.engine.model.{ModelManifest, ModelPackage, OnnxModelContract}
 
 import java.util.Collections
-import scala.util.Random
+import scala.util.{Random, Using}
 
 /** One-ply search scored by an externally-trained model (LightGBM, exported to ONNX) instead of a hand-tuned heuristic.
   * Structurally identical to [[GreedySearch]]/[[AggressiveSearch]] — the only difference is the `evalFn` handed to
@@ -35,8 +35,17 @@ class OnnxEvalSearch(
 ) extends TimeBudgetedSearch
     with AutoCloseable:
 
-  private val env     = OrtEnvironment.getEnvironment
-  private val session = env.createSession(modelPath, new OrtSession.SessionOptions())
+  private val env = OrtEnvironment.getEnvironment
+
+  // ORT requires the options to stay alive until their session has closed.
+  private val sessionOptions = new OrtSession.SessionOptions()
+  private val session        =
+    try env.createSession(modelPath, sessionOptions)
+    catch
+      case error: Throwable =>
+        try sessionOptions.close()
+        catch case closeError: Throwable if closeError ne error => error.addSuppressed(closeError)
+        throw error // scalafix:ok(DisableSyntax.throw)
 
   /** The name this graph declares its input under.
     *
@@ -201,7 +210,7 @@ class OnnxEvalSearch(
   def validateContract(manifest: ModelManifest): Either[String, Unit] =
     OnnxModelContract.validate(session, manifest)
 
-  override def close(): Unit = session.close()
+  override def close(): Unit = Using.resource(sessionOptions)(_ => session.close())
 
 object OnnxEvalSearch:
 
