@@ -491,6 +491,20 @@ class JsApiSpec extends FunSuite:
     assertEquals(afterCapture, Some("8/8/8/2N5/2P5/8/8/K7 w - c3 0 1 P"))
   }
 
+  test("getChess960LegalTurnTree: a rook-targeted castle can precede or follow a pawn move") {
+    val dfen = "6k1/8/8/8/8/8/P7/5KR1 w K - 0 1 KRP"
+    val tree = JsApi.getChess960LegalTurnTree(dfen)
+    assertEquals(js.JSON.stringify(node(tree("f1g1"))), """{"a2a3":{},"a2a4":{}}""")
+    assertEquals(js.JSON.stringify(node(node(tree("a2a4"))("f1g1"))), "{}")
+    assertEquals(js.JSON.stringify(node(tree("g1g8"))), "{}")
+  }
+
+  test("getChess960LegalTurnTree: an empty object for a forced pass, absent roll or invalid DFEN") {
+    val board = "6k1/8/8/8/8/8/P7/5KR1 w K - 0 1"
+    for dfen <- List(s"$board Q", board, "invalid-fen") do
+      assertEquals(js.JSON.stringify(JsApi.getChess960LegalTurnTree(dfen)), "{}", dfen)
+  }
+
   // --- The dice a legal turn can still spend (#293) ---
 
   private def played(ucis: String*): js.Array[String] = js.Array(ucis*)

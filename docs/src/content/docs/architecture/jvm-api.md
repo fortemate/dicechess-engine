@@ -64,9 +64,7 @@ static GameState parseDfen(String dfen)
 ```
 
 **Returns:** the parsed `GameState`. **Throws** `IllegalArgumentException` if the DFEN is invalid;
-the message is the parser's own error text. This is the one place the engine deliberately departs
-from its `Either`-only error convention — translating into an exception a Java caller can `catch`
-is the method's entire purpose.
+the message is the parser's own error text.
 
 ---
 
@@ -114,6 +112,36 @@ been cleared.
 
 Score those positions with [`evaluate`](#evaluate), or let a built-in bot pick for you with
 [`bestTurn`](#bestturn-and-algorithms) — neither requires reaching into `dicechess.engine.search`.
+
+---
+
+## Chess960
+
+```java
+static String normalizeChess960Dfen(String dfen)
+static String chess960StartingDfen(int number)
+static String applyChess960Castle(String dfen, String rook)
+static java.util.List<java.util.List<String>> chess960LegalTurnPaths(String dfen)
+```
+
+`normalizeChess960Dfen` resolves and canonicalizes Chess960 castling rights.
+`chess960StartingDfen` returns the starting DFEN for a Scharnagl number from 0 through 959.
+`applyChess960Castle` applies one available castling micro-move using the participating rook's
+square. Invalid input raises `IllegalArgumentException`, as does an unavailable castle.
+
+`chess960LegalTurnPaths` enumerates complete legal turns from a rolled DFEN. Each path is a list
+of UCI strings. A castle names the king's starting square and the participating rook's starting
+square. It throws `IllegalArgumentException` for invalid DFEN and returns an empty list for an
+absent roll or forced pass.
+
+```java
+var paths = JvmApi.chess960LegalTurnPaths("6k1/8/8/8/8/8/P7/5KR1 w K - 0 1 KRP");
+boolean castleThenPawn = paths.contains(java.util.List.of("f1g1", "a2a4")); // true
+```
+
+To apply a single castle and obtain the resulting DFEN, use `applyChess960Castle`. The ordinary `legalTurns` and autonomous-loop methods
+use classical castling rules. See [Chess960 DFEN interchange](/dicechess-engine/architecture/javascript-api/#chess960-dfen-interchange)
+for notation and castling details.
 
 ---
 

@@ -51,6 +51,24 @@ WebAssembly backend emits a single module, so that package ships the full API on
 
 ---
 
+## Chess960 turns
+
+The full JavaScript and WebAssembly packages export a Chess960 turn tree. Castling uses the
+king's starting square and the participating rook's starting square in UCI notation.
+
+```javascript
+import { getChess960LegalTurnTree } from '@fortemate/dicechess-engine';
+
+const dfen = '6k1/8/8/8/8/8/P7/5KR1 w K - 0 1 KRP';
+const turns = getChess960LegalTurnTree(dfen);
+console.log(turns['f1g1']['a2a4']); // {} means the pawn move completes the turn after castling
+```
+
+See the [Chess960 API reference](https://fortemate.github.io/dicechess-engine/architecture/javascript-api/#chess960-dfen-interchange)
+for DFEN normalization, starting positions, castling, and API limits.
+
+---
+
 ## Quick Start (JavaScript / TypeScript)
 
 The package is distributed as a standard ES Module (`type: "module"`).

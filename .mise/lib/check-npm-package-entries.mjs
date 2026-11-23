@@ -141,6 +141,18 @@ const chess960Dfen = '4k3/8/8/8/8/8/8/4KR1R w F - 0 1';
 for (const entry of [full, rules]) {
   if (entry.normalizeChess960Dfen(chess960Dfen) !== chess960Dfen) fail('Chess960 DFEN lost the inner rook right');
 }
+if (typeof full.getChess960LegalTurnTree !== 'function') {
+  fail('the "." entry lost the named export getChess960LegalTurnTree');
+} else {
+  // The king stays on g1 and the rook moves from h1 to f1. The move names h1, the participating rook's square.
+  const tree = full.getChess960LegalTurnTree('k7/8/8/8/8/8/P7/6KR w H - 0 1 KRP');
+  if (JSON.stringify(tree.g1h1) !== '{"a2a3":{},"a2a4":{}}') {
+    fail(`the Chess960 turn tree continues g1h1 with ${JSON.stringify(tree.g1h1)}, expected both pawn advances`);
+  }
+}
+if (Object.hasOwn(rules, 'getChess960LegalTurnTree')) {
+  fail('the "./rules" entry exports getChess960LegalTurnTree');
+}
 
 const promotions = [...rules.DiceChess.getLegalUciMoves(PROMOTION_DFEN)].sort();
 if (promotions.join(',') !== 'e7e8b,e7e8n,e7e8q,e7e8r') {

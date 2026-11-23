@@ -428,8 +428,8 @@ identifies the selected rook. An absent rook or a second right on the same side 
 
 This operation returns canonical DFEN or `undefined` on invalid input. Scala callers can use
 `FenParser.parseChess960(dfen)` to inspect the eligible rook squares and serialize the snapshot.
-The JVM facade exposes `JvmApi.normalizeChess960Dfen(dfen)`. Gameplay APIs currently use classical
-castling rules.
+The JVM facade exposes `JvmApi.normalizeChess960Dfen(dfen)`. The ordinary gameplay APIs use classical
+castling rules. Use the Chess960 operations below for variant castling and turn enumeration.
 
 The named export `chess960StartingDfen(number)` builds a reproducible starting position from a
 Scharnagl number (0 through 959). Position 518 is the classical array. White is to roll, both
@@ -448,4 +448,10 @@ follow a complete turn from its initial roll. The keys are UCI moves. A castle n
 and the participating rook's start (for example, `f1g1` when the two pieces swap). Every leaf
 captures the opposing king or spends the maximum available dice across all paths. The empty tree
 covers invalid input, an absent roll and a forced pass. JVM callers can enumerate the same paths
-with `JvmApi.chess960LegalTurnPaths(dfen)`.
+with `JvmApi.chess960LegalTurnPaths(dfen)`, which returns lists of UCI move strings. The JVM method
+throws `IllegalArgumentException` for invalid DFEN and returns an empty list for an absent roll or forced pass.
+
+The tree uses the same nested `MoveTree` shape as [`getLegalTurnTree`](#getlegalturntree), with
+children sorted in UCI order and an empty object at each terminal path. To obtain the DFEN immediately after a castle, use `applyChess960Castle`.
+Applying a complete path while preserving Chess960 castling rights requires a separate operation
+that the engine does not yet expose.
