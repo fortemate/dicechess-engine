@@ -25,6 +25,10 @@ import scala.scalajs.js.annotation.*
 @JSExportTopLevel("DiceChess", "rules")
 object RulesApi:
 
+  /** Normalizes Chess960 DFEN castling notation for interchange. */
+  @JSExportTopLevel("normalizeChess960Dfen", "rules")
+  def normalizeChess960Dfen(dfen: String): js.UndefOr[String] = RulesOps.normalizeChess960Dfen(dfen)
+
   /** Returns all legal moves as an array of UCI strings (e.g. `["e2e4", "e7e8q"]`).
     *
     * @param dfen

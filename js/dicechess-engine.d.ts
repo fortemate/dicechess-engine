@@ -245,3 +245,6 @@ export interface DiceChessApi {
 }
 
 export const DiceChess: DiceChessApi;
+
+/** Normalizes Chess960 DFEN for interchange. Invalid input yields undefined. */
+export function normalizeChess960Dfen(dfen: string): string | undefined;

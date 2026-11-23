@@ -137,6 +137,11 @@ for (const name of RULES_FUNCTIONS) {
 if (typeof full.DiceChess?.getBestMove !== 'function') fail('the "." entry lost DiceChess.getBestMove');
 if (typeof full.EngineFacade?.getBotMove !== 'function') fail('the "." entry lost EngineFacade.getBotMove');
 
+const chess960Dfen = '4k3/8/8/8/8/8/8/4KR1R w F - 0 1';
+for (const entry of [full, rules]) {
+  if (entry.normalizeChess960Dfen(chess960Dfen) !== chess960Dfen) fail('Chess960 DFEN lost the inner rook right');
+}
+
 const promotions = [...rules.DiceChess.getLegalUciMoves(PROMOTION_DFEN)].sort();
 if (promotions.join(',') !== 'e7e8b,e7e8n,e7e8q,e7e8r') {
   fail(`the "./rules" entry returned ${JSON.stringify(promotions)} for the promotion position`);

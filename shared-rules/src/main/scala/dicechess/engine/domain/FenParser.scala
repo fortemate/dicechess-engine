@@ -55,9 +55,15 @@ object FenParser {
     * @return
     *   `Right(state)` on success, or `Left(errorMessage)` describing the first parse failure
     */
-  def parse(fen: String): Either[String, GameState] = try
+  def parse(fen: String): Either[String, GameState] =
+    Option(fen).toRight("Missing FEN").flatMap(text => parseFields(text.split(" ")))
+
+  /** Parses a notation-only Chess960 snapshot with Lichess-style X-FEN castling rights. */
+  def parseChess960(fen: String): Either[String, Chess960Dfen] = Chess960Dfen.parse(fen)
+
+  private[domain] def parseFields(parts: Array[String]): Either[String, GameState] = try
     boundary {
-      val parts = fen.split(" ")
+
       if parts.length < 4 then break(Left("Invalid FEN: insufficient parts"))
       // Seven fields is the whole format — six standard plus the dice-pool extension — and an eighth used to
       // be accepted and then dropped by `serialize`. That is the same silent-truncation shape as the dice pool
@@ -177,11 +183,15 @@ object FenParser {
     * @return
     *   a valid FEN string representing `state`
     */
-  def serialize(state: GameState): String = {
+  def serialize(state: GameState): String = serializeFields(state, None)
+
+  private[domain] def serializeFields(state: GameState, chess960Rights: Option[String]): String = {
     val res = new StringBuilder(64)
     serializePiecePlacement(state.mailbox, res)
     res.append(if state.flags.activeColor.isWhite then " w " else " b ")
-    serializeCastling(state.flags.castlingRights, res)
+    chess960Rights match
+      case Some(field) => res.append(field)
+      case None        => serializeCastling(state.flags.castlingRights, res)
     res.append(" ")
     serializeEnPassant(state.enPassant, res)
     res.append(" ")

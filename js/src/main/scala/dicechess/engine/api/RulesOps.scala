@@ -22,6 +22,9 @@ import scala.scalajs.js.JSConverters.*
   */
 private[engine] object RulesOps:
 
+  def normalizeChess960Dfen(dfen: String): js.UndefOr[String] =
+    FenParser.parseChess960(dfen).toOption.map(_.serialize).orUndefined
+
   /** @see [[dicechess.engine.api.JsApi.getLegalUciMoves]] */
   def getLegalUciMoves(dfen: String): js.Array[String] =
     if Option(dfen).isEmpty then js.Array()

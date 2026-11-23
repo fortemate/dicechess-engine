@@ -35,6 +35,10 @@ import scala.scalajs.js.JSConverters.*
 @JSExportTopLevel("DiceChess")
 object JsApi:
 
+  /** Normalizes Chess960 DFEN castling notation for interchange. */
+  @JSExportTopLevel("normalizeChess960Dfen")
+  def normalizeChess960Dfen(dfen: String): js.UndefOr[String] = RulesOps.normalizeChess960Dfen(dfen)
+
   /** Returns all available bots (search algorithms) supported by the engine.
     *
     * @return

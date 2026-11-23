@@ -41,6 +41,12 @@ import scala.util.Random
   */
 object JvmApi:
 
+  /** Normalizes Chess960 DFEN castling notation for interchange, throwing on invalid input. */
+  def normalizeChess960Dfen(dfen: String): String =
+    FenParser
+      .parseChess960(dfen)
+      .fold(msg => throw IllegalArgumentException(msg), _.serialize) // scalafix:ok(DisableSyntax.throw)
+
   /** How the [[winner]] encoding spells "nobody has won". Distinct from `0`/`1`, which are real colors — see
     * [[dicechess.engine.domain.Color]].
     */
