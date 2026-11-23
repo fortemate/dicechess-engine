@@ -70,3 +70,6 @@ export const endTurn: DiceChessRulesApi["endTurn"];
 export const perft: DiceChessRulesApi["perft"];
 export const getPieceFromDice: DiceChessRulesApi["getPieceFromDice"];
 export const canonicalKey: DiceChessRulesApi["canonicalKey"];
+
+/** Normalizes Chess960 DFEN for interchange. Invalid input yields undefined. */
+export function normalizeChess960Dfen(dfen: string): string | undefined;

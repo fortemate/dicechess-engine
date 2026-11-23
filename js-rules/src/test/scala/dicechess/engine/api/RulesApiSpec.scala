@@ -102,6 +102,12 @@ class RulesApiSpec extends FunSuite:
     assertEquals(RulesApi.getPieceFromDice(7), null) // scalafix:ok(DisableSyntax.null)
   }
 
+  test("Chess960 interchange preserves an inner rook right in both exports"):
+    val dfen = "4k3/8/8/8/8/8/8/4KR1R w F - 0 1"
+    assertEquals(RulesApi.normalizeChess960Dfen(dfen).toOption, Some(dfen))
+    assertEquals(JsApi.normalizeChess960Dfen(dfen).toOption, Some(dfen))
+    assertEquals(RulesApi.normalizeChess960Dfen(dfen.replace(" F ", " Q ")).toOption, None)
+
   test("canonicalKey: idempotent canonical DFEN, and agrees with DiceChess") {
     val key = RulesApi.canonicalKey(initialDfen).toOption.getOrElse(fail("expected a canonical key"))
     assert(key.nonEmpty)

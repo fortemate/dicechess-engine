@@ -416,3 +416,17 @@ function shouldBotAcceptDraw(dfen: string, options?: { algorithm?: string }): bo
 
 - `dfen`: The current game state in DFEN format.
 - `options.algorithm`: The bot ID to use for evaluation. Defaults to `"greedy"`.
+
+### Chess960 DFEN interchange
+
+Use the named export `normalizeChess960Dfen(dfen)` from the engine, rules, or WebAssembly module to read and write
+Chess960 castling rights in DFEN. On each back rank, `K` and `Q` select the outermost friendly
+rook to the right and left of the king respectively. A file letter selects a specific rook.
+White uses uppercase and Black lowercase. For example, with a white king on e1 and white rooks
+on f1 and h1, `K` selects h1 and `F` selects f1. Output uses the shorthand whenever it
+identifies the selected rook. An absent rook or a second right on the same side is invalid.
+
+This operation returns canonical DFEN or `undefined` on invalid input. Scala callers can use
+`FenParser.parseChess960(dfen)` to inspect the eligible rook squares and serialize the snapshot.
+The JVM facade exposes `JvmApi.normalizeChess960Dfen(dfen)`. Gameplay APIs currently use classical
+castling rules.
