@@ -38,6 +38,10 @@ object JsApi:
   @JSExportTopLevel("getChess960LegalTurnTree")
   def getChess960LegalTurnTree(dfen: String): js.Dictionary[js.Any] = TurnTreeOps.getChess960LegalTurnTree(dfen)
 
+  @JSExportTopLevel("applyChess960Turn")
+  def applyChess960Turn(dfen: js.Any, moves: js.Any): js.UndefOr[String] =
+    TurnTreeOps.applyChess960Turn(dfen, moves)
+
   @JSExportTopLevel("applyChess960Castle")
   def applyChess960Castle(dfen: String, rook: String): js.UndefOr[String] = RulesOps.applyChess960Castle(dfen, rook)
 

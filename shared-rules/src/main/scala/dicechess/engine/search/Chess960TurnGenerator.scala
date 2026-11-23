@@ -9,7 +9,25 @@ import dicechess.engine.movegen.MoveGenerator
   */
 object Chess960TurnGenerator:
   def legalPaths(snapshot: Chess960Dfen): List[List[String]] =
-    moves(snapshot).map(_.map(_.toUci))
+    if snapshot.hasBothKings then moves(snapshot).map(_.map(_.toUci)) else Nil
+
+  /** Applies a complete legal UCI_Chess960 path, or an empty path for a rolled forced pass. */
+  def applyTurn(dfen: String, path: List[String]): Either[String, String] =
+    Chess960Dfen
+      .parse(dfen)
+      .flatMap: snapshot =>
+        val board = snapshot.position
+        if board.flags.isDicePoolEmpty then Left("A Chess960 turn requires a roll")
+        else if !snapshot.hasBothKings then Left("The game has already ended")
+        else
+          val legal    = moves(snapshot)
+          val selected = if legal.isEmpty && path == Nil then Some(Nil) else legal.find(_.map(_.toUci) == path)
+          for
+            steps  <- selected.toRight("Expected a complete legal Chess960 turn")
+            result <- steps.foldLeft[Either[String, Chess960Dfen]](Right(snapshot)): (state, move) =>
+              state.flatMap(_.play(move))
+            dfen <- result.completedDfen
+          yield dfen
 
   private def moves(snapshot: Chess960Dfen): List[List[Move]] =
     val board    = snapshot.position // Its classical castling flags are zero; variant rights live on the snapshot.

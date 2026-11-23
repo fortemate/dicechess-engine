@@ -57,11 +57,13 @@ The full JavaScript and WebAssembly packages export a Chess960 turn tree. Castli
 king's starting square and the participating rook's starting square in UCI notation.
 
 ```javascript
-import { getChess960LegalTurnTree } from '@fortemate/dicechess-engine';
+import { getChess960LegalTurnTree, applyChess960Turn } from '@fortemate/dicechess-engine';
 
 const dfen = '6k1/8/8/8/8/8/P7/5KR1 w K - 0 1 KRP';
 const turns = getChess960LegalTurnTree(dfen);
 console.log(turns['f1g1']['a2a4']); // {} means the pawn move completes the turn after castling
+console.log(applyChess960Turn(dfen, ['f1g1', 'a2a4']));
+// '6k1/8/8/8/P7/8/8/5RK1 b - a3 0 1'
 ```
 
 See the [Chess960 API reference](https://fortemate.github.io/dicechess-engine/architecture/javascript-api/#chess960-dfen-interchange)

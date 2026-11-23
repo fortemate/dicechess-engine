@@ -113,6 +113,16 @@ private[engine] object TurnTreeOps:
             path.foldLeft(tree)(child)
     inUciOrder(tree)
 
+  def applyChess960Turn(dfen: js.Any, moves: js.Any): js.UndefOr[String] =
+    if js.typeOf(dfen) != "string" || !js.Array.isArray(moves) then js.undefined
+    else
+      val elements = moves.asInstanceOf[js.Array[js.Any]]
+      if elements.length <= GameFlags.DiceSlots && elements.iterator.forall(element => js.typeOf(element) == "string")
+      then
+        val path = elements.asInstanceOf[js.Array[String]].iterator.toList
+        Chess960TurnGenerator.applyTurn(dfen.asInstanceOf[String], path).toOption.orUndefined
+      else js.undefined
+
   private def child(node: js.Dictionary[js.Any], uci: String): js.Dictionary[js.Any] =
     val existing = node.asInstanceOf[js.Dynamic].selectDynamic(uci)
     if js.isUndefined(existing) then

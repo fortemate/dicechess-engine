@@ -150,8 +150,30 @@ if (typeof full.getChess960LegalTurnTree !== 'function') {
     fail(`the Chess960 turn tree continues g1h1 with ${JSON.stringify(tree.g1h1)}, expected both pawn advances`);
   }
 }
-if (Object.hasOwn(rules, 'getChess960LegalTurnTree')) {
-  fail('the "./rules" entry exports getChess960LegalTurnTree');
+if (typeof full.applyChess960Turn !== 'function') {
+  fail('the "." entry lost the named export applyChess960Turn');
+} else {
+  const dfen = 'k7/8/8/8/8/8/P7/6KR w H - 0 1 KRP';
+  const after = full.applyChess960Turn(dfen, ['g1h1', 'a2a3']);
+  if (after !== 'k7/8/8/8/8/P7/8/5RK1 b - - 0 1') {
+    fail(`applyChess960Turn returned ${JSON.stringify(after)} after castling and a pawn advance`);
+  }
+  const invalidResults = [
+    full.applyChess960Turn(dfen),
+    full.applyChess960Turn(dfen, null),
+    full.applyChess960Turn(dfen, { length: 0 }),
+    full.applyChess960Turn(dfen, ['g1h1', 1]),
+    full.applyChess960Turn(dfen, ['g1h1', ,]),
+    full.applyChess960Turn(dfen, ['g1h1']),
+    full.applyChess960Turn(null, []),
+    full.applyChess960Turn(1, []),
+  ];
+  if (invalidResults.some(result => result !== undefined)) fail('applyChess960Turn accepted invalid input');
+}
+for (const name of ['getChess960LegalTurnTree', 'applyChess960Turn']) {
+  if (Object.hasOwn(rules, name) || Object.hasOwn(rules.DiceChess, name)) {
+    fail(`the "./rules" entry exports ${name}`);
+  }
 }
 
 const promotions = [...rules.DiceChess.getLegalUciMoves(PROMOTION_DFEN)].sort();

@@ -32,12 +32,9 @@ import scala.util.Random
   *     `java.util.List[String]` of UCI tokens (and the position after playing it) so the opaque type never crosses the
   *     boundary.
   *
-  * '''What this deliberately does not do''': there is no `applyTurn(state, List[String])` that re-parses UCI tokens
-  * back into moves. play-api's protocol treats UCI strings as opaque tokens matched by exact string equality against
-  * engine-generated legal paths, never independently decoded (see `WebhookBot`'s Scaladoc) — a second decoder here
-  * would be a fifth place that can drift from the encoder in `Move.toUci`. A caller that already holds a UCI move list
-  * (e.g. from the platform's inline `legalMoves`) matches it against [[legalTurns]]'s own `uci` field to get the
-  * corresponding [[Turn.finalState]], instead of decoding the strings itself.
+  * '''Applying UCI paths'''. For a standard game, match the tokens against [[legalTurns]]'s `uci` field to obtain the
+  * corresponding [[Turn.finalState]]. For a rolled Chess960 DFEN, [[applyChess960Turn]] matches the path and returns
+  * the next DFEN.
   *
   * '''Two supported shapes of consumer'''. A ''webhook bot'' is handed a position and asked for one turn — it needs
   * only [[parseDfen]], [[activeColor]] and [[legalTurns]]. An ''autonomous bot'' drives the whole game itself and needs
@@ -55,6 +52,21 @@ object JvmApi:
       .parseChess960(dfen)
       .fold(msg => throw IllegalArgumentException(msg), identity) // scalafix:ok(DisableSyntax.throw)
     Chess960TurnGenerator.legalPaths(snapshot).map(_.asJava).asJava
+
+  /** Applies an exact complete Chess960 path from a rolled DFEN, with an empty path for a forced pass. Clears the dice
+    * and ends the turn, keeping the winner on move after a king capture.
+    *
+    * @throws IllegalArgumentException
+    *   if the DFEN or path is invalid
+    */
+  def applyChess960Turn(dfen: String, moves: ju.List[String]): String =
+    require(
+      Option(moves).isDefined && moves.size() <= GameFlags.DiceSlots,
+      "moves must be a list of at most three strings"
+    )
+    Chess960TurnGenerator
+      .applyTurn(dfen, moves.asScala.toList)
+      .fold(msg => throw IllegalArgumentException(msg), identity) // scalafix:ok(DisableSyntax.throw)
 
   /** Plays the rolled Chess960 castling micro-move identified by the rook's square. */
   def applyChess960Castle(dfen: String, rook: String): String =
