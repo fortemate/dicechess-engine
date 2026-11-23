@@ -55,3 +55,26 @@ class Chess960DfenSpec extends FunSuite:
     assertEquals(starts(959).take(8), "rkrnnqbb")
     assert(Chess960Dfen.startingPosition(-1).isLeft)
     assert(Chess960Dfen.startingPosition(960).isLeft)
+
+  test("overlapping, stationary and ordinary castles reach the same final squares and spend two dice"):
+    for (rank, rook) <- List("4K2R" -> "h1", "6KR" -> "h1", "4KR2" -> "f1", "5KR1" -> "g1", "3K1R2" -> "f1") do
+      val before   = s"r3k2r/8/8/8/8/8/8/$rank w Kkq e6 5 13 KPR"
+      val expected = "r3k2r/8/8/8/8/8/8/5RK1 w kq e6 6 13 P"
+      assertEquals(Chess960Dfen.applyCastle(before, rook), Right(expected), before)
+
+  test("black can swap on the queenside while preserving the opposing inner rook right"):
+    val before = "2rk4/8/8/8/8/8/8/4KR1R b Fq - 127 8 krr"
+    assertEquals(Chess960Dfen.applyCastle(before, "c8"), Right("2kr4/8/8/8/8/8/8/4KR1R b F - 127 8 r"))
+
+  test("only designated rooks with both dice and clear paths are available"):
+    val base                  = "4k3/8/8/8/8/8/8/4KR1R w F - 0 1 RK"
+    def targets(dfen: String) = Chess960Dfen.parse(dfen).toOption.get.availableCastlingRooks.map(_.toNotation)
+    assertEquals(targets(base), List("f1"))
+    assert(Chess960Dfen.applyCastle(base, "h1").isLeft)
+    for roll <- List("R", "K", "PPP") do assertEquals(targets(base.replace(" RK", s" $roll")), Nil)
+    assertEquals(targets(base.stripSuffix(" RK")), Nil)
+    assertEquals(targets("4k3/8/8/8/8/8/8/1K1B3R w K - 0 1 KR"), Nil)
+    assertEquals(targets("4k3/8/8/8/8/8/8/1R1BK3 w Q - 0 1 KR"), Nil)
+    assertEquals(targets("4k3/8/8/8/8/8/8/1RN1K3 w Q - 0 1 KR"), Nil)
+    assertEquals(targets("4k3/8/8/8/8/8/8/4Kn1R w K - 0 1 KR"), Nil)
+    assertEquals(targets("4kr2/8/8/8/8/8/8/4K2R w K - 0 1 KR"), List("h1"))

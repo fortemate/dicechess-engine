@@ -41,6 +41,12 @@ import scala.util.Random
   */
 object JvmApi:
 
+  /** Plays the rolled Chess960 castling micro-move identified by the rook's square. */
+  def applyChess960Castle(dfen: String, rook: String): String =
+    Chess960Dfen
+      .applyCastle(dfen, rook)
+      .fold(msg => throw IllegalArgumentException(msg), identity) // scalafix:ok(DisableSyntax.throw)
+
   /** Returns the starting DFEN for a Scharnagl position number from 0 to 959. */
   def chess960StartingDfen(number: Int): String =
     Chess960Dfen
