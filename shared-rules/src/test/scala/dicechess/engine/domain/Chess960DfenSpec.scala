@@ -40,3 +40,18 @@ class Chess960DfenSpec extends FunSuite:
     assert(FenParser.parseChess960("8/8/8/8/8/8/4K3/R6R w K -").isLeft)
     assert(FenParser.parse(position("D")).isLeft)
     assertEquals(FenParser.parseChess960(position("-")).toOption.get.serialize, position("-"))
+
+  test("Scharnagl IDs generate distinct legal starts and preserve the standard numbering"):
+    val starts = (0 until 960).map(number => Chess960Dfen.startingPosition(number).toOption.get)
+    assertEquals(starts.distinct.size, 960)
+    for fen <- starts do
+      val rank = fen.take(8)
+      assertEquals(rank.sorted, "bbknnqrr")
+      assert(rank.indexOf('r') < rank.indexOf('k') && rank.indexOf('k') < rank.lastIndexOf('r'))
+      assert(rank.indexOf('b') % 2 != rank.lastIndexOf('b') % 2)
+      assertEquals(FenParser.parseChess960(fen).toOption.get.serialize, fen)
+    assertEquals(starts(0).take(8), "bbqnnrkr")
+    assertEquals(starts(518), FenParser.InitialPosition)
+    assertEquals(starts(959).take(8), "rkrnnqbb")
+    assert(Chess960Dfen.startingPosition(-1).isLeft)
+    assert(Chess960Dfen.startingPosition(960).isLeft)

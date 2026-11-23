@@ -25,6 +25,9 @@ import scala.scalajs.js.annotation.*
 @JSExportTopLevel("DiceChess", "rules")
 object RulesApi:
 
+  @JSExportTopLevel("chess960StartingDfen", "rules")
+  def chess960StartingDfen(number: Double): js.UndefOr[String] = RulesOps.chess960StartingDfen(number)
+
   /** Normalizes Chess960 DFEN castling notation for interchange. */
   @JSExportTopLevel("normalizeChess960Dfen", "rules")
   def normalizeChess960Dfen(dfen: String): js.UndefOr[String] = RulesOps.normalizeChess960Dfen(dfen)
