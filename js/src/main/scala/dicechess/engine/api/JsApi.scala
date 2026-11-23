@@ -35,6 +35,9 @@ import scala.scalajs.js.JSConverters.*
 @JSExportTopLevel("DiceChess")
 object JsApi:
 
+  @JSExportTopLevel("applyChess960Castle")
+  def applyChess960Castle(dfen: String, rook: String): js.UndefOr[String] = RulesOps.applyChess960Castle(dfen, rook)
+
   @JSExportTopLevel("chess960StartingDfen")
   def chess960StartingDfen(number: Double): js.UndefOr[String] = RulesOps.chess960StartingDfen(number)
 

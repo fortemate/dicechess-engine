@@ -435,3 +435,10 @@ The named export `chess960StartingDfen(number)` builds a reproducible starting p
 Scharnagl number (0 through 959). Position 518 is the classical array. White is to roll, both
 players retain both castling rights, and the dice field is absent. Invalid numbers yield
 `undefined`.
+
+The named export `applyChess960Castle(dfen, rook)` applies one pseudo-legal castling micro-move.
+Pass the participating rook's square, for example `"h1"`. Both a king die and a rook die are
+required, including when one piece already occupies its destination. Both paths must be clear
+of other pieces. Dice Chess allows castling through attacked squares. The result keeps the
+active player and the remaining dice. An unavailable castle yields `undefined`.
+Whole-turn maximality belongs to the turn generator.

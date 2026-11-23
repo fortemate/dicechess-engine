@@ -11,9 +11,72 @@ final class Chess960Dfen private (
     val castlingRooks: Bitboard,
     private val rightsField: String
 ):
+  /** Rook origins for pseudo-legal castling micro-moves under the current roll. */
+  def availableCastlingRooks: List[Square] = castles.map(_.rook)
+
+  /** Executes one rolled micro-move. The active player can spend any remaining die before ending the turn. */
+  def castle(rook: Square): Either[String, Chess960Dfen] =
+    castles
+      .find(_.rook == rook)
+      .toRight("Castling unavailable for selected rook")
+      .map: move =>
+        val color   = position.activeColor
+        val mailbox = position.mailbox.toArray
+        mailbox(move.king.index) = Piece.Empty
+        mailbox(rook.index) = Piece.Empty
+        mailbox(move.kingTo.index) = Piece(color, PieceType.King)
+        mailbox(move.rookTo.index) = Piece(color, PieceType.Rook)
+        val own   = if color.isWhite then position.whitePieces else position.blackPieces
+        val moved = own.remove(move.king).remove(rook).add(move.kingTo).add(move.rookTo)
+        val after = position.copy(
+          whitePieces = if color.isWhite then moved else position.whitePieces,
+          blackPieces = if color.isBlack then moved else position.blackPieces,
+          kings = position.kings.remove(move.king).add(move.kingTo),
+          rooks = position.rooks.remove(rook).add(move.rookTo),
+          mailbox = Mailbox.fromBuilder(mailbox),
+          flags = move.remaining.withHalfMoveClock(position.halfMoveClock + 1),
+          zobristKey = 0L
+        )
+        val remainingRights = rightsField.filter(c => if color.isWhite then c.isLower else c.isUpper)
+        new Chess960Dfen(after, castlingRooks & ~own, if remainingRights.isEmpty then "-" else remainingRights)
+
+  private def castles: List[Chess960Dfen.Castle] =
+    val white = position.activeColor.isWhite
+    val home  = if white then 1 else 8
+    val files = ('a' to 'h').map(Square(_, home))
+    val own   = if white then position.whitePieces else position.blackPieces
+    val king  = files.find(sq => (position.kings & own).contains(sq))
+    def clear(from: Square, to: Square, blockers: Bitboard): Boolean =
+      val low  = from.index.min(to.index)
+      val high = from.index.max(to.index)
+      (low to high).forall(i => !blockers.contains(Square.fromIndex(i)))
+
+    for
+      from <- king.toList
+      rook <- files.filter(castlingRooks.contains).toList
+      short     = rook.file > from.file
+      kingTo    = Square(if short then 'g' else 'c', home)
+      rookTo    = Square(if short then 'f' else 'd', home)
+      move      = Move(from, kingTo, if short then Move.KingCastle else Move.QueenCastle)
+      remaining = position.flags.consumeDiceFor(move, PieceType.King)
+      if remaining.isValid
+      blockers = (position.whitePieces | position.blackPieces).remove(from).remove(rook)
+      if clear(from, kingTo, blockers) && clear(rook, rookTo, blockers)
+    yield Chess960Dfen.Castle(from, rook, kingTo, rookTo, remaining)
+
   def serialize: String = FenParser.serializeFields(position, Some(rightsField))
 
 object Chess960Dfen:
+  private case class Castle(king: Square, rook: Square, kingTo: Square, rookTo: Square, remaining: GameFlags)
+
+  /** Applies a rolled Chess960 castle using the eligible rook's algebraic square. */
+  def applyCastle(dfen: String, rook: String): Either[String, String] =
+    for
+      square   <- Option(rook).flatMap(Square.fromNotation).toRight("Invalid castling rook square")
+      snapshot <- parse(dfen)
+      result   <- snapshot.castle(square)
+    yield result.serialize
+
   /** The Scharnagl starting position (0 to 959), before White rolls the first turn. */
   def startingPosition(number: Int): Either[String, String] =
     if number < 0 || number >= 960 then Left("Chess960 position number must be between 0 and 959")

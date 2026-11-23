@@ -22,6 +22,9 @@ import scala.scalajs.js.JSConverters.*
   */
 private[engine] object RulesOps:
 
+  def applyChess960Castle(dfen: String, rook: String): js.UndefOr[String] =
+    Chess960Dfen.applyCastle(dfen, rook).toOption.orUndefined
+
   def chess960StartingDfen(number: Double): js.UndefOr[String] =
     if number.isValidInt then Chess960Dfen.startingPosition(number.toInt).toOption.orUndefined
     else js.undefined
