@@ -82,8 +82,9 @@ jobs:
         env:
           PACKAGE_VERSION: 0.0.0 # placeholder: this bundle is checked, never published
         run: |
-          sbt --server rootJS/fullLinkJS
+          sbt --server 'rootJS/fullLinkJS; rootWasm/fullLinkJS'
           bash .mise/tasks/package/prepare
+          bash .mise/tasks/package/prepare-wasm
       # The rules binary-compatibility gate (#246) runs first, before `coverage` switches the sbt server to
       # instrumented builds: it compares the plain rules jar with RulesMimaBaseline.
       - name: Run tests with Coverage

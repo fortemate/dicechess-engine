@@ -53,15 +53,15 @@ final class Chess960Dfen private (
   private[engine] def play(move: Move): Either[String, Chess960Dfen] =
     if move.isCastling then castle(move.toSquare)
     else
-      val from          = move.fromSquare
-      val to            = move.toSquare
-      val own           = if position.activeColor.isWhite then position.whitePieces else position.blackPieces
-      val unmoved       = castlingRooks.remove(from).remove(to)
-      val afterKingMove = if position.kings.contains(from) then unmoved & ~own else unmoved
-      val rights        = if position.isKingCapture(move) then afterKingMove & own else afterKingMove
-      val remaining     = if position.flags.isDicePoolEmpty then position.flags else position.diceAfter(move)
+      val remaining = Chess960Dfen.remainingDice(position, move, allowUnrolled = true)
       if !remaining.isValid then Left("The roll does not contain a die for this move")
-      else Chess960Dfen.fromRookSquares(position.makeMove(move).withDiceSlotsOf(remaining), rights)
+      else Chess960Dfen.fromRookSquares(position.makeMove(move).withDiceSlotsOf(remaining), rightsAfter(move))
+
+  private def rightsAfter(move: Move): Bitboard =
+    val own           = if position.activeColor.isWhite then position.whitePieces else position.blackPieces
+    val unmoved       = castlingRooks.remove(move.fromSquare).remove(move.toSquare)
+    val afterKingMove = if position.kings.contains(move.fromSquare) then unmoved & ~own else unmoved
+    if position.isKingCapture(move) then afterKingMove & own else afterKingMove
 
   private[engine] def hasBothKings: Boolean =
     !(position.kings & position.whitePieces).isEmpty && !(position.kings & position.blackPieces).isEmpty
@@ -99,10 +99,6 @@ object Chess960Dfen:
     val files = ('a' to 'h').map(Square(_, home))
     val own   = if white then position.whitePieces else position.blackPieces
     val king  = files.find(sq => (position.kings & own).contains(sq))
-    def clear(from: Square, to: Square, blockers: Bitboard): Boolean =
-      val low  = from.index.min(to.index)
-      val high = from.index.max(to.index)
-      (low to high).forall(i => !blockers.contains(Square.fromIndex(i)))
 
     for
       from <- king.toList
@@ -111,13 +107,19 @@ object Chess960Dfen:
       kingTo    = Square(if short then 'g' else 'c', home)
       rookTo    = Square(if short then 'f' else 'd', home)
       move      = Move(from, kingTo, if short then Move.KingCastle else Move.QueenCastle)
-      remaining =
-        if allowUnrolled && position.flags.isDicePoolEmpty then position.flags
-        else position.flags.consumeDiceFor(move, PieceType.King)
+      remaining = remainingDice(position, move, allowUnrolled)
       if remaining.isValid
       blockers = (position.whitePieces | position.blackPieces).remove(from).remove(rook)
       if clear(from, kingTo, blockers) && clear(rook, rookTo, blockers)
     yield Chess960Dfen.Castle(from, rook, kingTo, rookTo, remaining)
+
+  private def clear(from: Square, to: Square, blockers: Bitboard): Boolean =
+    val low  = from.index.min(to.index)
+    val high = from.index.max(to.index)
+    (low to high).forall(i => !blockers.contains(Square.fromIndex(i)))
+
+  private def remainingDice(position: GameState, move: Move, allowUnrolled: Boolean): GameFlags =
+    if allowUnrolled && position.flags.isDicePoolEmpty then position.flags else position.diceAfter(move)
 
   /** Applies a rolled Chess960 castle using the eligible rook's algebraic square. */
   def applyCastle(dfen: String, rook: String): Either[String, String] =

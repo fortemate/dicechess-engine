@@ -103,3 +103,4 @@ jq --arg ver "$CLEAN_VERSION" '
 # Prove what was just assembled: both entries answer alike, and the rules entry carries no search
 # code. Printing the closure sizes here is also where the release log gets them (#222).
 node .mise/lib/check-npm-package-entries.mjs dist
+node .mise/lib/check-configured-npm-api.mjs dist/dicechess-engine.js dist/dicechess-rules.js

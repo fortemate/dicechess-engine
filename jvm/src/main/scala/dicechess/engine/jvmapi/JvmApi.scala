@@ -47,6 +47,9 @@ import scala.util.Random
   */
 object JvmApi:
 
+  private def requireConfig(config: RulesConfig): Unit =
+    require(Option(config).isDefined, "Missing rules configuration")
+
   private def orInvalid[A](result: Either[String, A]): A =
     result.fold(msg => throw IllegalArgumentException(msg), identity) // scalafix:ok(DisableSyntax.throw)
 
@@ -55,7 +58,7 @@ object JvmApi:
 
   /** Enumerates paths for the dice already present in DFEN. The layout determines castling notation. */
   def legalTurnPaths(dfen: String, config: RulesConfig): ju.List[ju.List[String]] =
-    require(Option(config).isDefined, "Missing rules configuration")
+    requireConfig(config)
     val paths =
       if config.isChess960 then Chess960TurnGenerator.legalPaths(orInvalid(Chess960Dfen.parse(dfen)))
       else
@@ -71,7 +74,7 @@ object JvmApi:
 
   /** Applies a complete path under the selected layout. An empty path is valid for a rolled forced pass. */
   def applyTurn(dfen: String, moves: ju.List[String], config: RulesConfig): String =
-    require(Option(config).isDefined, "Missing rules configuration")
+    requireConfig(config)
     require(
       Option(moves).isDefined && moves.size() <= GameFlags.DiceSlots,
       "moves must be a list of at most three strings"
@@ -91,7 +94,7 @@ object JvmApi:
       firstTurnForPlayer: Boolean,
       config: RulesConfig
   ): ju.List[ju.List[Integer]] =
-    require(Option(config).isDefined, "Missing rules configuration")
+    requireConfig(config)
     require(
       Option(randomFaces).exists(_.size() == config.requiredRandomDice(firstTurnForPlayer)),
       "Unexpected number of random dice for this turn"

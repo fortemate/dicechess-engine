@@ -64,3 +64,4 @@ jq --arg ver "$CLEAN_VERSION" '
   .exports["."].default = "./main.js" |
   del(.files)
 ' package.json > dist-wasm/package.json
+node .mise/lib/check-configured-npm-api.mjs dist-wasm/main.js
