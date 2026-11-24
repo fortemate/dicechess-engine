@@ -2,7 +2,7 @@
 package dicechess.engine.api
 
 import dicechess.engine.domain.*
-import dicechess.engine.search.{Chess960TurnGenerator, PlayableDice, TurnGenerator}
+import dicechess.engine.search.{Chess960TurnGenerator, ConfiguredTurns, PlayableDice, TurnGenerator}
 import scala.scalajs.js
 import scala.scalajs.js.JSConverters.*
 
@@ -59,27 +59,7 @@ private[engine] object TurnTreeOps:
   /** The move `element` names when it is a UCI string, such as `e2e4` or `e7e8q`, and `None` otherwise. */
   private def moveNamed(element: Any): Option[Move] =
     // `js.typeOf` rather than a `String` pattern, which links an instance test into the module shared with `./rules`.
-    if js.typeOf(element) != "string" then None
-    else
-      val uci   = element.asInstanceOf[String]
-      val flags = uci.length match
-        case 4 => Move.QuietMove
-        case 5 => promotionFlags(uci.charAt(4))
-        case _ => -1
-      if flags < 0 then None
-      else
-        for
-          from <- Square.fromNotation(uci.substring(0, 2))
-          to   <- Square.fromNotation(uci.substring(2, 4))
-        yield Move(from, to, flags)
-
-  /** The flags of a promotion to the piece UCI writes as `piece`, or -1 for any other letter. */
-  private def promotionFlags(piece: Char): Int = piece match
-    case 'q' => Move.QueenPromotion
-    case 'r' => Move.RookPromotion
-    case 'b' => Move.BishopPromotion
-    case 'n' => Move.KnightPromotion
-    case _   => -1
+    if js.typeOf(element) == "string" then Move.fromUci(element.asInstanceOf[String]) else None
 
   /** The dice as the DFEN dice field writes them, in the case of the side to move. `dice` are ascending already. */
   private def diceField(dice: List[Int], side: Color): String =
@@ -113,15 +93,33 @@ private[engine] object TurnTreeOps:
             path.foldLeft(tree)(child)
     inUciOrder(tree)
 
+  def getChess960PlayableDice(dfen: String, moves: js.UndefOr[js.Array[String]]): js.UndefOr[String] =
+    val playable =
+      for
+        text     <- Option(dfen)
+        snapshot <- FenParser.parseChess960(text).toOption
+        played   <- moves.toOption.flatMap(Option(_)).fold(Some(Nil): Option[List[String]])(stringPath)
+        dice     <- Chess960TurnGenerator.playableDice(snapshot, played)
+      yield diceField(dice, snapshot.position.activeColor)
+    playable.orUndefined
+
   def applyChess960Turn(dfen: js.Any, moves: js.Any): js.UndefOr[String] =
-    if js.typeOf(dfen) != "string" || !js.Array.isArray(moves) then js.undefined
+    applyTurn(dfen, moves, RulesConfig.Chess960)
+
+  def applyTurn(dfen: js.Any, moves: js.Any, config: RulesConfig): js.UndefOr[String] =
+    if js.typeOf(dfen) != "string" then js.undefined
+    else
+      stringPath(moves)
+        .flatMap(path => ConfiguredTurns.applyTurn(dfen.asInstanceOf[String], path, config).toOption)
+        .orUndefined
+
+  private def stringPath(moves: js.Any): Option[List[String]] =
+    if !js.Array.isArray(moves) then None
     else
       val elements = moves.asInstanceOf[js.Array[js.Any]]
       if elements.length <= GameFlags.DiceSlots && elements.iterator.forall(element => js.typeOf(element) == "string")
-      then
-        val path = elements.asInstanceOf[js.Array[String]].iterator.toList
-        Chess960TurnGenerator.applyTurn(dfen.asInstanceOf[String], path).toOption.orUndefined
-      else js.undefined
+      then Some(elements.asInstanceOf[js.Array[String]].iterator.toList)
+      else None
 
   private def child(node: js.Dictionary[js.Any], uci: String): js.Dictionary[js.Any] =
     val existing = node.asInstanceOf[js.Dynamic].selectDynamic(uci)

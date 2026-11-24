@@ -51,18 +51,47 @@ WebAssembly backend emits a single module, so that package ships the full API on
 
 ---
 
+## Rules presets
+
+Pass a trailing options object to the full JavaScript or Wasm
+`getLegalTurnTree`, `getPlayableDice`, `applyTurn`, `requiredRandomDice` and `prepareRoll` functions.
+The full packages and JavaScript `./rules` entry also accept the options on
+`applyMove` and `endTurn`. These options work on the `DiceChess` methods
+and the corresponding named exports.
+
+| Preset | `layout` | `rollPolicy` |
+| :--- | :--- | :--- |
+| Standard Dice Chess | `classical` | `standard` |
+| Chess960 | `chess960` | `standard` |
+| Guaranteed opening pawn | `classical` | `opening-pawn` |
+| Chess960 with a guaranteed opening pawn | `chess960` | `opening-pawn` |
+| Fortemate Choice | `classical` | `choice-2x2d6` |
+
+Every preset uses `profile: 'dicechesscom'`, including canonical en passant.
+Omitted options or fields default to Standard Dice Chess. Explicit `null`,
+unknown keys or values, and unsupported combinations throw `TypeError`.
+
+`prepareRoll(randomFaces, firstTurnForPlayer, options)` formats rolls supplied by the
+host. The opening-pawn policy retains both supplied faces and adds one pawn die on each
+player's first turn. Standard turns use three supplied faces. Choice uses four supplied
+faces to offer two pairs in draw order. Record both pairs and the chosen index.
+Put the whole selected pair in the DFEN dice field before playing.
+
 ## Chess960 turns
 
-The full JavaScript and WebAssembly packages export a Chess960 turn tree. Castling uses the
+Use `{ layout: 'chess960' }` to select Chess960 turn rules. Castling uses the
 king's starting square and the participating rook's starting square in UCI notation.
+With the king on e1 and eligible rook on h1, a king-side castle is `e1h1`
+under Chess960 rules and `e1g1` under classical rules.
 
 ```javascript
-import { getChess960LegalTurnTree, applyChess960Turn } from '@fortemate/dicechess-engine';
+import { getLegalTurnTree, applyTurn } from '@fortemate/dicechess-engine';
 
 const dfen = '6k1/8/8/8/8/8/P7/5KR1 w K - 0 1 KRP';
-const turns = getChess960LegalTurnTree(dfen);
+const rules = { layout: 'chess960' };
+const turns = getLegalTurnTree(dfen, rules);
 console.log(turns['f1g1']['a2a4']); // {} means the pawn move completes the turn after castling
-console.log(applyChess960Turn(dfen, ['f1g1', 'a2a4']));
+console.log(applyTurn(dfen, ['f1g1', 'a2a4'], rules));
 // '6k1/8/8/8/P7/8/8/5RK1 b - a3 0 1'
 ```
 

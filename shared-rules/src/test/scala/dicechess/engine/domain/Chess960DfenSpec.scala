@@ -78,3 +78,39 @@ class Chess960DfenSpec extends FunSuite:
     assertEquals(targets("4k3/8/8/8/8/8/8/1RN1K3 w Q - 0 1 KR"), Nil)
     assertEquals(targets("4k3/8/8/8/8/8/8/4Kn1R w K - 0 1 KR"), Nil)
     assertEquals(targets("4kr2/8/8/8/8/8/8/4K2R w K - 0 1 KR"), List("h1"))
+
+  test("micro-moves preserve variant rights and let an editor move without a roll"):
+    val dfen = "4k3/8/8/8/8/8/8/R3KR1R w FQ - 0 1"
+    assertEquals(Chess960Dfen.applyMove(dfen, "h1", "h2", None), Right("4k3/8/8/8/8/8/7R/R3KR2 w KQ - 1 1"))
+    assertEquals(Chess960Dfen.applyMove(dfen, "e1", "f1", None), Right("4k3/8/8/8/8/8/8/R4RKR w - - 1 1"))
+    assertEquals(
+      Chess960Dfen.applyMove(dfen + " RNK", "e1", "f1", None),
+      Right("4k3/8/8/8/8/8/8/R4RKR w - - 1 1 N")
+    )
+    assert(Chess960Dfen.applyMove(dfen + " N", "h1", "h2", None).isLeft)
+    assert(Chess960Dfen.applyMove(dfen + " K", "e1", "f1", None).isLeft)
+
+  test("micro-moves can replay a legal castle and en-passant capture before ending the turn"):
+    val dfen = "r3k3/8/8/3pP3/8/8/8/5KR1 w Kq d6 7 12 PRK"
+    val next = for
+      castle <- Chess960Dfen.applyMove(dfen, "f1", "g1", None)
+      ep     <- Chess960Dfen.applyMove(castle, "e5", "d6", None)
+      result <- Chess960Dfen.endTurn(ep)
+    yield result
+    assertEquals(next, Right("r3k3/8/3P4/8/8/8/8/5RK1 b q - 0 12"))
+
+  test("explicit end turn flips even on an editor board with a missing king and guards overflow"):
+    assertEquals(
+      Chess960Dfen.endTurn("8/8/8/8/8/8/8/4K3 w - - 0 1 P"),
+      Right("8/8/8/8/8/8/8/4K3 b - - 0 1")
+    )
+    assert(Chess960Dfen.endTurn(s"4k3/8/8/8/8/8/8/4K3 b - - 0 ${Int.MaxValue}").isLeft)
+
+  test("a micro-move promotion capture removes only the captured rook's right"):
+    val dfen = "4k2r/8/8/8/8/8/4p3/R3KR1R b FQk - 7 12 pn"
+    assertEquals(
+      Chess960Dfen.applyMove(dfen, "e2", "f1", Some("r")),
+      Right("4k2r/8/8/8/8/8/8/R3Kr1R b Qk - 0 12 n")
+    )
+    assert(Chess960Dfen.applyMove(dfen, "e2", "f1", Some("k")).isLeft)
+    assert(Chess960Dfen.applyMove(dfen, "E2", "f1", Some("r")).isLeft)

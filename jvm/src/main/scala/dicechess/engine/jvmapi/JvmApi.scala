@@ -5,6 +5,7 @@ import dicechess.engine.domain.*
 import dicechess.engine.search.{
   BotRegistry,
   Chess960TurnGenerator,
+  ConfiguredTurns,
   Evaluator,
   KingThreat,
   TacticianConfig,
@@ -46,27 +47,63 @@ import scala.util.Random
   */
 object JvmApi:
 
-  /** Complete legal paths from a rolled Chess960 DFEN. Castling targets the participating rook. */
-  def chess960LegalTurnPaths(dfen: String): ju.List[ju.List[String]] =
-    val snapshot = FenParser
-      .parseChess960(dfen)
-      .fold(msg => throw IllegalArgumentException(msg), identity) // scalafix:ok(DisableSyntax.throw)
-    Chess960TurnGenerator.legalPaths(snapshot).map(_.asJava).asJava
+  private def requireConfig(config: RulesConfig): Unit =
+    require(Option(config).isDefined, "Missing rules configuration")
 
-  /** Applies an exact complete Chess960 path from a rolled DFEN, with an empty path for a forced pass. Clears the dice
-    * and ends the turn, keeping the winner on move after a king capture.
-    *
-    * @throws IllegalArgumentException
-    *   if the DFEN or path is invalid
-    */
-  def applyChess960Turn(dfen: String, moves: ju.List[String]): String =
+  private def orInvalid[A](result: Either[String, A]): A =
+    result.fold(msg => throw IllegalArgumentException(msg), identity) // scalafix:ok(DisableSyntax.throw)
+
+  /** Complete legal UCI paths under the standard Dice Chess rules. */
+  def legalTurnPaths(dfen: String): ju.List[ju.List[String]] = legalTurnPaths(dfen, RulesConfig.Standard)
+
+  /** Enumerates paths for the dice already present in DFEN. The layout determines castling notation. */
+  def legalTurnPaths(dfen: String, config: RulesConfig): ju.List[ju.List[String]] =
+    requireConfig(config)
+    val paths =
+      if config.isChess960 then Chess960TurnGenerator.legalPaths(orInvalid(Chess960Dfen.parse(dfen)))
+      else
+        val state = parseDfen(dfen)
+        if isGameOver(state) then Nil else TurnGenerator.generateAllLegalTurnPaths(state).map(_.map(_.toUci))
+    paths.map(_.asJava).asJava
+
+  /** Complete legal paths from a rolled Chess960 DFEN. Castling targets the participating rook. */
+  def chess960LegalTurnPaths(dfen: String): ju.List[ju.List[String]] = legalTurnPaths(dfen, RulesConfig.Chess960)
+
+  /** Applies a complete path to a standard rolled position and returns the DFEN at the turn boundary. */
+  def applyTurn(dfen: String, moves: ju.List[String]): String = applyTurn(dfen, moves, RulesConfig.Standard)
+
+  /** Applies a complete path under the selected layout. An empty path is valid for a rolled forced pass. */
+  def applyTurn(dfen: String, moves: ju.List[String], config: RulesConfig): String =
+    requireConfig(config)
     require(
       Option(moves).isDefined && moves.size() <= GameFlags.DiceSlots,
       "moves must be a list of at most three strings"
     )
-    Chess960TurnGenerator
-      .applyTurn(dfen, moves.asScala.toList)
-      .fold(msg => throw IllegalArgumentException(msg), identity) // scalafix:ok(DisableSyntax.throw)
+    orInvalid(ConfiguredTurns.applyTurn(dfen, moves.asScala.toList, config))
+
+  /** Plays a full Chess960 turn using king-to-rook castling notation. */
+  def applyChess960Turn(dfen: String, moves: ju.List[String]): String = applyTurn(dfen, moves, RulesConfig.Chess960)
+
+  /** Prepares one playable pool from a standard draw. */
+  def prepareRoll(randomFaces: ju.List[Integer], firstTurnForPlayer: Boolean): ju.List[ju.List[Integer]] =
+    prepareRoll(randomFaces, firstTurnForPlayer, RulesConfig.Standard)
+
+  /** Returns one playable pool or two ordered offers. The host records which offer the player selects. */
+  def prepareRoll(
+      randomFaces: ju.List[Integer],
+      firstTurnForPlayer: Boolean,
+      config: RulesConfig
+  ): ju.List[ju.List[Integer]] =
+    requireConfig(config)
+    require(
+      Option(randomFaces).exists(_.size() == config.requiredRandomDice(firstTurnForPlayer)),
+      "Unexpected number of random dice for this turn"
+    )
+    val roll  = orInvalid(config.prepareRoll(randomFaces.asScala.iterator.map(dieValue).toList, firstTurnForPlayer))
+    val pools = roll match
+      case pool: PreparedRoll.Pool     => List(pool.dice)
+      case offers: PreparedRoll.Offers => List(offers.first, offers.second)
+    pools.map(_.map(Int.box).asJava).asJava
 
   /** Plays the rolled Chess960 castling micro-move identified by the rook's square. */
   def applyChess960Castle(dfen: String, rook: String): String =

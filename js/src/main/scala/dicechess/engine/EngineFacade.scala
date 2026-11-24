@@ -13,7 +13,6 @@ import scala.util.Random
   * It exposes methods to generate bot moves, query piece types, fetch legal moves filtered by dice, and apply moves
   * directly to FEN strings.
   */
-@JSExportTopLevel("EngineFacade")
 object EngineFacade {
 
   /** Computes a bot move for the given DFEN.
@@ -31,7 +30,6 @@ object EngineFacade {
     *   // Returns js.Dictionary("from" -> "e2", "to" -> "e4", ...)
     *   ```
     */
-  @JSExport
   @JSExportTopLevel("getBotMove")
   def getBotMove(
       dfen: String,
@@ -81,7 +79,6 @@ object EngineFacade {
     *   val pt = EngineFacade.getPieceTypeAt(dfen, "e2") // returns 1 for a pawn
     *   ```
     */
-  @JSExport
   @JSExportTopLevel("getPieceTypeAt")
   def getPieceTypeAt(dfen: String, square: String): js.UndefOr[Int] =
     if Option(dfen).isEmpty || Option(square).isEmpty then js.undefined
@@ -121,10 +118,15 @@ object EngineFacade {
     *   val newDfen = EngineFacade.applyMove(dfen, "e2", "e4", js.undefined)
     *   ```
     */
-  @JSExport
   @JSExportTopLevel("applyMoveFacade")
-  def applyMove(dfen: String, from: String, to: String, promotion: js.UndefOr[String]): js.UndefOr[String] =
-    RulesOps.applyMove(dfen, from, to, promotion)
+  def applyMove(
+      dfen: String,
+      from: String,
+      to: String,
+      promotion: js.UndefOr[String],
+      options: js.UndefOr[js.Any] = js.undefined
+  ): js.UndefOr[String] =
+    RulesOps.applyMove(dfen, from, to, promotion, options)
 
   /** Explicitly ends the current turn to mark a clear boundary between players in a multi-micro-move sequence.
     *
@@ -138,7 +140,12 @@ object EngineFacade {
     * @return
     *   The updated DFEN string finalized for the next player, or `undefined` if invalid.
     */
-  @JSExport
   @JSExportTopLevel("endTurnFacade")
-  def endTurn(dfen: String): js.UndefOr[String] = RulesOps.endTurn(dfen)
+  def endTurn(dfen: String, options: js.UndefOr[js.Any] = js.undefined): js.UndefOr[String] =
+    RulesOps.endTurn(dfen, options)
 }
+
+/** A JavaScript object exposes its methods to consumers on both the JS and Wasm backends. */
+@JSExportTopLevel("EngineFacade")
+object EngineFacadeExport extends js.Object:
+  export EngineFacade.*

@@ -98,7 +98,7 @@ npm install @fortemate/dicechess-engine
 ```
 
 ```typescript
-import { DiceChess, getChess960LegalTurnTree, applyChess960Turn } from '@fortemate/dicechess-engine';
+import { DiceChess } from '@fortemate/dicechess-engine';
 
 // A Dice Chess FEN (DFEN) carries the rolled dice as a 7th field: "PN" = a Pawn and a Knight die.
 const dfen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 PN';
@@ -119,9 +119,10 @@ const nextTurn = DiceChess.endTurn(afterKnight);
 
 // Chess960 castling names the king and participating rook, here f1 and g1.
 const chess960 = '6k1/8/8/8/8/8/P7/5KR1 w K - 0 1 KRP';
-const chess960Turns = getChess960LegalTurnTree(chess960);
+const rules = { layout: 'chess960' } as const;
+const chess960Turns = DiceChess.getLegalTurnTree(chess960, rules);
 console.log(chess960Turns['f1g1']['a2a4']); // {} means the pawn move completes the turn after castling
-const afterChess960Turn = applyChess960Turn(chess960, ['f1g1', 'a2a4']);
+const afterChess960Turn = DiceChess.applyTurn(chess960, ['f1g1', 'a2a4'], rules);
 // '6k1/8/8/8/P7/8/8/5RK1 b - a3 0 1'
 
 // Ask a built-in bot for its turn (ids from DiceChess.getAvailableBots())
@@ -130,6 +131,18 @@ console.log('Bot plays:', bot.moves, 'score', bot.score);
 ```
 
 The full surface (`getLegalTurnTree`, `getPlayableDice`, `getAvailableBots`, clock-aware `getBestMove`, doubling and draw decisions, `estimateEquity`) is documented in the [JavaScript API Reference](https://fortemate.github.io/dicechess-engine/architecture/javascript-api/).
+
+The default rules are `{ profile: 'dicechesscom', layout: 'classical', rollPolicy: 'standard' }`.
+The supported presets are Standard Dice Chess, Chess960, guaranteed opening pawn
+(`opening-pawn`), Chess960 with the same opening policy, and classical Fortemate Choice
+(`choice-2x2d6`). Each uses canonical en passant. The full JavaScript and WebAssembly
+APIs accept the options on `getLegalTurnTree`, `getPlayableDice`, `applyTurn`,
+`requiredRandomDice` and `prepareRoll`. The full packages and JavaScript `./rules` entry also accept them on
+`applyMove` and `endTurn`. An explicit `null` configuration throws `TypeError`.
+`prepareRoll` uses host-drawn faces. The opening policy adds a fixed pawn to both supplied
+faces on each player's first turn. Fortemate Choice offers two ordered pairs, and the player
+commits one whole pair before play.
+[Rules configuration and roll preparation](https://fortemate.github.io/dicechess-engine/architecture/javascript-api/#rules-configuration)
 
 An application can register the experimental Tactician search with an explicit,
 externally supplied profile before selecting it by id:
@@ -152,7 +165,15 @@ rescoring, not legal-turn generation or total elapsed time.
 
 ### Java / Kotlin (JVM Facade)
 
-`JvmApi` ships in `com.fortemate:dicechess-engine_3` (Maven Central); rules-only JVM projects use `dicechess-rules_3` and call the Scala API directly.
+`JvmApi` ships in `com.fortemate:dicechess-engine_3` on Maven Central. Rules-only JVM
+projects can call Scala APIs from `dicechess-rules_3`.
+
+`JvmApi.legalTurnPaths(dfen)` and `JvmApi.applyTurn(dfen, moves)` use standard rules.
+Each has a final `RulesConfig` overload, for example with `RulesConfig.Chess960()`.
+`JvmApi.prepareRoll(randomFaces, firstTurnForPlayer, config)` returns an ordered list
+containing one playable pool or two Choice offers. An explicit `null` configuration
+throws `IllegalArgumentException`.
+[JVM rules API](https://fortemate.github.io/dicechess-engine/architecture/jvm-api/#configurable-turn-rules)
 
 ```java
 import dicechess.engine.domain.GameState;

@@ -57,6 +57,27 @@ object Move:
   def apply(from: Square, to: Square): Move =
     apply(from, to, QuietMove)
 
+  /** Parses the coordinates and promotion piece of a UCI token for matching against generated moves. */
+  private[engine] def fromUci(uci: String): Option[Move] =
+    val flags = uci.length match
+      case 4 => Move.QuietMove
+      case 5 => promotionFlags(uci.charAt(4))
+      case _ => -1
+    if flags < 0 then None
+    else
+      for
+        from <- Square.fromNotation(uci.substring(0, 2))
+        to   <- Square.fromNotation(uci.substring(2, 4))
+      yield Move(from, to, flags)
+
+  /** The flags of a promotion to the piece UCI writes as `piece`, or -1 for any other letter. */
+  private def promotionFlags(piece: Char): Int = piece match
+    case 'q' => Move.QueenPromotion
+    case 'r' => Move.RookPromotion
+    case 'b' => Move.BishopPromotion
+    case 'n' => Move.KnightPromotion
+    case _   => -1
+
   /** A sentinel move encoding a1→a1 with no flags. Used as a zero-value placeholder; never a legal move. */
   val empty: Move = 0
 

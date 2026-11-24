@@ -26,6 +26,7 @@ const SEARCH_MARKERS = [
   'BotRegistry',
   'GreedySearch',
   'TurnGenerator',
+  'ConfiguredTurns',
   'PlayableDice',
   'BudgetedRules',
   'ActiveDicePartitioner',
@@ -170,7 +171,7 @@ if (typeof full.applyChess960Turn !== 'function') {
   ];
   if (invalidResults.some(result => result !== undefined)) fail('applyChess960Turn accepted invalid input');
 }
-for (const name of ['getChess960LegalTurnTree', 'applyChess960Turn']) {
+for (const name of ['getChess960LegalTurnTree', 'applyChess960Turn', 'getLegalTurnTree', 'getPlayableDice', 'requiredRandomDice', 'prepareRoll', 'applyTurn']) {
   if (Object.hasOwn(rules, name) || Object.hasOwn(rules.DiceChess, name)) {
     fail(`the "./rules" entry exports ${name}`);
   }

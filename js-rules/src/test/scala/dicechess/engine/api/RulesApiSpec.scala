@@ -115,3 +115,14 @@ class RulesApiSpec extends FunSuite:
     assertEquals(RulesApi.canonicalKey(initialDfen).toOption, JsApi.canonicalKey(initialDfen).toOption)
     assertEquals(RulesApi.canonicalKey("not-a-fen").toOption, None)
   }
+
+  test("configured micro-moves preserve the eligible inner rook across both entries"):
+    val options = js.Dynamic.literal(layout = "chess960")
+    val dfen    = "4k3/8/8/8/8/8/8/R3KR1R w FQ - 0 1 R"
+    val after   = "4k3/8/8/8/8/8/7R/R3KR2 w KQ - 1 1"
+    assertEquals(RulesApi.applyMove(dfen, "h1", "h2", js.undefined, options).toOption, Some(after))
+    assertEquals(JsApi.applyMove(dfen, "h1", "h2", js.undefined, options).toOption, Some(after))
+    assertEquals(
+      RulesApi.endTurn(after, options).toOption,
+      Some("4k3/8/8/8/8/8/7R/R3KR2 b KQ - 1 1")
+    )

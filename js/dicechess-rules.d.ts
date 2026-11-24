@@ -8,9 +8,20 @@
  *
  *     import { DiceChess } from '@fortemate/dicechess-engine/rules';
  */
+/**
+ * Selects rules for a game. Omitted fields use the canonical profile, classical layout
+ * and standard roll policy. Invalid options throw TypeError. The roll policy does not
+ * alter the realized dice pool in the DFEN.
+ */
+export interface RulesOptions {
+    readonly profile?: "dicechesscom";
+    readonly layout?: "classical" | "chess960";
+    readonly rollPolicy?: "standard" | "opening-pawn" | "choice-2x2d6";
+}
+
 export interface DiceChessRulesApi {
     /**
-     * Returns all legal moves as a flat array of UCI strings (e.g., ["e2e4", "e7e8q"]).
+     * Returns legal first moves for the classical layout as a flat array of UCI strings (e.g., ["e2e4", "e7e8q"]).
      * Empty for an invalid DFEN or a position whose dice pool allows no move.
      * They are the legal first actions of a turn from this position, judged in isolation: asked
      * again after each micro-move, the answer can admit actions the whole turn does not allow.
@@ -33,16 +44,16 @@ export interface DiceChessRulesApi {
      * returned once the last die is spent, accepts any pseudo-legal move.
      * @param dfen The starting board state in DiceChess FEN notation.
      * @param from The algebraic notation of the starting square.
-     * @param to The algebraic notation of the target square.
+     * @param to The target square. For Chess960 castling, use the eligible rook’s origin.
      * @param promotion The optional piece type to promote to (e.g. "q").
      */
-    applyMove(dfen: string, from: string, to: string, promotion?: string): string | undefined;
+    applyMove(dfen: string, from: string, to: string, promotion?: string, options?: RulesOptions): string | undefined;
 
     /**
      * Explicitly ends the current turn, toggling the active color, incrementing full moves,
      * clearing the dice pool and dropping any stale en-passant target.
      */
-    endTurn(dfen: string): string | undefined;
+    endTurn(dfen: string, options?: RulesOptions): string | undefined;
 
     /**
      * Executes perft (performance test) counting leaf nodes at the given depth.

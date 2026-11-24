@@ -32,7 +32,6 @@ import scala.scalajs.js.JSConverters.*
   * the whole search package — into the module a rules-only host loads (#222). The legal turn tree delegates to
   * [[dicechess.engine.api.TurnTreeOps]] instead, because it reaches `TurnGenerator`, which `./rules` does not carry.
   */
-@JSExportTopLevel("DiceChess")
 object JsApi:
 
   @JSExportTopLevel("getChess960LegalTurnTree")
@@ -57,7 +56,6 @@ object JsApi:
     * @return
     *   An array of bot metadata objects.
     */
-  @JSExport
   @JSExportTopLevel("getAvailableBots")
   def getAvailableBots(): js.Array[js.Dynamic] =
     BotRegistry.availableBots.map { bot =>
@@ -73,7 +71,6 @@ object JsApi:
   /** Returns stable ids of all built-in time-management policies, so a host can validate persisted configuration or
     * build a selector without duplicating the engine's policy registry.
     */
-  @JSExport
   @JSExportTopLevel("getAvailableTimePolicies")
   def getAvailableTimePolicies(): js.Array[String] = TimePolicies.available.map(_.id).toJSArray
 
@@ -86,7 +83,6 @@ object JsApi:
     * @return
     *   An array of full UCI move strings.
     */
-  @JSExport
   @JSExportTopLevel("getLegalUciMoves")
   def getLegalUciMoves(dfen: String): js.Array[String] = RulesOps.getLegalUciMoves(dfen)
 
@@ -110,9 +106,10 @@ object JsApi:
     *   The tree of legal turns; an empty object when the roll has no legal move, and for a DFEN without dice or an
     *   invalid one.
     */
-  @JSExport
   @JSExportTopLevel("getLegalTurnTree")
-  def getLegalTurnTree(dfen: String): js.Dictionary[js.Any] = TurnTreeOps.getLegalTurnTree(dfen)
+  def getLegalTurnTree(dfen: String, options: js.UndefOr[js.Any] = js.undefined): js.Dictionary[js.Any] =
+    if RulesOptions.resolve(options).isChess960 then TurnTreeOps.getChess960LegalTurnTree(dfen)
+    else TurnTreeOps.getLegalTurnTree(dfen)
 
   /** Returns the dice that a legal turn can still spend once `moves` have been played (#293).
     *
@@ -141,10 +138,53 @@ object JsApi:
     *   DFEN without dice. `undefined` for an invalid DFEN, when `moves` is not an array of UCI strings, and when it is
     *   not the beginning of a legal turn.
     */
-  @JSExport
   @JSExportTopLevel("getPlayableDice")
-  def getPlayableDice(dfen: String, moves: js.UndefOr[js.Array[String]] = js.undefined): js.UndefOr[String] =
-    TurnTreeOps.getPlayableDice(dfen, moves)
+  def getPlayableDice(
+      dfen: String,
+      moves: js.UndefOr[js.Array[String]] = js.undefined,
+      options: js.UndefOr[js.Any] = js.undefined
+  ): js.UndefOr[String] =
+    if RulesOptions.resolve(options).isChess960 then TurnTreeOps.getChess960PlayableDice(dfen, moves)
+    else TurnTreeOps.getPlayableDice(dfen, moves)
+
+  /** Returns how many random faces to supply for the active turn. */
+  @JSExportTopLevel("requiredRandomDice")
+  def requiredRandomDice(firstTurnForPlayer: js.Any, options: js.UndefOr[js.Any] = js.undefined): js.UndefOr[Int] =
+    val config = RulesOptions.resolve(options)
+    if js.typeOf(firstTurnForPlayer) != "boolean" then js.undefined
+    else config.requiredRandomDice(firstTurnForPlayer.asInstanceOf[Boolean])
+
+  /** Builds the active player's pool or ordered offers from caller-supplied random faces. */
+  @JSExportTopLevel("prepareRoll")
+  def prepareRoll(
+      randomFaces: js.Any,
+      firstTurnForPlayer: js.Any,
+      options: js.UndefOr[js.Any] = js.undefined
+  ): js.UndefOr[js.Object] =
+    val config = RulesOptions.resolve(options)
+    if !js.Array.isArray(randomFaces) || js.typeOf(firstTurnForPlayer) != "boolean" then js.undefined
+    else
+      val firstTurn = firstTurnForPlayer.asInstanceOf[Boolean]
+      val faces     = randomFaces.asInstanceOf[js.Array[js.Any]]
+      if faces.length != config.requiredRandomDice(firstTurn) ||
+        !faces.iterator.forall(face => js.typeOf(face) == "number" && face.asInstanceOf[Double].isValidInt)
+      then js.undefined
+      else
+        val dice = faces.asInstanceOf[js.Array[Int]].iterator.toList
+        config
+          .prepareRoll(dice, firstTurn)
+          .toOption
+          .map:
+            case pool: PreparedRoll.Pool =>
+              js.Dynamic.literal(kind = "pool", dice = pool.dice.toJSArray)
+            case offers: PreparedRoll.Offers =>
+              js.Dynamic.literal(kind = "offers", first = offers.first.toJSArray, second = offers.second.toJSArray)
+          .orUndefined
+
+  /** Applies an exact complete turn from a rolled DFEN, or returns `undefined` for an invalid path. */
+  @JSExportTopLevel("applyTurn")
+  def applyTurn(dfen: js.Any, moves: js.Any, options: js.UndefOr[js.Any] = js.undefined): js.UndefOr[String] =
+    TurnTreeOps.applyTurn(dfen, moves, RulesOptions.resolve(options))
 
   /** Returns the weight (0–216) of the ordered rolls that allow the active color to capture the king on `targetSquare`
     * within up to `maxActions` (1, 2, or 3, default 3).
@@ -158,7 +198,6 @@ object JsApi:
     * @return
     *   Total weight of ordered rolls out of 216.
     */
-  @JSExport
   @JSExportTopLevel("threatWeight")
   def threatWeight(dfen: String, targetSquare: String, maxActions: js.UndefOr[js.Any] = js.undefined): Int =
     KingThreatOps.threatWeight(dfen, targetSquare, maxActions)
@@ -174,7 +213,6 @@ object JsApi:
     * @return
     *   Total number of leaf nodes as a Double.
     */
-  @JSExport
   @JSExportTopLevel("perft")
   def perft(dfen: String, depth: Int): Double = RulesOps.perft(dfen, depth)
 
@@ -187,7 +225,6 @@ object JsApi:
     * @return
     *   An array of UCI move strings.
     */
-  @JSExport
   @JSExportTopLevel("generateMoves")
   def generateMoves(dfen: String): js.Array[String] = RulesOps.generateMoves(dfen)
 
@@ -201,7 +238,6 @@ object JsApi:
     * @return
     *   Total move count generated across all iterations.
     */
-  @JSExport
   @JSExportTopLevel("benchGenerateMoves")
   def benchGenerateMoves(dfen: String, iterations: Int): Double =
     if Option(dfen).isEmpty || iterations <= 0 then 0.0
@@ -230,7 +266,6 @@ object JsApi:
     * @return
     *   Total move count generated across all iterations.
     */
-  @JSExport
   @JSExportTopLevel("benchFilterMaximalMoves")
   def benchFilterMaximalMoves(dfen: String, iterations: Int): Double =
     if Option(dfen).isEmpty || iterations <= 0 then 0.0
@@ -253,7 +288,6 @@ object JsApi:
     * @return
     *   The piece notation (p, n, b, r, q, k) or null if invalid.
     */
-  @JSExport
   @JSExportTopLevel("getPieceFromDice")
   def getPieceFromDice(dice: Int): String | Null = RulesOps.getPieceFromDice(dice)
 
@@ -268,7 +302,6 @@ object JsApi:
     * @return
     *   `true` when the base bot exists and the TSV parses (the bot is registered); `false` otherwise (no change).
     */
-  @JSExport
   @JSExportTopLevel("registerOpeningBookBot")
   def registerOpeningBookBot(
       tsvString: String,
@@ -300,7 +333,6 @@ object JsApi:
   /** Registers an experimental Tactician under an unused id, with an explicit host-supplied profile. Returns false for
     * malformed settings or an existing id; built-in opponents are never replaced.
     */
-  @JSExport
   @JSExportTopLevel("registerTacticianBot")
   def registerTacticianBot(config: js.Dynamic, newBotId: String, newBotName: String): Boolean =
     val parsed = Option(config.asInstanceOf[AnyRef])
@@ -350,7 +382,6 @@ object JsApi:
     *   An object with `moves`, `score`, `timeTakenMs`, and `budgetMs` (the time-managed allocation actually used, or 0
     *   when the search was unbounded).
     */
-  @JSExport
   @JSExportTopLevel("getBestMove")
   def getBestMove(dfen: String, options: js.UndefOr[js.Dynamic]): js.Dynamic =
     if Option(dfen).isEmpty then js.Dynamic.literal(moves = js.Array(), score = 0, timeTakenMs = 0, budgetMs = 0)
@@ -419,10 +450,15 @@ object JsApi:
     *   The updated DFEN string after applying the move, or `undefined` if the move is pseudo-illegal or no die allows
     *   it.
     */
-  @JSExport
   @JSExportTopLevel("applyMove")
-  def applyMove(dfen: String, from: String, to: String, promotion: js.UndefOr[String]): js.UndefOr[String] =
-    RulesOps.applyMove(dfen, from, to, promotion)
+  def applyMove(
+      dfen: String,
+      from: String,
+      to: String,
+      promotion: js.UndefOr[String],
+      options: js.UndefOr[js.Any] = js.undefined
+  ): js.UndefOr[String] =
+    RulesOps.applyMove(dfen, from, to, promotion, options)
 
   /** Explicitly ends the current turn to mark a clear boundary between players in a multi-micro-move sequence.
     *
@@ -436,13 +472,12 @@ object JsApi:
     * @return
     *   The updated DFEN string finalized for the next player, or `undefined` if invalid.
     */
-  @JSExport
   @JSExportTopLevel("endTurn")
-  def endTurn(dfen: String): js.UndefOr[String] = RulesOps.endTurn(dfen)
+  def endTurn(dfen: String, options: js.UndefOr[js.Any] = js.undefined): js.UndefOr[String] =
+    RulesOps.endTurn(dfen, options)
 
   /** Determines whether the bot should offer a double before its dice roll.
     */
-  @JSExport
   @JSExportTopLevel("shouldBotOfferDouble")
   def shouldBotOfferDouble(dfen: String, currentStake: Int, options: js.UndefOr[js.Dynamic]): Boolean =
     if Option(dfen).isEmpty then false
@@ -454,7 +489,6 @@ object JsApi:
 
   /** Determines whether the bot should accept (Take) or decline (Drop) a double from the opponent.
     */
-  @JSExport
   @JSExportTopLevel("shouldBotAcceptDouble")
   def shouldBotAcceptDouble(dfen: String, currentStake: Int, options: js.UndefOr[js.Dynamic]): Boolean =
     if Option(dfen).isEmpty then false
@@ -466,7 +500,6 @@ object JsApi:
 
   /** Determines whether the bot should offer a draw.
     */
-  @JSExport
   @JSExportTopLevel("shouldBotOfferDraw")
   def shouldBotOfferDraw(dfen: String, options: js.UndefOr[js.Dynamic]): Boolean =
     if Option(dfen).isEmpty then false
@@ -478,7 +511,6 @@ object JsApi:
 
   /** Determines whether the bot should accept a draw offered by the opponent.
     */
-  @JSExport
   @JSExportTopLevel("shouldBotAcceptDraw")
   def shouldBotAcceptDraw(dfen: String, options: js.UndefOr[js.Dynamic]): Boolean =
     if Option(dfen).isEmpty then false
@@ -502,7 +534,6 @@ object JsApi:
     *   `{ whiteWin, blackWin, undecided, rollouts, standardError, varianceReductionVsVanilla }`; a neutral
     *   `undecided = 1` result for an invalid DFEN.
     */
-  @JSExport
   @JSExportTopLevel("estimateEquity")
   def estimateEquity(dfen: String, options: js.UndefOr[js.Dynamic]): js.Dynamic =
     if Option(dfen).isEmpty then equityFallback
@@ -531,7 +562,6 @@ object JsApi:
     * @return
     *   the canonical DFEN, or `undefined` for an invalid DFEN.
     */
-  @JSExport
   @JSExportTopLevel("canonicalKey")
   def canonicalKey(dfen: String): js.UndefOr[String] = RulesOps.canonicalKey(dfen)
 
@@ -620,3 +650,16 @@ object JsApi:
       }
       .getOrElse("greedy")
     BotRegistry.getAlgorithm(algoName).getOrElse(BotRegistry.defaultAlgorithm)
+
+/** A JavaScript object exposes its methods to consumers on both the JS and Wasm backends. */
+@JSExportTopLevel("DiceChess")
+object DiceChessExport extends js.Object:
+  // The historical Chess960 helpers are standalone module exports.
+  export JsApi.{
+    applyChess960Castle as _,
+    applyChess960Turn as _,
+    chess960StartingDfen as _,
+    getChess960LegalTurnTree as _,
+    normalizeChess960Dfen as _,
+    *
+  }
