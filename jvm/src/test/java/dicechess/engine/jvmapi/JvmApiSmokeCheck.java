@@ -2,6 +2,7 @@ package dicechess.engine.jvmapi;
 
 import dicechess.engine.domain.GameState;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -65,6 +66,7 @@ public final class JvmApiSmokeCheck {
 		}
 
 		checkChess960TurnPaths();
+		checkApplyChess960Turn();
 	}
 
 	private static void checkChess960TurnPaths() {
@@ -82,6 +84,41 @@ public final class JvmApiSmokeCheck {
 			throw new AssertionError("expected chess960LegalTurnPaths to reject an invalid DFEN");
 		} catch (IllegalArgumentException expected) {
 			// expected: the Chess960 parsing error is surfaced to Java callers
+		}
+	}
+
+	private static void checkApplyChess960Turn() {
+		var board = "6k1/8/8/8/8/8/P7/5KR1 w K - 0 1";
+		var rolled = board + " KRP";
+		require(
+				JvmApi.applyChess960Turn(rolled, List.of("f1g1", "a2a3"))
+						.equals("6k1/8/8/8/8/P7/8/5RK1 b - - 0 1"),
+				"a complete turn must clear the roll and hand over the move"
+		);
+		require(
+				JvmApi.applyChess960Turn("6k1/8/8/8/8/P7/8/5RK1 b - - 0 1 qqq", List.of())
+						.equals("6k1/8/8/8/8/P7/8/5RK1 w - - 0 2"),
+				"a forced Black pass must hand over the move and advance the full-move counter"
+		);
+		require(
+				JvmApi.applyChess960Turn(rolled, List.of("g1g8")).equals("6R1/8/8/8/8/8/P7/5K2 w - - 0 1"),
+				"a king capture must clear the roll and leave the winner on move"
+		);
+		requireRejectedChess960Turn(rolled, List.of("f1g1"));
+		requireRejectedChess960Turn(rolled, List.of());
+		requireRejectedChess960Turn(board, List.of());
+		requireRejectedChess960Turn("invalid-fen", List.of());
+		requireRejectedChess960Turn(null, List.of());
+		requireRejectedChess960Turn(rolled, null);
+		requireRejectedChess960Turn(rolled, Collections.singletonList(null));
+	}
+
+	private static void requireRejectedChess960Turn(String dfen, List<String> path) {
+		try {
+			JvmApi.applyChess960Turn(dfen, path);
+			throw new AssertionError("expected applyChess960Turn to reject " + dfen + " with path " + path);
+		} catch (IllegalArgumentException expected) {
+			// Invalid input is surfaced to Java callers as IllegalArgumentException.
 		}
 	}
 

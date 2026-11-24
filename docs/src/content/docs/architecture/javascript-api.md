@@ -447,11 +447,25 @@ Use the named export `getChess960LegalTurnTree(dfen)` from the full JavaScript o
 follow a complete turn from its initial roll. The keys are UCI moves. A castle names the king's start
 and the participating rook's start (for example, `f1g1` when the two pieces swap). Every leaf
 captures the opposing king or spends the maximum available dice across all paths. The empty tree
-covers invalid input, an absent roll and a forced pass. JVM callers can enumerate the same paths
+covers invalid input, a captured king, an absent roll and a forced pass. JVM callers can enumerate the same paths
 with `JvmApi.chess960LegalTurnPaths(dfen)`, which returns lists of UCI move strings. The JVM method
-throws `IllegalArgumentException` for invalid DFEN and returns an empty list for an absent roll or forced pass.
+throws `IllegalArgumentException` for invalid DFEN and returns an empty list for a finished game, an absent roll or a forced pass.
 
 The tree uses the same nested `MoveTree` shape as [`getLegalTurnTree`](#getlegalturntree), with
-children sorted in UCI order and an empty object at each terminal path. To obtain the DFEN immediately after a castle, use `applyChess960Castle`.
-Applying a complete path while preserving Chess960 castling rights requires a separate operation
-that the engine does not yet expose.
+children sorted in UCI order and an empty object at each terminal path.
+
+The full JavaScript and WebAssembly packages also export `applyChess960Turn(dfen, moves)`. It
+accepts a rolled DFEN and a complete legal path of UCI strings, returning the canonical DFEN
+with Chess960 rook rights updated. Invalid input or an illegal or incomplete path returns
+`undefined`. An empty path is accepted only for a forced pass on a rolled position. A king capture
+clears the dice and keeps the mover active. Other legal paths hand the turn to the opponent.
+
+```javascript
+import { applyChess960Turn } from '@fortemate/dicechess-engine';
+
+const dfen = '6k1/8/8/8/8/8/P7/5KR1 w K - 0 1 KRP';
+const next = applyChess960Turn(dfen, ['f1g1', 'a2a4']);
+// '6k1/8/8/8/P7/8/8/5RK1 b - a3 0 1'
+```
+
+For the intermediate DFEN immediately after a castle, use `applyChess960Castle`.

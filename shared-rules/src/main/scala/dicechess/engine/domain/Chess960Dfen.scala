@@ -46,6 +46,29 @@ final class Chess960Dfen private (
       zobristKey = 0L
     )
 
+  private[engine] def play(move: Move): Either[String, Chess960Dfen] =
+    if move.isCastling then castle(move.toSquare)
+    else
+      val from          = move.fromSquare
+      val to            = move.toSquare
+      val own           = if position.activeColor.isWhite then position.whitePieces else position.blackPieces
+      val unmoved       = castlingRooks.remove(from).remove(to)
+      val afterKingMove = if position.kings.contains(from) then unmoved & ~own else unmoved
+      val rights        = if position.isKingCapture(move) then afterKingMove & own else afterKingMove
+      val next          = position.makeMove(move).withDiceSlotsOf(position.diceAfter(move))
+      Chess960Dfen.fromRookSquares(next, rights)
+
+  private[engine] def hasBothKings: Boolean =
+    !(position.kings & position.whitePieces).isEmpty && !(position.kings & position.blackPieces).isEmpty
+
+  private[engine] def completedDfen: Either[String, String] =
+    val finalBoard = if hasBothKings then position.endTurn() else position.withDicePool(Nil)
+    Either.cond(
+      finalBoard.fullMoveNumber > 0,
+      FenParser.serializeFields(finalBoard, Some(rightsField)),
+      "The next full-move number exceeds the DFEN range"
+    )
+
   private def castles = Chess960Dfen.castles(position, castlingRooks)
 
   def serialize: String = FenParser.serializeFields(position, Some(rightsField))
@@ -120,6 +143,18 @@ object Chess960Dfen:
           // The board and all other fields follow ordinary DFEN. Resolve rights against the parsed back ranks below.
           parts(2) = "-"
           FenParser.parseFields(parts).flatMap(resolve(_, rights))
+
+  // Resolve explicit origins on the new board: another rook moving onto or off the back rank can
+  // change which surviving right may use K/Q shorthand, even when its own rook never moved.
+  private def fromRookSquares(position: GameState, rights: Bitboard): Either[String, Chess960Dfen] =
+    if rights.isEmpty then Right(new Chess960Dfen(position, rights, "-"))
+    else
+      val files = for
+        rank <- List(1, 8)
+        file <- 'a' to 'h'
+        if rights.contains(Square(file, rank))
+      yield if rank == 1 then file.toUpper else file
+      resolve(position, files.mkString)
 
   private def resolve(position: GameState, field: String): Either[String, Chess960Dfen] = boundary:
     if field == "-" then break(Right(new Chess960Dfen(position, Bitboard.empty, "-")))

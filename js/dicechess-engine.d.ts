@@ -255,5 +255,11 @@ export function chess960StartingDfen(number: number): string | undefined;
 /** Applies a rolled Chess960 castling micro-move. Invalid input or unavailable castling yields undefined. */
 export function applyChess960Castle(dfen: string, rook: string): string | undefined;
 
-/** Complete legal turns in UCI_Chess960 notation. Invalid, dice-less and forced-pass positions yield an empty tree. */
+/** Complete legal turns in UCI_Chess960 notation. Invalid, finished, dice-less and forced-pass positions yield an empty tree. */
 export function getChess960LegalTurnTree(dfen: string): MoveTree;
+
+/**
+ * Applies an exact complete UCI_Chess960 path from a rolled DFEN. An empty path is accepted for a forced pass.
+ * The resulting DFEN has no dice. A king capture keeps the winner on move. Invalid input yields undefined.
+ */
+export function applyChess960Turn(dfen: string, moves: readonly string[]): string | undefined;

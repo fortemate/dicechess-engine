@@ -505,6 +505,37 @@ class JsApiSpec extends FunSuite:
       assertEquals(js.JSON.stringify(JsApi.getChess960LegalTurnTree(dfen)), "{}", dfen)
   }
 
+  test("applyChess960Turn: applies a castle and pawn move, a forced pass, and a king capture") {
+    val board = "6k1/8/8/8/8/8/P7/5KR1 w K - 0 1"
+    assertEquals(
+      JsApi.applyChess960Turn(s"$board KRP", js.Array("f1g1", "a2a3")).toOption,
+      Some("6k1/8/8/8/8/P7/8/5RK1 b - - 0 1")
+    )
+    assertEquals(
+      JsApi.applyChess960Turn("6k1/8/8/8/8/P7/8/5RK1 b - - 0 1 qqq", js.Array[String]()).toOption,
+      Some("6k1/8/8/8/8/P7/8/5RK1 w - - 0 2")
+    )
+    assertEquals(
+      JsApi.applyChess960Turn(s"$board KRP", js.Array("g1g8")).toOption,
+      Some("6R1/8/8/8/8/8/P7/5K2 w - - 0 1")
+    )
+  }
+
+  test("applyChess960Turn: rejects invalid inputs and paths that do not complete the turn") {
+    val board        = "6k1/8/8/8/8/8/P7/5KR1 w K - 0 1"
+    val invalidPaths = List[js.Any](
+      js.Array[String](),
+      js.Array("f1g1"),
+      js.Array("g1g8", "a2a3"),
+      js.Array[js.Any]("f1g1", 1),
+      js.Dynamic.literal(length = 0),
+      js.undefined
+    )
+    for moves <- invalidPaths do assert(js.isUndefined(JsApi.applyChess960Turn(s"$board KRP", moves)))
+    assert(js.isUndefined(JsApi.applyChess960Turn(board, js.Array[String]())))
+    assert(js.isUndefined(JsApi.applyChess960Turn(1, js.Array[String]())))
+  }
+
   // --- The dice a legal turn can still spend (#293) ---
 
   private def played(ucis: String*): js.Array[String] = js.Array(ucis*)

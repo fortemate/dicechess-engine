@@ -121,6 +121,7 @@ Score those positions with [`evaluate`](#evaluate), or let a built-in bot pick f
 static String normalizeChess960Dfen(String dfen)
 static String chess960StartingDfen(int number)
 static String applyChess960Castle(String dfen, String rook)
+static String applyChess960Turn(String dfen, java.util.List<String> moves)
 static java.util.List<java.util.List<String>> chess960LegalTurnPaths(String dfen)
 ```
 
@@ -131,13 +132,21 @@ square. Invalid input raises `IllegalArgumentException`, as does an unavailable 
 
 `chess960LegalTurnPaths` enumerates complete legal turns from a rolled DFEN. Each path is a list
 of UCI strings. A castle names the king's starting square and the participating rook's starting
-square. It throws `IllegalArgumentException` for invalid DFEN and returns an empty list for an
-absent roll or forced pass.
+square. It throws `IllegalArgumentException` for invalid DFEN and returns an empty list for a
+finished game, an absent roll or a forced pass.
 
 ```java
 var paths = JvmApi.chess960LegalTurnPaths("6k1/8/8/8/8/8/P7/5KR1 w K - 0 1 KRP");
-boolean castleThenPawn = paths.contains(java.util.List.of("f1g1", "a2a4")); // true
+var moves = java.util.List.of("f1g1", "a2a4");
+boolean castleThenPawn = paths.contains(moves); // true
+String next = JvmApi.applyChess960Turn("6k1/8/8/8/8/8/P7/5KR1 w K - 0 1 KRP", moves);
+// "6k1/8/8/8/P7/8/8/5RK1 b - a3 0 1"
 ```
+
+`applyChess960Turn` applies a complete legal path to a rolled position and returns canonical DFEN,
+updating Chess960 rook rights. An empty list is valid only for a forced pass on a rolled position.
+A king capture clears the dice and keeps the mover active. Other legal paths hand the turn to the opponent. Invalid
+input or an illegal or incomplete path throws `IllegalArgumentException`.
 
 To apply a single castle and obtain the resulting DFEN, use `applyChess960Castle`. The ordinary `legalTurns` and autonomous-loop methods
 use classical castling rules. See [Chess960 DFEN interchange](/dicechess-engine/architecture/javascript-api/#chess960-dfen-interchange)

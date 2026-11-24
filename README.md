@@ -98,7 +98,7 @@ npm install @fortemate/dicechess-engine
 ```
 
 ```typescript
-import { DiceChess, getChess960LegalTurnTree } from '@fortemate/dicechess-engine';
+import { DiceChess, getChess960LegalTurnTree, applyChess960Turn } from '@fortemate/dicechess-engine';
 
 // A Dice Chess FEN (DFEN) carries the rolled dice as a 7th field: "PN" = a Pawn and a Knight die.
 const dfen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 PN';
@@ -121,6 +121,8 @@ const nextTurn = DiceChess.endTurn(afterKnight);
 const chess960 = '6k1/8/8/8/8/8/P7/5KR1 w K - 0 1 KRP';
 const chess960Turns = getChess960LegalTurnTree(chess960);
 console.log(chess960Turns['f1g1']['a2a4']); // {} means the pawn move completes the turn after castling
+const afterChess960Turn = applyChess960Turn(chess960, ['f1g1', 'a2a4']);
+// '6k1/8/8/8/P7/8/8/5RK1 b - a3 0 1'
 
 // Ask a built-in bot for its turn (ids from DiceChess.getAvailableBots())
 const bot = DiceChess.getBestMove(`${nextTurn} pn`, { algorithm: 'greedy' }); // Black rolled a Pawn and a Knight
