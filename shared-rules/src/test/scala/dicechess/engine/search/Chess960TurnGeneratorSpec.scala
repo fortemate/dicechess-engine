@@ -148,3 +148,28 @@ class Chess960TurnGeneratorSpec extends FunSuite:
     assertEquals(Chess960TurnGenerator.playableDice(rolled, List("a2a4")), Some(List(1, 1)))
     assertEquals(Chess960TurnGenerator.playableDice(passed, Nil), Some(Nil))
     assertEquals(Chess960TurnGenerator.playableDice(passed, List("a2a4")), None)
+
+  test("a non-castling roll matches UCI promotion prefixes and rejects malformed or finished prefixes"):
+    val promoted                  = Chess960Dfen.parse("7k/P7/8/8/8/8/8/4K2R w K - 0 1 PN").toOption.get
+    def playable(played: String*) = Chess960TurnGenerator.playableDice(promoted, played.toList)
+    assertEquals(playable(), Some(List(1, 2)))
+    assertEquals(playable("a7a8n"), Some(List(2)))
+    assertEquals(playable("a7a8n", "a8b6"), Some(Nil))
+    List("a7a8", "A7a8n", "a7a8N", "a7a8k", "a7a9n", "?", "").foreach: invalid =>
+      assertEquals(playable(invalid), None, invalid)
+    assertEquals(playable("a7a8n", "a8b6", "b6a8", "a8b6"), None)
+    val finished = Chess960Dfen.parse("8/P7/8/8/8/8/8/4K2R w K - 0 1 P").toOption.get
+    assertEquals(Chess960TurnGenerator.playableDice(finished, Nil), Some(Nil))
+    assertEquals(Chess960TurnGenerator.playableDice(finished, List("a7a8q")), None)
+
+  test("a third die can unblock a Chess960 castle later in the same roll"):
+    val snapshot = Chess960Dfen.parse("k7/8/8/8/8/8/8/4KN1R w K - 0 1 NKR").toOption.get
+    assertEquals(Chess960TurnGenerator.playableDice(snapshot, List("f1d2")), Some(List(4, 6)))
+    assertEquals(Chess960TurnGenerator.playableDice(snapshot, List("f1d2", "e1h1")), Some(Nil))
+    assertEquals(Chess960TurnGenerator.playableDice(snapshot, List("e1h1")), None)
+
+  test("a legal castle can leave an unplayable third die in the pool"):
+    val snapshot = Chess960Dfen.parse("4k3/8/8/8/8/8/8/4K2R w K - 0 1 KRB").toOption.get
+    assertEquals(Chess960TurnGenerator.playableDice(snapshot, Nil), Some(List(4, 6)))
+    assertEquals(Chess960TurnGenerator.playableDice(snapshot, List("e1h1")), Some(Nil))
+    assertEquals(Chess960TurnGenerator.playableDice(snapshot, List("h1h2")), Some(List(6)))

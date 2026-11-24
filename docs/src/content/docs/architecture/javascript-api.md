@@ -183,10 +183,10 @@ Only in between does it need the call: with three dice, when the longest path be
 has one or two actions. A castling path can have fewer actions than the dice it spends, and then the
 call simply answers that every die is playable.
 
-**Cost.** Each call enumerates the legal turns of the roll and replays their moves, still less work
-than `getLegalTurnTree`, which builds the tree. Following the rule above keeps that cost off the large
-trees: they almost always have a path that spends every die, while a call after every action would
-enumerate them again each time.
+Each call enumerates legal turns from the original roll. Chess960 uses the classical traversal
+when no continuation can castle. A third die can clear the castling path during the turn.
+When a castle is possible, any matching path that spends the whole roll establishes that all
+dice left after the prefix are playable.
 
 ---
 

@@ -59,27 +59,7 @@ private[engine] object TurnTreeOps:
   /** The move `element` names when it is a UCI string, such as `e2e4` or `e7e8q`, and `None` otherwise. */
   private def moveNamed(element: Any): Option[Move] =
     // `js.typeOf` rather than a `String` pattern, which links an instance test into the module shared with `./rules`.
-    if js.typeOf(element) != "string" then None
-    else
-      val uci   = element.asInstanceOf[String]
-      val flags = uci.length match
-        case 4 => Move.QuietMove
-        case 5 => promotionFlags(uci.charAt(4))
-        case _ => -1
-      if flags < 0 then None
-      else
-        for
-          from <- Square.fromNotation(uci.substring(0, 2))
-          to   <- Square.fromNotation(uci.substring(2, 4))
-        yield Move(from, to, flags)
-
-  /** The flags of a promotion to the piece UCI writes as `piece`, or -1 for any other letter. */
-  private def promotionFlags(piece: Char): Int = piece match
-    case 'q' => Move.QueenPromotion
-    case 'r' => Move.RookPromotion
-    case 'b' => Move.BishopPromotion
-    case 'n' => Move.KnightPromotion
-    case _   => -1
+    if js.typeOf(element) == "string" then Move.fromUci(element.asInstanceOf[String]) else None
 
   /** The dice as the DFEN dice field writes them, in the case of the side to move. `dice` are ascending already. */
   private def diceField(dice: List[Int], side: Color): String =

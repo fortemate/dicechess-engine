@@ -13,23 +13,38 @@ object Chess960TurnGenerator:
 
   /** Maximum remaining multiplicity per die face across legal paths continuing the given prefix. */
   def playableDice(snapshot: Chess960Dfen, played: List[String]): Option[List[Int]] =
-    val legal      = if snapshot.hasBothKings then moves(snapshot) else Nil
-    val prefixSize = played.length
-    val matching   = legal.filter(_.take(prefixSize).map(_.toUci) == played)
-    if matching.isEmpty then Option.when(played.isEmpty)(Nil)
+    if !snapshot.hasBothKings then Option.when(played.isEmpty)(Nil)
+    else if played.lengthCompare(GameFlags.DiceSlots) > 0 then None
     else
-      replay(snapshot, matching.head.take(prefixSize)).toOption.flatMap: prefix =>
+      val castles = castlingPaths(snapshot)
+      if castles.isEmpty then
+        val prefix = played.foldRight(Option(List.empty[Move])): (uci, rest) =>
+          for tail <- rest; text <- Option(uci); move <- Move.fromUci(text) yield move :: tail
+        prefix.flatMap(PlayableDice.of(snapshot.position, _))
+      else playableWithCastles(snapshot, played, castles)
+
+  private def playableWithCastles(snapshot: Chess960Dfen, played: List[String], castles: List[List[Move]]) =
+    val legal      = legalMoves(snapshot.position, castles)
+    val prefixSize = played.size
+    val matching   =
+      if played.isEmpty then legal else legal.filter(_.iterator.take(prefixSize).map(_.toUci).sameElements(played))
+    matching.headOption.flatMap: first =>
+      replay(snapshot, first.take(prefixSize)).toOption.flatMap: prefix =>
         val pool = prefix.position.dicePool
-        matching
-          .foldLeft[Either[String, List[Int]]](Right(Nil)): (result, path) =>
-            for
-              maxima <- result
-              end    <- replay(prefix, path.drop(prefixSize))
-            yield
-              val spent = pool.diff(end.position.dicePool)
-              maxima ::: spent.diff(maxima)
-          .toOption
-          .map(_.sorted)
+        // A legal continuation that spends the entire roll is a witness for every die left after this prefix.
+        val rollSize = snapshot.position.dicePool.size
+        if matching.exists(diceCost(_) == rollSize) then Some(pool.sorted)
+        else
+          matching
+            .foldLeft[Either[String, List[Int]]](Right(Nil)): (result, path) =>
+              for
+                maxima <- result
+                end    <- replay(prefix, path.drop(prefixSize))
+              yield
+                val spent = pool.diff(end.position.dicePool)
+                maxima ::: spent.diff(maxima)
+            .toOption
+            .map(_.sorted)
 
   /** Applies a complete legal UCI_Chess960 path, or an empty path for a rolled forced pass. */
   def applyTurn(dfen: String, path: List[String]): Either[String, String] =
@@ -53,14 +68,19 @@ object Chess960TurnGenerator:
       state.flatMap(_.play(move))
 
   private def moves(snapshot: Chess960Dfen): List[List[Move]] =
-    val board    = snapshot.position // Its classical castling flags are zero; variant rights live on the snapshot.
+    legalMoves(snapshot.position, castlingPaths(snapshot))
+
+  private def legalMoves(board: GameState, castles: List[List[Move]]): List[List[Move]] =
     val ordinary = TurnGenerator.generateAllLegalTurnPaths(board)
-    val own      = if board.activeColor.isWhite then board.whitePieces else board.blackPieces
-    val rights   = snapshot.castlingRooks & own
-    if rights.isEmpty || !board.flags.hasCastlingDice then ordinary
+    if castles.isEmpty then ordinary else maximalOrWinningPaths(board, ordinary ::: castles)
+
+  private def castlingPaths(snapshot: Chess960Dfen): List[List[Move]] =
+    val board = snapshot.position // Classical castling flags are zero; variant rights live on the snapshot.
+    if !board.flags.hasCastlingDice then Nil
     else
-      val castles = pathsStartingWithCastle(snapshot, rights) ::: pathsEndingWithCastle(board, rights)
-      if castles.isEmpty then ordinary else maximalOrWinningPaths(board, ordinary ::: castles)
+      val own    = if board.activeColor.isWhite then board.whitePieces else board.blackPieces
+      val rights = snapshot.castlingRooks & own
+      if rights.isEmpty then Nil else pathsStartingWithCastle(snapshot, rights) ::: pathsEndingWithCastle(board, rights)
 
   private def pathsStartingWithCastle(snapshot: Chess960Dfen, rights: Bitboard): List[List[Move]] =
     Chess960Dfen
@@ -86,7 +106,8 @@ object Chess960TurnGenerator:
             Chess960Dfen.castles(next, rights.remove(move.fromSquare)).map(castle => List(move, castle.encoded))
 
   private def maximalOrWinningPaths(board: GameState, paths: List[List[Move]]): List[List[Move]] =
-    def cost(path: List[Move]): Int = path.foldLeft(0)((n, m) => n + (if m.isCastling then 2 else 1))
-    val maximum                     = paths.iterator.map(cost).max
+    val maximum = paths.iterator.map(diceCost).max
     // Opposing pieces never move during the turn. Only the last move can capture their king.
-    paths.filter(path => cost(path) == maximum || (!path.last.isCastling && board.isKingCapture(path.last)))
+    paths.filter(path => diceCost(path) == maximum || (!path.last.isCastling && board.isKingCapture(path.last)))
+
+  private def diceCost(path: List[Move]): Int = path.foldLeft(0)((n, m) => n + (if m.isCastling then 2 else 1))
