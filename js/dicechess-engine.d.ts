@@ -1,6 +1,21 @@
 /**
  * TypeScript declarations for the Scala.js Dice Chess Engine.
  */
+/**
+ * Selects rules for a game. Omitted fields use the canonical profile, classical layout
+ * and standard roll policy. Invalid options throw TypeError. The roll policy does not
+ * alter the realized dice pool in the DFEN.
+ */
+export interface RulesOptions {
+    readonly profile?: "dicechesscom";
+    readonly layout?: "classical" | "chess960";
+    readonly rollPolicy?: "standard" | "opening-pawn" | "choice-2x2d6";
+}
+
+export type PreparedRoll =
+    | { kind: "pool"; dice: number[] }
+    | { kind: "offers"; first: number[]; second: number[] };
+
 export interface EngineFacadeApi {
     /**
      * Computes a bot move for the given DiceChess FEN (DFEN).
@@ -18,17 +33,19 @@ export interface EngineFacadeApi {
      * refusing a move no die allows.
      * Same as `DiceChess.applyMove`.
      */
-    applyMove(dfen: string, from: string, to: string, promotion?: string): string | undefined;
+    applyMove(dfen: string, from: string, to: string, promotion?: string, options?: RulesOptions): string | undefined;
 
     /**
      * Explicitly ends the current turn, toggling the active color, incrementing full moves,
      * and clearing any stale en-passant targets.
      * @param dfen The current board state in DiceChess FEN notation.
      */
-    endTurn(dfen: string): string | undefined;
+    endTurn(dfen: string, options?: RulesOptions): string | undefined;
 }
 
 export const EngineFacade: EngineFacadeApi;
+export const applyMoveFacade: EngineFacadeApi["applyMove"];
+export const endTurnFacade: EngineFacadeApi["endTurn"];
 
 /**
  * Every legal turn of a rolled position as a prefix tree of UCI micro-moves, in the shape of
@@ -86,7 +103,7 @@ export interface DiceChessApi {
     getAvailableTimePolicies(): TimePolicyId[];
 
     /**
-     * Returns all legal moves as a flat array of UCI strings (e.g., ["e2e4", "e7e8q"]).
+     * Returns legal first moves for the classical layout as a flat array of UCI strings (e.g., ["e2e4", "e7e8q"]).
      * They are the legal first actions of a turn from this position, judged in isolation: asked
      * again after each micro-move, the answer can admit actions the whole turn does not allow.
      * Use `getLegalTurnTree` to follow a turn.
@@ -95,12 +112,12 @@ export interface DiceChessApi {
 
     /**
      * Returns every legal turn of the rolled position as a prefix tree of UCI micro-moves.
-     * Its first level equals `getLegalUciMoves(dfen)`. Deeper levels can be narrower than
+     * For the classical layout its first level equals `getLegalUciMoves(dfen)`. Deeper levels can be narrower than
      * `getLegalUciMoves` asked again after each micro-move, so a client that follows a turn one
      * action at a time walks this tree. Empty for an invalid DFEN, a DFEN without dice, or a roll
      * with no legal move.
      */
-    getLegalTurnTree(dfen: string): MoveTree;
+    getLegalTurnTree(dfen: string, options?: RulesOptions): MoveTree;
 
     /**
      * Returns the dice that a legal turn can still spend once `moves` have been played: those that
@@ -123,7 +140,25 @@ export interface DiceChessApi {
      * below it has as many actions as there are dice left: an empty node means no die is playable,
      * and a path as long as the dice left means every one of them is.
      */
-    getPlayableDice(dfen: string, moves?: string[]): string | undefined;
+    getPlayableDice(dfen: string, moves?: readonly string[], options?: RulesOptions): string | undefined;
+
+    /** Returns how many random faces to supply to prepareRoll for the active turn. */
+    requiredRandomDice(firstTurnForPlayer: boolean, options?: RulesOptions): number;
+
+    /**
+     * Builds a pool or two ordered offers from the supplied random faces.
+     * Set firstTurnForPlayer from the active player's game history, including passes.
+     * Choose one whole offer before play and record its index (0 or 1) and both offers.
+     * Returns undefined for invalid faces or a wrong number of random faces.
+     */
+    prepareRoll(randomFaces: readonly number[], firstTurnForPlayer: boolean, options?: RulesOptions): PreparedRoll | undefined;
+
+    /**
+     * Applies an exact complete turn path in the notation of the selected layout.
+     * An empty path is accepted for a rolled forced pass. A king capture keeps the
+     * winner active. The result has no dice. Invalid positions or paths yield undefined.
+     */
+    applyTurn(dfen: string, moves: readonly string[], options?: RulesOptions): string | undefined;
 
     /**
      * Returns the weight (0–216) of the ordered rolls that allow the active color to capture
@@ -197,17 +232,17 @@ export interface DiceChessApi {
      * returned once the last die is spent, accepts any pseudo-legal move.
      * @param dfen The starting board state in DiceChess FEN notation.
      * @param from The algebraic notation of the starting square.
-     * @param to The algebraic notation of the target square.
+     * @param to The target square. For Chess960 castling, use the eligible rook’s origin.
      * @param promotion The optional piece type to promote to (e.g. "q").
      */
-    applyMove(dfen: string, from: string, to: string, promotion?: string): string | undefined;
+    applyMove(dfen: string, from: string, to: string, promotion?: string, options?: RulesOptions): string | undefined;
 
     /**
      * Explicitly ends the current turn, toggling the active color, incrementing full moves,
      * and clearing any stale en-passant targets.
      * @param dfen The current board state in DiceChess FEN notation.
      */
-    endTurn(dfen: string): string | undefined;
+    endTurn(dfen: string, options?: RulesOptions): string | undefined;
 
     /**
      * Determines whether the bot should offer a double before its dice roll.
@@ -245,6 +280,13 @@ export interface DiceChessApi {
 }
 
 export const DiceChess: DiceChessApi;
+export const getLegalTurnTree: DiceChessApi["getLegalTurnTree"];
+export const getPlayableDice: DiceChessApi["getPlayableDice"];
+export const applyMove: DiceChessApi["applyMove"];
+export const endTurn: DiceChessApi["endTurn"];
+export const requiredRandomDice: DiceChessApi["requiredRandomDice"];
+export const prepareRoll: DiceChessApi["prepareRoll"];
+export const applyTurn: DiceChessApi["applyTurn"];
 
 /** Normalizes Chess960 DFEN for interchange. Invalid input yields undefined. */
 export function normalizeChess960Dfen(dfen: string): string | undefined;

@@ -130,3 +130,21 @@ class Chess960TurnGeneratorSpec extends FunSuite:
       Chess960TurnGenerator.applyTurn(dfen, List("f1g1", "e5d6")),
       Right("k7/8/3P4/8/8/8/8/5RK1 b - - 0 12")
     )
+
+  test("playable dice derive from all legal continuations, including castles and early wins"):
+    val snapshot                  = Chess960Dfen.parse("6k1/8/8/8/8/8/P7/5KR1 w K - 0 1 KRP").toOption.get
+    def playable(played: String*) = Chess960TurnGenerator.playableDice(snapshot, played.toList)
+    assertEquals(playable(), Some(List(1, 4, 6)))
+    assertEquals(playable("f1g1"), Some(List(1)))
+    assertEquals(playable("a2a4"), Some(List(4, 6)))
+    assertEquals(playable("g1g8"), Some(Nil))
+    assertEquals(playable("g1g8", "a2a4"), None)
+    assertEquals(playable("f1g1", "a2a4"), Some(Nil))
+
+  test("playable dice preserve repeated faces and distinguish passes from invalid prefixes"):
+    val rolled = Chess960Dfen.parse("4k3/8/8/8/8/8/P7/4K3 w - - 0 1 PPP").toOption.get
+    val passed = Chess960Dfen.parse("4k3/8/8/8/8/8/8/4K3 w - - 0 1 PPP").toOption.get
+    assertEquals(Chess960TurnGenerator.playableDice(rolled, Nil), Some(List(1, 1, 1)))
+    assertEquals(Chess960TurnGenerator.playableDice(rolled, List("a2a4")), Some(List(1, 1)))
+    assertEquals(Chess960TurnGenerator.playableDice(passed, Nil), Some(Nil))
+    assertEquals(Chess960TurnGenerator.playableDice(passed, List("a2a4")), None)

@@ -673,3 +673,100 @@ class JsApiSpec extends FunSuite:
       0
     )
   }
+
+  test("configured operations on the same rolled DFEN use the selected castling token"):
+    val start     = "k7/8/8/8/8/8/P7/4K2R w K - 0 1 KRP"
+    val canonical = js.Dynamic.literal(profile = "dicechesscom", layout = "classical", rollPolicy = "standard")
+    val chess960  = js.Dynamic.literal(layout = "chess960")
+    val classical = JsApi.getLegalTurnTree(start)
+    assertEquals(js.JSON.stringify(JsApi.getLegalTurnTree(start, canonical)), js.JSON.stringify(classical))
+    assert(classical.contains("e1g1"))
+    assert(!classical.contains("e1h1"))
+    assert(JsApi.getLegalTurnTree(start, chess960).contains("e1h1"))
+    assert(!JsApi.getLegalTurnTree(start, chess960).contains("e1g1"))
+    assertEquals(JsApi.getPlayableDice(start, js.Array("e1h1"), chess960).toOption, Some("P"))
+    assertEquals(JsApi.getPlayableDice(start, js.Array("e1g1"), chess960).toOption, None)
+    val path = js.Array("e1h1", "a2a4")
+    assertEquals(JsApi.applyTurn(start, path, chess960).toOption, JsApi.applyChess960Turn(start, path).toOption)
+    assertEquals(
+      JsApi.applyTurn(start, js.Array("e1g1", "a2a4"), canonical).toOption,
+      Some("k7/8/8/8/P7/8/8/5RK1 b - a3 0 1")
+    )
+    assertEquals(JsApi.applyTurn(start, js.Array("e1h1"), chess960).toOption, None)
+
+  test("configured whole-turn replay handles castling and en passant across turns"):
+    val chess960 = js.Dynamic.literal(layout = "chess960")
+    val start    = "k7/8/8/8/1p6/8/P7/6KR w K - 0 1 KRP"
+    val castle   = JsApi.applyMove(start, "g1", "h1", js.undefined, chess960).toOption.get
+    assertEquals(castle, "k7/8/8/8/1p6/8/P7/5RK1 w - - 1 1 P")
+    val pushed = JsApi.applyMove(castle, "a2", "a4", js.undefined, chess960).toOption.get
+    val handed = JsApi.endTurn(pushed, chess960).toOption.get
+    assertEquals(JsApi.applyTurn(start, js.Array("g1h1", "a2a4"), chess960).toOption, Some(handed))
+    assertEquals(
+      JsApi.applyTurn(s"$handed p", js.Array("b4a3"), chess960).toOption,
+      Some("k7/8/8/8/8/p7/8/5RK1 w - - 0 2")
+    )
+
+  test("configured whole-turn replay distinguishes forced pass from no roll and handles a short capture"):
+    val end       = "4k3/8/8/8/8/8/4P3/4K3"
+    val canonical = js.Dynamic.literal()
+    for options <- List(canonical, js.Dynamic.literal(layout = "chess960")) do
+      assertEquals(JsApi.applyTurn(s"$end w - - 0 1 Q", js.Array[String](), options).toOption, Some(s"$end b - - 0 1"))
+      assertEquals(JsApi.applyTurn(s"$end w - - 0 1", js.Array[String](), options).toOption, None)
+      assertEquals(
+        JsApi.applyTurn(kingCaptureDfen, js.Array("b3c5"), options).toOption,
+        Some("8/8/8/2N5/8/8/2P5/K7 w - - 0 1")
+      )
+      assertEquals(JsApi.getPlayableDice(kingCaptureDfen, js.Array("b3c5"), options).toOption, Some(""))
+
+  test("roll preparation uses the required number of random faces for each preset"):
+    val standard = js.Dynamic.literal()
+    val chess960 = js.Dynamic.literal(layout = "chess960")
+    val opening  = js.Dynamic.literal(rollPolicy = "opening-pawn")
+    val combined = js.Dynamic.literal(layout = "chess960", rollPolicy = "opening-pawn")
+    val choice   = js.Dynamic.literal(rollPolicy = "choice-2x2d6")
+    for options <- List(standard, chess960) do
+      assertEquals(JsApi.requiredRandomDice(true, options).toOption, Some(3))
+      assertEquals(JsApi.requiredRandomDice(false, options).toOption, Some(3))
+      assertEquals(
+        js.JSON.stringify(JsApi.prepareRoll(js.Array(2, 4, 6), true, options)),
+        """{"kind":"pool","dice":[2,4,6]}"""
+      )
+    for options <- List(opening, combined) do
+      assertEquals(JsApi.requiredRandomDice(true, options).toOption, Some(2))
+      assertEquals(JsApi.requiredRandomDice(false, options).toOption, Some(3))
+      assertEquals(
+        js.JSON.stringify(JsApi.prepareRoll(js.Array(1, 1), true, options)),
+        """{"kind":"pool","dice":[1,1,1]}"""
+      )
+      assertEquals(
+        js.JSON.stringify(JsApi.prepareRoll(js.Array(2, 4, 6), false, options)),
+        """{"kind":"pool","dice":[2,4,6]}"""
+      )
+    assertEquals(JsApi.requiredRandomDice(true, choice).toOption, Some(4))
+    assertEquals(JsApi.requiredRandomDice(false, choice).toOption, Some(4))
+    assertEquals(JsApi.requiredRandomDice("false").toOption, None)
+    assertEquals(
+      js.JSON.stringify(JsApi.prepareRoll(js.Array(2, 4, 2, 4), false, choice)),
+      """{"kind":"offers","first":[2,4],"second":[2,4]}"""
+    )
+    assertEquals(JsApi.prepareRoll(js.Array(1, 3.5, 2), false).toOption, None)
+    assertEquals(JsApi.prepareRoll(js.Array(0, 1, 2), false).toOption, None)
+    assertEquals(JsApi.prepareRoll(js.Array(1, 2), false).toOption, None)
+
+  test("choice replay consumes only the recorded selected pair"):
+    val options                       = js.Dynamic.literal(rollPolicy = "choice-2x2d6")
+    val board                         = "4k3/8/8/8/8/8/4P3/4K3"
+    val offers                        = JsApi.prepareRoll(js.Array(2, 2, 1, 5), false, options).toOption.get
+    val restored                      = js.JSON.parse(js.JSON.stringify(offers)).asInstanceOf[js.Dynamic]
+    val first                         = restored.first.asInstanceOf[js.Array[Int]].toList
+    val second                        = restored.second.asInstanceOf[js.Array[Int]].toList
+    def dfen(dice: List[Int]): String =
+      val field = dice.map(face => PieceType.fromDice(face).get.asNotation.toUpperCase).mkString
+      s"$board w - - 0 1 $field"
+    assertEquals(JsApi.applyTurn(dfen(first), js.Array[String](), options).toOption, Some(s"$board b - - 0 1"))
+    assertEquals(JsApi.applyTurn(dfen(second), js.Array[String](), options).toOption, None)
+    assertEquals(
+      JsApi.applyTurn(dfen(second), js.Array("e2e3"), options).toOption,
+      Some("4k3/8/8/8/8/4P3/8/4K3 b - - 0 1")
+    )

@@ -2,7 +2,7 @@
 package dicechess.engine.api
 
 import dicechess.engine.domain.*
-import dicechess.engine.search.{Chess960TurnGenerator, PlayableDice, TurnGenerator}
+import dicechess.engine.search.{Chess960TurnGenerator, ConfiguredTurns, PlayableDice, TurnGenerator}
 import scala.scalajs.js
 import scala.scalajs.js.JSConverters.*
 
@@ -113,15 +113,33 @@ private[engine] object TurnTreeOps:
             path.foldLeft(tree)(child)
     inUciOrder(tree)
 
+  def getChess960PlayableDice(dfen: String, moves: js.UndefOr[js.Array[String]]): js.UndefOr[String] =
+    val playable =
+      for
+        text     <- Option(dfen)
+        snapshot <- FenParser.parseChess960(text).toOption
+        played   <- moves.toOption.flatMap(Option(_)).fold(Some(Nil): Option[List[String]])(stringPath)
+        dice     <- Chess960TurnGenerator.playableDice(snapshot, played)
+      yield diceField(dice, snapshot.position.activeColor)
+    playable.orUndefined
+
   def applyChess960Turn(dfen: js.Any, moves: js.Any): js.UndefOr[String] =
-    if js.typeOf(dfen) != "string" || !js.Array.isArray(moves) then js.undefined
+    applyTurn(dfen, moves, RulesConfig.Chess960)
+
+  def applyTurn(dfen: js.Any, moves: js.Any, config: RulesConfig): js.UndefOr[String] =
+    if js.typeOf(dfen) != "string" then js.undefined
+    else
+      stringPath(moves)
+        .flatMap(path => ConfiguredTurns.applyTurn(dfen.asInstanceOf[String], path, config).toOption)
+        .orUndefined
+
+  private def stringPath(moves: js.Any): Option[List[String]] =
+    if !js.Array.isArray(moves) then None
     else
       val elements = moves.asInstanceOf[js.Array[js.Any]]
       if elements.length <= GameFlags.DiceSlots && elements.iterator.forall(element => js.typeOf(element) == "string")
-      then
-        val path = elements.asInstanceOf[js.Array[String]].iterator.toList
-        Chess960TurnGenerator.applyTurn(dfen.asInstanceOf[String], path).toOption.orUndefined
-      else js.undefined
+      then Some(elements.asInstanceOf[js.Array[String]].iterator.toList)
+      else None
 
   private def child(node: js.Dictionary[js.Any], uci: String): js.Dictionary[js.Any] =
     val existing = node.asInstanceOf[js.Dynamic].selectDynamic(uci)

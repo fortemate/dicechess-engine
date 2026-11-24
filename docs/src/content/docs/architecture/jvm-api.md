@@ -115,6 +115,60 @@ Score those positions with [`evaluate`](#evaluate), or let a built-in bot pick f
 
 ---
 
+## Configurable turn rules
+
+Import `dicechess.engine.domain.RulesConfig`. The immutable revision 1 presets
+are available as `RulesConfig.Standard()`, `RulesConfig.Chess960()`,
+`RulesConfig.OpeningPawn()`, `RulesConfig.Chess960OpeningPawn()`, and
+`RulesConfig.FortemateChoice()`. Use `RulesConfig.of(profile, layout, rollPolicy)`
+to resolve stored identifiers. Read them with `profileId()`, `layoutId()`, and
+`rollPolicyId()`. Read the revision with `revision()`. The
+[JavaScript API reference](../javascript-api/#rules-configuration) lists the wire
+identifiers and supported combinations.
+
+```java
+static java.util.List<java.util.List<String>> legalTurnPaths(String dfen)
+static java.util.List<java.util.List<String>> legalTurnPaths(String dfen, RulesConfig config)
+static String applyTurn(String dfen, java.util.List<String> moves)
+static String applyTurn(String dfen, java.util.List<String> moves, RulesConfig config)
+static java.util.List<java.util.List<Integer>> prepareRoll(
+    java.util.List<Integer> randomFaces, boolean firstTurnForPlayer)
+static java.util.List<java.util.List<Integer>> prepareRoll(
+    java.util.List<Integer> randomFaces, boolean firstTurnForPlayer, RulesConfig config)
+```
+
+The shorter overloads use `RulesConfig.Standard()`. An explicit `null` rules
+configuration, unsupported identifiers, and unsupported combinations cause
+`IllegalArgumentException`.
+
+`legalTurnPaths` returns each complete turn as a list of UCI moves, with an empty
+outer list for a forced pass, a finished game, or an absent roll. `applyTurn`
+accepts an exact complete path. Pass an empty list for a rolled forced pass.
+A successful turn returns DFEN with the dice cleared. A king capture keeps the
+winner active. Other successful paths hand the turn to the opponent. Invalid
+DFEN and illegal or incomplete paths cause `IllegalArgumentException`.
+
+```java
+String dfen = "6k1/8/8/8/8/8/P7/5KR1 w K - 0 1 KRP";
+RulesConfig rules = RulesConfig.Chess960();
+var paths = JvmApi.legalTurnPaths(dfen, rules);
+String next = JvmApi.applyTurn(dfen, java.util.List.of("f1g1", "a2a4"), rules);
+```
+
+The DFEN overloads preserve the eligible rook's identity. On the orthodox
+layout, a king-side castle from e1 uses `e1g1` with classical rules and `e1h1`
+with Chess960 rules if h1 holds the eligible rook. The `legalTurns(GameState)`
+method still returns classical, pre-`endTurn` positions.
+
+The host draws the faces and tracks each player's first turn. Call
+`config.requiredRandomDice(firstTurnForPlayer)` for the draw count and pass the
+draws to `prepareRoll`. The result contains one playable pool for standard and
+opening-pawn policies, or two ordered pairs for Fortemate Choice. Both random
+faces stay in the first-turn opening-pawn pool alongside the fixed pawn. For
+Choice, record the selected index and use that whole pair as the playable pool,
+even if it forces a pass. Invalid faces or an incorrect dice count cause
+`IllegalArgumentException`. Put only the realized pool in the rolled DFEN.
+
 ## Chess960
 
 ```java
@@ -396,11 +450,10 @@ loop still terminates in bounded time, because the two-argument `bestTurn` carri
 The Dice Chess platform delivers its own legal-turn tree in the webhook envelope
 (`TurnContext.legalMoves`), so a bot may already hold the UCI sequences before calling the engine.
 
-There is intentionally **no** `applyTurn(state, List<String>)` on this facade. The platform treats
-UCI strings as opaque tokens matched by exact string equality against engine-generated paths and
-never decodes them; a decoder here would be a second implementation that can drift from the
-encoder. Match the externally-sourced sequence against `legalTurns`' own `uci` field to obtain the
-corresponding `finalState`.
+Use [`applyTurn`](#configurable-turn-rules) with the original rolled DFEN to validate and
+apply an exact path. Autonomous callers working with `GameState` can match the webhook
+sequence against the `uci` field of `legalTurns` to obtain the corresponding pre-`endTurn`
+`finalState`.
 
 That also covers the case where the tree is absent: `legalMoves` is `null` whenever the enumeration
 exceeded the platform's inline size cap, and `legalTurns` is the fallback that keeps a bot playing

@@ -22,6 +22,39 @@ entry only; `getLegalTurnTree` and `getPlayableDice` are there because they are 
 `TurnGenerator`, and `threatWeight` from `KingThreat`, which `./rules` does not carry. See [Published Artifacts](/dicechess-engine/architecture/artifacts/#the-rules-only-entry)
 for the sizes and the reason the WebAssembly package has no such subpath.
 
+## Rules configuration
+
+Full JavaScript and WebAssembly builds accept a trailing `RulesOptions` on
+[`getLegalTurnTree`](#getlegalturntree), [`getPlayableDice`](#getplayabledice),
+[`applyTurn`](#applyturn), [`requiredRandomDice`](#requiredrandomdice), [`prepareRoll`](#prepareroll), [`applyMove`](#applymove),
+and [`endTurn`](#endturn), on `DiceChess` and as named exports. The JavaScript
+`./rules` entry accepts the same options on `applyMove` and `endTurn`.
+`EngineFacade.applyMove` and `EngineFacade.endTurn` also accept those options.
+
+All presets use the canonical `dicechesscom` board-move profile, including its en passant
+rules. The Chess Hero opening preset names the opening dice policy only.
+
+| Preset | `layout` | `rollPolicy` |
+| :--- | :--- | :--- |
+| Standard Dice Chess | `classical` | `standard` |
+| Chess960 | `chess960` | `standard` |
+| Guaranteed opening pawn | `classical` | `opening-pawn` |
+| Chess960 with a guaranteed opening pawn | `chess960` | `opening-pawn` |
+| Fortemate Choice | `classical` | `choice-2x2d6` |
+
+Omitted or `undefined` options and fields use `dicechesscom`, `classical` and
+`standard`. An explicit `null` configuration, unknown keys, invalid field values,
+and unsupported combinations throw `TypeError`. Persist the resolved values and rules
+revision with the game, plus the initial DFEN or Scharnagl number for Chess960. All
+five presets use revision 1. Position 518 can have the same initial DFEN as a
+classical game, so replay needs the recorded layout.
+
+On an orthodox layout, a king-side castle from e1 is `e1g1` under classical rules.
+Under Chess960 rules the token names the participating rook's square, so with the
+rook on h1 it is `e1h1`. Pass the same options throughout the turn. For example,
+`applyMove(dfen, 'e1', 'h1', undefined, { layout: 'chess960' })` keeps promotion
+in the fourth argument.
+
 ## `DiceChess`
 
 The primary interface for interacting with the engine from JavaScript/TypeScript.
@@ -36,7 +69,8 @@ function getLegalUciMoves(dfen: string): string[]
 
 **Returns:** An array of full UCI move strings. If a pawn promotion is legal, the 5th character contains the target piece notation (e.g., `"e7e8q"`).
 
-These are the legal *first* actions of a turn from this position, and the call judges the position
+For Chess960, use the root keys of `getLegalTurnTree(dfen, { layout: 'chess960' })`.
+This flat helper returns the legal *first* actions for the classical layout, and the call judges the position
 in isolation. Asked again after each micro-move, it no longer knows how many dice the whole turn
 could have used, so it can admit a continuation the turn does not allow. To follow a turn one action
 at a time, walk [`getLegalTurnTree`](#getlegalturntree) instead.
@@ -53,7 +87,7 @@ interface MoveTree {
     [uci: string]: MoveTree
 }
 
-function getLegalTurnTree(dfen: string): MoveTree
+function getLegalTurnTree(dfen: string, options?: RulesOptions): MoveTree
 ```
 
 The tree is made of plain nested objects keyed by micro-move, with children in UCI order — the
@@ -69,7 +103,7 @@ sends for the same roll:
   turn spends the most dice the roll allows (the
   [Maximum Micro-moves Rule](/dicechess-engine/architecture/move-generation/05-maximum-micromoves/),
   castling counting as two).
-- **The first level equals `getLegalUciMoves(dfen)`.** Deeper levels can be narrower than
+- **For the classical layout the first level equals `getLegalUciMoves(dfen)`.** Deeper levels can be narrower than
   `getLegalUciMoves` asked again after each micro-move.
 - **An empty object** means the roll has no legal move (the player passes). An invalid DFEN or a
   DFEN without dice also returns `{}`.
@@ -96,7 +130,7 @@ Returns the dice that a legal turn can still spend, given the micro-moves alread
 entry only.
 
 ```typescript
-function getPlayableDice(dfen: string, moves?: string[]): string | undefined
+function getPlayableDice(dfen: string, moves?: readonly string[], options?: RulesOptions): string | undefined
 ```
 
 A die is **playable** while at least one legal turn that begins with `moves` spends it after them.
@@ -156,6 +190,68 @@ enumerate them again each time.
 
 ---
 
+### `applyTurn`
+
+```typescript
+function applyTurn(dfen: string, moves: readonly string[], options?: RulesOptions): string | undefined
+```
+
+Apply an exact complete path from the rolled DFEN using the selected layout's
+UCI notation. An empty path is accepted for a rolled forced pass. A successful
+turn returns DFEN with the dice cleared. The opponent becomes active after
+a normal turn or pass. After a king capture the winner stays active. An invalid
+DFEN or an illegal or incomplete path yields `undefined`.
+
+### `requiredRandomDice`
+
+Call `DiceChess.requiredRandomDice(firstTurnForPlayer, options)` before drawing faces. A standard turn
+needs three random faces. An opening-pawn turn needs two on that player's first turn and three thereafter.
+Choice needs four to form its two ordered offers. The full bundles also export this function by name.
+
+### `prepareRoll`
+
+```typescript
+type PreparedRoll =
+  | { kind: 'pool'; dice: number[] }
+  | { kind: 'offers'; first: number[]; second: number[] }
+
+function prepareRoll(
+  randomFaces: readonly number[],
+  firstTurnForPlayer: boolean,
+  options?: RulesOptions,
+): PreparedRoll | undefined
+```
+
+The host draws independent faces from 1 through 6 and tracks whether the active player
+is taking their first turn, including across a pass, resume, and replay. `prepareRoll`
+deterministically formats those draws. It returns `undefined` if the faces, dice count,
+or first-turn flag are invalid.
+
+- `standard` takes three faces on every turn and returns a playable pool.
+- `opening-pawn` takes two faces on each player's first turn and adds one fixed pawn die.
+  Both drawn faces are retained, including duplicate pawns. The entire pool follows
+  the ordinary maximal-use rule. Later turns take three random faces.
+- `choice-2x2d6` takes four faces in draw order. The first two form the first offer.
+  The last two form the second offer. Commit one whole pair, at index 0 or 1, before
+  play. Either pair can be selected, including one that forces a pass.
+
+```javascript
+const options = { rollPolicy: 'choice-2x2d6' };
+const roll = DiceChess.prepareRoll([3, 4, 1, 2], true, options);
+if (roll?.kind === 'offers') {
+  const pairs = [roll.first, roll.second];
+  const selectedIndex = 1;
+  const pool = pairs[selectedIndex]; // [1, 2], a pawn and a knight
+}
+```
+
+Record the drawn faces, the player's opening entitlement, and the selected index
+when applicable. Keep both offers in order even when they are equal. Use the
+realized pool as the DFEN dice field for gameplay. The move APIs use only those
+DFEN dice.
+
+---
+
 ### `threatWeight`
 
 Returns the total weight (0 to 216) of ordered dice rolls that allow the active color to capture the king on `targetSquare` within up to `maxActions` actions (1, 2, or 3). Full entry only.
@@ -191,7 +287,7 @@ Because a Dice Chess turn consists of multiple micro-moves, `applyMove` **does n
 :::
 
 ```typescript
-function applyMove(dfen: string, from: string, to: string, promotion?: string): string | undefined
+function applyMove(dfen: string, from: string, to: string, promotion?: string, options?: RulesOptions): string | undefined
 ```
 
 **Returns:** The updated DFEN after the move is applied, or `undefined` if the move is pseudo-illegal, no die in the pool allows it, or an argument is invalid.
@@ -227,7 +323,7 @@ Explicitly ends the current player's turn. This function is critical for the mic
 3. Clears any stale *en-passant* targets from the previous turn, preventing illegal captures.
 
 ```typescript
-function endTurn(dfen: string): string | undefined
+function endTurn(dfen: string, options?: RulesOptions): string | undefined
 ```
 
 **Returns:** The updated FEN string for the next player's turn, or `undefined` if the FEN is invalid.
@@ -428,8 +524,9 @@ identifies the selected rook. An absent rook or a second right on the same side 
 
 This operation returns canonical DFEN or `undefined` on invalid input. Scala callers can use
 `FenParser.parseChess960(dfen)` to inspect the eligible rook squares and serialize the snapshot.
-The JVM facade exposes `JvmApi.normalizeChess960Dfen(dfen)`. The ordinary gameplay APIs use classical
-castling rules. Use the Chess960 operations below for variant castling and turn enumeration.
+The JVM facade exposes `JvmApi.normalizeChess960Dfen(dfen)`. Select
+`{ layout: 'chess960' }` in the configurable gameplay APIs. The Chess960-specific
+exports below also remain available.
 
 The named export `chess960StartingDfen(number)` builds a reproducible starting position from a
 Scharnagl number (0 through 959). Position 518 is the classical array. White is to roll, both

@@ -11,6 +11,26 @@ object Chess960TurnGenerator:
   def legalPaths(snapshot: Chess960Dfen): List[List[String]] =
     if snapshot.hasBothKings then moves(snapshot).map(_.map(_.toUci)) else Nil
 
+  /** Maximum remaining multiplicity per die face across legal paths continuing the given prefix. */
+  def playableDice(snapshot: Chess960Dfen, played: List[String]): Option[List[Int]] =
+    val legal      = if snapshot.hasBothKings then moves(snapshot) else Nil
+    val prefixSize = played.length
+    val matching   = legal.filter(_.take(prefixSize).map(_.toUci) == played)
+    if matching.isEmpty then Option.when(played.isEmpty)(Nil)
+    else
+      replay(snapshot, matching.head.take(prefixSize)).toOption.flatMap: prefix =>
+        val pool = prefix.position.dicePool
+        matching
+          .foldLeft[Either[String, List[Int]]](Right(Nil)): (result, path) =>
+            for
+              maxima <- result
+              end    <- replay(prefix, path.drop(prefixSize))
+            yield
+              val spent = pool.diff(end.position.dicePool)
+              maxima ::: spent.diff(maxima)
+          .toOption
+          .map(_.sorted)
+
   /** Applies a complete legal UCI_Chess960 path, or an empty path for a rolled forced pass. */
   def applyTurn(dfen: String, path: List[String]): Either[String, String] =
     Chess960Dfen
@@ -24,10 +44,13 @@ object Chess960TurnGenerator:
           val selected = if legal.isEmpty && path == Nil then Some(Nil) else legal.find(_.map(_.toUci) == path)
           for
             steps  <- selected.toRight("Expected a complete legal Chess960 turn")
-            result <- steps.foldLeft[Either[String, Chess960Dfen]](Right(snapshot)): (state, move) =>
-              state.flatMap(_.play(move))
-            dfen <- result.completedDfen
+            result <- replay(snapshot, steps)
+            dfen   <- result.completedDfen
           yield dfen
+
+  private def replay(snapshot: Chess960Dfen, path: List[Move]): Either[String, Chess960Dfen] =
+    path.foldLeft[Either[String, Chess960Dfen]](Right(snapshot)): (state, move) =>
+      state.flatMap(_.play(move))
 
   private def moves(snapshot: Chess960Dfen): List[List[Move]] =
     val board    = snapshot.position // Its classical castling flags are zero; variant rights live on the snapshot.

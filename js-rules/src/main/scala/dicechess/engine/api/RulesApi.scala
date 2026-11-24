@@ -103,8 +103,14 @@ object RulesApi:
     */
   @JSExport
   @JSExportTopLevel("applyMove", "rules")
-  def applyMove(dfen: String, from: String, to: String, promotion: js.UndefOr[String]): js.UndefOr[String] =
-    RulesOps.applyMove(dfen, from, to, promotion)
+  def applyMove(
+      dfen: String,
+      from: String,
+      to: String,
+      promotion: js.UndefOr[String],
+      options: js.UndefOr[js.Any] = js.undefined
+  ): js.UndefOr[String] =
+    RulesOps.applyMove(dfen, from, to, promotion, options)
 
   /** Explicitly ends the current turn, clearing the dice pool and stale en-passant targets and advancing the turn
     * markers.
@@ -116,7 +122,8 @@ object RulesApi:
     */
   @JSExport
   @JSExportTopLevel("endTurn", "rules")
-  def endTurn(dfen: String): js.UndefOr[String] = RulesOps.endTurn(dfen)
+  def endTurn(dfen: String, options: js.UndefOr[js.Any] = js.undefined): js.UndefOr[String] =
+    RulesOps.endTurn(dfen, options)
 
   /** Returns the canonical key of `dfen` — the DFEN of the position's symmetry-class representative, shared by all
     * symmetry-equivalent positions. Useful as a cache key.

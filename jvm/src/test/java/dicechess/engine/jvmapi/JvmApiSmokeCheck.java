@@ -1,6 +1,7 @@
 package dicechess.engine.jvmapi;
 
 import dicechess.engine.domain.GameState;
+import dicechess.engine.domain.RulesConfig;
 
 import java.util.Collections;
 import java.util.List;
@@ -67,6 +68,25 @@ public final class JvmApiSmokeCheck {
 
 		checkChess960TurnPaths();
 		checkApplyChess960Turn();
+		checkConfiguredTurns();
+	}
+
+	private static void checkConfiguredTurns() {
+		var rolled = "4k3/8/8/8/8/8/8/4K2R w K - 0 1 KR";
+		var standard = RulesConfig.Standard();
+		var chess960 = RulesConfig.of("dicechesscom", "chess960", "opening-pawn");
+		var normalCastle = List.of("e1g1");
+		var rookCastle = List.of("e1h1");
+		require(JvmApi.legalTurnPaths(rolled).equals(JvmApi.legalTurnPaths(rolled, standard)), "default paths");
+		require(JvmApi.legalTurnPaths(rolled).contains(normalCastle), "classical UCI castle");
+		require(JvmApi.legalTurnPaths("8/8/8/8/8/8/P7/4K3 w - - 0 1 P").isEmpty(), "finished game");
+		require(JvmApi.legalTurnPaths(rolled, chess960).contains(rookCastle), "Chess960 rook-origin UCI castle");
+		require(JvmApi.applyTurn(rolled, normalCastle).equals(JvmApi.applyTurn(rolled, normalCastle, standard)), "default outcome");
+		require(JvmApi.applyTurn(rolled, normalCastle).equals(JvmApi.applyTurn(rolled, rookCastle, chess960)), "castling outcome");
+		require(JvmApi.prepareRoll(List.of(1, 4), true, chess960).equals(List.of(List.of(1, 1, 4))), "opening pool");
+		require(JvmApi.prepareRoll(List.of(2, 2, 6), true).equals(List.of(List.of(2, 2, 6))), "standard pool");
+		require(JvmApi.prepareRoll(List.of(4, 6, 4, 6), false, RulesConfig.FortemateChoice())
+				.equals(List.of(List.of(4, 6), List.of(4, 6))), "equal offers retain distinct indices");
 	}
 
 	private static void checkChess960TurnPaths() {

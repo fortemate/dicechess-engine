@@ -65,8 +65,16 @@ private[engine] object RulesOps:
     PieceType.fromDice(dice).map(_.asNotation).orNull
 
   /** @see [[dicechess.engine.api.JsApi.applyMove]] */
-  def applyMove(dfen: String, from: String, to: String, promotion: js.UndefOr[String]): js.UndefOr[String] =
+  def applyMove(
+      dfen: String,
+      from: String,
+      to: String,
+      promotion: js.UndefOr[String],
+      options: js.UndefOr[js.Any]
+  ): js.UndefOr[String] =
+    val config = RulesOptions.resolve(options)
     if Option(dfen).isEmpty || Option(from).isEmpty || Option(to).isEmpty then js.undefined
+    else if config.isChess960 then Chess960Dfen.applyMove(dfen, from, to, promotion.toOption).toOption.orUndefined
     else
       val next =
         for
@@ -105,8 +113,10 @@ private[engine] object RulesOps:
       Option.when(survived.isValid)(state.makeMove(move).withDiceSlotsOf(survived))
 
   /** @see [[dicechess.engine.api.JsApi.endTurn]] */
-  def endTurn(dfen: String): js.UndefOr[String] =
+  def endTurn(dfen: String, options: js.UndefOr[js.Any]): js.UndefOr[String] =
+    val config = RulesOptions.resolve(options)
     if Option(dfen).isEmpty then js.undefined
+    else if config.isChess960 then Chess960Dfen.endTurn(dfen).toOption.orUndefined
     else
       FenParser.parse(dfen) match
         case Right(state) => FenParser.serialize(state.endTurn())

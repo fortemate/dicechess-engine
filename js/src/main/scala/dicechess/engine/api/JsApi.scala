@@ -112,7 +112,9 @@ object JsApi:
     */
   @JSExport
   @JSExportTopLevel("getLegalTurnTree")
-  def getLegalTurnTree(dfen: String): js.Dictionary[js.Any] = TurnTreeOps.getLegalTurnTree(dfen)
+  def getLegalTurnTree(dfen: String, options: js.UndefOr[js.Any] = js.undefined): js.Dictionary[js.Any] =
+    if RulesOptions.resolve(options).isChess960 then TurnTreeOps.getChess960LegalTurnTree(dfen)
+    else TurnTreeOps.getLegalTurnTree(dfen)
 
   /** Returns the dice that a legal turn can still spend once `moves` have been played (#293).
     *
@@ -143,8 +145,55 @@ object JsApi:
     */
   @JSExport
   @JSExportTopLevel("getPlayableDice")
-  def getPlayableDice(dfen: String, moves: js.UndefOr[js.Array[String]] = js.undefined): js.UndefOr[String] =
-    TurnTreeOps.getPlayableDice(dfen, moves)
+  def getPlayableDice(
+      dfen: String,
+      moves: js.UndefOr[js.Array[String]] = js.undefined,
+      options: js.UndefOr[js.Any] = js.undefined
+  ): js.UndefOr[String] =
+    if RulesOptions.resolve(options).isChess960 then TurnTreeOps.getChess960PlayableDice(dfen, moves)
+    else TurnTreeOps.getPlayableDice(dfen, moves)
+
+  /** Returns how many random faces to supply for the active turn. */
+  @JSExport
+  @JSExportTopLevel("requiredRandomDice")
+  def requiredRandomDice(firstTurnForPlayer: js.Any, options: js.UndefOr[js.Any] = js.undefined): js.UndefOr[Int] =
+    val config = RulesOptions.resolve(options)
+    if js.typeOf(firstTurnForPlayer) != "boolean" then js.undefined
+    else config.requiredRandomDice(firstTurnForPlayer.asInstanceOf[Boolean])
+
+  /** Builds the active player's pool or ordered offers from caller-supplied random faces. */
+  @JSExport
+  @JSExportTopLevel("prepareRoll")
+  def prepareRoll(
+      randomFaces: js.Any,
+      firstTurnForPlayer: js.Any,
+      options: js.UndefOr[js.Any] = js.undefined
+  ): js.UndefOr[js.Object] =
+    val config = RulesOptions.resolve(options)
+    if !js.Array.isArray(randomFaces) || js.typeOf(firstTurnForPlayer) != "boolean" then js.undefined
+    else
+      val firstTurn = firstTurnForPlayer.asInstanceOf[Boolean]
+      val faces     = randomFaces.asInstanceOf[js.Array[js.Any]]
+      if faces.length != config.requiredRandomDice(firstTurn) ||
+        !faces.iterator.forall(face => js.typeOf(face) == "number" && face.asInstanceOf[Double].isValidInt)
+      then js.undefined
+      else
+        val dice = faces.asInstanceOf[js.Array[Int]].iterator.toList
+        config
+          .prepareRoll(dice, firstTurn)
+          .toOption
+          .map:
+            case pool: PreparedRoll.Pool =>
+              js.Dynamic.literal(kind = "pool", dice = pool.dice.toJSArray)
+            case offers: PreparedRoll.Offers =>
+              js.Dynamic.literal(kind = "offers", first = offers.first.toJSArray, second = offers.second.toJSArray)
+          .orUndefined
+
+  /** Applies an exact complete turn from a rolled DFEN, or returns `undefined` for an invalid path. */
+  @JSExport
+  @JSExportTopLevel("applyTurn")
+  def applyTurn(dfen: js.Any, moves: js.Any, options: js.UndefOr[js.Any] = js.undefined): js.UndefOr[String] =
+    TurnTreeOps.applyTurn(dfen, moves, RulesOptions.resolve(options))
 
   /** Returns the weight (0–216) of the ordered rolls that allow the active color to capture the king on `targetSquare`
     * within up to `maxActions` (1, 2, or 3, default 3).
@@ -421,8 +470,14 @@ object JsApi:
     */
   @JSExport
   @JSExportTopLevel("applyMove")
-  def applyMove(dfen: String, from: String, to: String, promotion: js.UndefOr[String]): js.UndefOr[String] =
-    RulesOps.applyMove(dfen, from, to, promotion)
+  def applyMove(
+      dfen: String,
+      from: String,
+      to: String,
+      promotion: js.UndefOr[String],
+      options: js.UndefOr[js.Any] = js.undefined
+  ): js.UndefOr[String] =
+    RulesOps.applyMove(dfen, from, to, promotion, options)
 
   /** Explicitly ends the current turn to mark a clear boundary between players in a multi-micro-move sequence.
     *
@@ -438,7 +493,8 @@ object JsApi:
     */
   @JSExport
   @JSExportTopLevel("endTurn")
-  def endTurn(dfen: String): js.UndefOr[String] = RulesOps.endTurn(dfen)
+  def endTurn(dfen: String, options: js.UndefOr[js.Any] = js.undefined): js.UndefOr[String] =
+    RulesOps.endTurn(dfen, options)
 
   /** Determines whether the bot should offer a double before its dice roll.
     */

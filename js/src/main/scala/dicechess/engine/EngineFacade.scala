@@ -123,8 +123,14 @@ object EngineFacade {
     */
   @JSExport
   @JSExportTopLevel("applyMoveFacade")
-  def applyMove(dfen: String, from: String, to: String, promotion: js.UndefOr[String]): js.UndefOr[String] =
-    RulesOps.applyMove(dfen, from, to, promotion)
+  def applyMove(
+      dfen: String,
+      from: String,
+      to: String,
+      promotion: js.UndefOr[String],
+      options: js.UndefOr[js.Any] = js.undefined
+  ): js.UndefOr[String] =
+    RulesOps.applyMove(dfen, from, to, promotion, options)
 
   /** Explicitly ends the current turn to mark a clear boundary between players in a multi-micro-move sequence.
     *
@@ -140,5 +146,6 @@ object EngineFacade {
     */
   @JSExport
   @JSExportTopLevel("endTurnFacade")
-  def endTurn(dfen: String): js.UndefOr[String] = RulesOps.endTurn(dfen)
+  def endTurn(dfen: String, options: js.UndefOr[js.Any] = js.undefined): js.UndefOr[String] =
+    RulesOps.endTurn(dfen, options)
 }
