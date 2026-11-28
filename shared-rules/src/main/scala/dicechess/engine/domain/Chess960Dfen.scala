@@ -219,31 +219,44 @@ object Chess960Dfen:
       rights = rights.add(resolved.rook)
     Right(new Chess960Dfen(position, rights, letters.filterNot(_ == ' ').mkString))
 
+  // The back rank of one colour that castling rights are resolved against: its single king and its rooks.
+  final private case class BackRank(king: Square, rooks: IndexedSeq[Square]):
+    private def left  = rooks.find(_.file < king.file)
+    private def right = rooks.findLast(_.file > king.file)
+
+    /** The rook a rights symbol designates: `k`/`q` pick the outermost rook on that side, a file picks that file. */
+    def designated(symbol: Char): Option[Square] = symbol.toLower match
+      case 'k'  => right
+      case 'q'  => left
+      case file => rooks.find(_.file == file)
+
+    /** `k`/`q` shorthand when the rook is the outermost on its side of the king, otherwise its file. */
+    def canonicalLetter(rook: Square): Char =
+      if right.contains(rook) then 'k'
+      else if left.contains(rook) then 'q'
+      else rook.file
+
+    def isKingside(rook: Square): Boolean = rook.file > king.file
+
+  private def backRank(position: GameState, white: Boolean): Option[BackRank] =
+    val pieces             = if white then position.whitePieces else position.blackPieces
+    val squares            = (if white then 0 until 8 else 56 until 64).map(Square.fromIndex)
+    def on(kind: Bitboard) = squares.filter(sq => (pieces & kind).contains(sq))
+    on(position.kings) match
+      case Seq(king) => Some(BackRank(king, on(position.rooks)))
+      case _         => None
+
   private def resolveRight(position: GameState, symbol: Char): Either[String, ResolvedRight] =
     if !"KQkqABCDEFGHabcdefgh".contains(symbol) then Left(s"Invalid castling character '$symbol'")
     else
-      val white    = symbol >= 'A' && symbol <= 'Z'
-      val pieces   = if white then position.whitePieces else position.blackPieces
-      val backRank = (if white then 0 until 8 else 56 until 64).map(Square.fromIndex)
-      backRank.filter(sq => (pieces & position.kings).contains(sq)) match
-        case Seq(king) =>
-          val rooks = backRank.filter(sq => (pieces & position.rooks).contains(sq))
-          val left  = rooks.find(_.file < king.file)
-          val right = rooks.findLast(_.file > king.file)
-          val rook  = symbol.toLower match
-            case 'k'  => right
-            case 'q'  => left
-            case file => rooks.find(_.file == file)
-          rook match
-            case None         => Left(s"No matching rook for castling right '$symbol'")
-            case Some(square) =>
-              val slot   = (if white then 0 else 2) + (if square.file > king.file then 0 else 1)
-              val letter = canonicalLetter(square, left, right)
-              Right(ResolvedRight(square, slot, if white then letter.toUpper else letter))
-        case _ => Left(s"Castling right '$symbol' requires one king on its back rank")
-
-  // `k`/`q` shorthand when the rook is the outermost on its side of the king, otherwise its file.
-  private def canonicalLetter(square: Square, left: Option[Square], right: Option[Square]): Char =
-    if right.contains(square) then 'k'
-    else if left.contains(square) then 'q'
-    else square.file
+      val white = symbol >= 'A' && symbol <= 'Z'
+      backRank(position, white)
+        .toRight(s"Castling right '$symbol' requires one king on its back rank")
+        .flatMap: rank =>
+          rank
+            .designated(symbol)
+            .toRight(s"No matching rook for castling right '$symbol'")
+            .map: rook =>
+              val slot   = (if white then 0 else 2) + (if rank.isKingside(rook) then 0 else 1)
+              val letter = rank.canonicalLetter(rook)
+              ResolvedRight(rook, slot, if white then letter.toUpper else letter)
