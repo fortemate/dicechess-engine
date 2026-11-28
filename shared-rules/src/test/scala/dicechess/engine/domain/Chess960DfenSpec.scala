@@ -41,6 +41,21 @@ class Chess960DfenSpec extends FunSuite:
     assert(FenParser.parse(position("D")).isLeft)
     assertEquals(FenParser.parseChess960(position("-")).toOption.get.serialize, position("-"))
 
+  test("each rejected rights field reports its own reason, checked in a fixed order"):
+    def error(board: String, rights: String): String =
+      FenParser.parseChess960(s"$board w $rights - 12 31 RK").swap.toOption.get
+    val both    = "1r2kr1r/8/8/8/8/8/8/R2RK2R"
+    val noKings = "1r1r2r1/8/8/8/8/8/8/R2R3R"
+    assertEquals(error(both, "KQkqK"), "Invalid Chess960 castling field length")
+    assertEquals(error(noKings, "ZZZZZ"), "Invalid Chess960 castling field length")
+    assertEquals(error(noKings, "Z"), "Invalid castling character 'Z'")
+    assertEquals(error(noKings, "K"), "Castling right 'K' requires one king on its back rank")
+    assertEquals(error("r6r/8/8/8/8/8/8/R3K2R", "k"), "Castling right 'k' requires one king on its back rank")
+    assertEquals(error(both, "E"), "No matching rook for castling right 'E'")
+    assertEquals(error(both, "KH"), "Duplicate castling side 'H'")
+    assertEquals(error(both, "AD"), "Duplicate castling side 'D'")
+    assertEquals(error(both, "qb"), "Duplicate castling side 'b'")
+
   test("Scharnagl IDs generate distinct legal starts and preserve the standard numbering"):
     val starts = (0 until 960).map(number => Chess960Dfen.startingPosition(number).toOption.get)
     assertEquals(starts.distinct.size, 960)

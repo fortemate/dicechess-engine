@@ -202,6 +202,10 @@ object Chess960Dfen:
       yield if rank == 1 then file.toUpper else file
       resolve(position, files.mkString)
 
+  // One castling right resolved against the back rank: the rook it designates, the slot it occupies
+  // (white kingside, white queenside, black kingside, black queenside) and its canonical letter.
+  final private case class ResolvedRight(rook: Square, slot: Int, letter: Char)
+
   private def resolve(position: GameState, field: String): Either[String, Chess960Dfen] = boundary:
     if field == "-" then break(Right(new Chess960Dfen(position, Bitboard.empty, "-")))
     if field.isEmpty || field.length > 4 then break(Left("Invalid Chess960 castling field length"))
@@ -209,30 +213,37 @@ object Chess960Dfen:
     val letters = Array.fill(4)(' ')
     var rights  = Bitboard.empty
     for symbol <- field do
-      val white = symbol >= 'A' && symbol <= 'Z'
-      val token = symbol.toLower
-      if !"KQkqABCDEFGHabcdefgh".contains(symbol) then break(Left(s"Invalid castling character '$symbol'"))
-
-      val backRank = (if white then 0 until 8 else 56 until 64).map(Square.fromIndex)
-      val pieces   = if white then position.whitePieces else position.blackPieces
-      val kings    = backRank.filter(sq => (pieces & position.kings).contains(sq))
-      if kings.size != 1 then break(Left(s"Castling right '$symbol' requires one king on its back rank"))
-      val king  = kings.head
-      val rooks = backRank.filter(sq => (pieces & position.rooks).contains(sq))
-      val left  = rooks.find(_.file < king.file)
-      val right = rooks.findLast(_.file > king.file)
-      val rook  = token match
-        case 'k'  => right
-        case 'q'  => left
-        case file => rooks.find(_.file == file)
-      val square   = rook.getOrElse(break(Left(s"No matching rook for castling right '$symbol'")))
-      val kingside = square.file > king.file
-      val index    = (if white then 0 else 2) + (if kingside then 0 else 1)
-      if letters(index) != ' ' then break(Left(s"Duplicate castling side '$symbol'"))
-      val canonical =
-        if right.contains(square) then 'k'
-        else if left.contains(square) then 'q'
-        else square.file
-      letters(index) = if white then canonical.toUpper else canonical
-      rights = rights.add(square)
+      val resolved = resolveRight(position, symbol).fold(error => break(Left(error)), identity)
+      if letters(resolved.slot) != ' ' then break(Left(s"Duplicate castling side '$symbol'"))
+      letters(resolved.slot) = resolved.letter
+      rights = rights.add(resolved.rook)
     Right(new Chess960Dfen(position, rights, letters.filterNot(_ == ' ').mkString))
+
+  private def resolveRight(position: GameState, symbol: Char): Either[String, ResolvedRight] =
+    if !"KQkqABCDEFGHabcdefgh".contains(symbol) then Left(s"Invalid castling character '$symbol'")
+    else
+      val white    = symbol >= 'A' && symbol <= 'Z'
+      val pieces   = if white then position.whitePieces else position.blackPieces
+      val backRank = (if white then 0 until 8 else 56 until 64).map(Square.fromIndex)
+      backRank.filter(sq => (pieces & position.kings).contains(sq)) match
+        case Seq(king) =>
+          val rooks = backRank.filter(sq => (pieces & position.rooks).contains(sq))
+          val left  = rooks.find(_.file < king.file)
+          val right = rooks.findLast(_.file > king.file)
+          val rook  = symbol.toLower match
+            case 'k'  => right
+            case 'q'  => left
+            case file => rooks.find(_.file == file)
+          rook match
+            case None         => Left(s"No matching rook for castling right '$symbol'")
+            case Some(square) =>
+              val slot   = (if white then 0 else 2) + (if square.file > king.file then 0 else 1)
+              val letter = canonicalLetter(square, left, right)
+              Right(ResolvedRight(square, slot, if white then letter.toUpper else letter))
+        case _ => Left(s"Castling right '$symbol' requires one king on its back rank")
+
+  // `k`/`q` shorthand when the rook is the outermost on its side of the king, otherwise its file.
+  private def canonicalLetter(square: Square, left: Option[Square], right: Option[Square]): Char =
+    if right.contains(square) then 'k'
+    else if left.contains(square) then 'q'
+    else square.file
